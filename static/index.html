@@ -1,0 +1,518 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>VaultReader</title>
+  <link rel="stylesheet" href="/style.css">
+  <!-- Alpine.js (deferred) -->
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+</head>
+<body x-cloak>
+
+<div id="app" x-data="vaultApp()" x-init="init()">
+
+  <!-- ─── Sidebar ─────────────────────────────── -->
+  <div id="sidebar" :class="{ closed: !sidebarOpen }">
+    <div class="sidebar-header">
+      <h1>📓 VaultReader</h1>
+      <button class="btn-icon" @click="sidebarOpen = false" title="Close sidebar">✕</button>
+    </div>
+
+    <!-- Vault selector -->
+    <div class="vault-selector">
+      <select x-model="activeVault" @change="loadVault(activeVault)">
+        <option value="" disabled>Select vault…</option>
+        <template x-for="v in vaults" :key="v">
+          <option :value="v" x-text="v"></option>
+        </template>
+      </select>
+    </div>
+
+    <!-- File tree -->
+    <div class="tree-scroll">
+      <template x-if="tree.length === 0 && activeVault">
+        <p style="padding:12px 16px;font-size:13px;color:var(--text3)">No notes found.</p>
+      </template>
+      <div x-html="renderTree(tree, 0)"></div>
+    </div>
+  </div>
+
+  <!-- ─── Main ────────────────────────────────── -->
+  <div id="main">
+    <!-- Toolbar -->
+    <div id="toolbar">
+      <button class="btn-icon" @click="sidebarOpen = !sidebarOpen" title="Toggle sidebar">☰</button>
+
+      <div class="toolbar-title">
+        <template x-if="activePath">
+          <span>
+            <span x-text="activeVault" style="opacity:.6"></span>
+            <span style="opacity:.4"> / </span>
+            <strong x-text="noteTitle()"></strong>
+          </span>
+        </template>
+        <template x-if="!activePath">
+          <span style="color:var(--text3)">No note selected</span>
+        </template>
+      </div>
+
+      <!-- Save status -->
+      <span x-show="saveStatus" :class="'save-status ' + saveStatus" x-text="saveStatusText()"></span>
+
+      <!-- Ctrl+K search button -->
+      <button class="btn-icon" @click="searchOpen = true" title="Search (Ctrl+K)">🔍</button>
+
+      <!-- Edit / Preview toggle -->
+      <template x-if="activePath">
+        <div class="btn-group">
+          <button class="btn" :class="{ active: mode === 'preview' }" @click="setMode('preview')">Preview</button>
+          <button class="btn" :class="{ active: mode === 'edit' }" @click="setMode('edit')">Edit</button>
+        </div>
+      </template>
+
+      <button class="btn-icon" @click="backlinksOpen = !backlinksOpen" title="Toggle backlinks">⬅</button>
+    </div>
+
+    <!-- Content area -->
+    <div id="content-area">
+
+      <!-- Frontmatter bar -->
+      <div x-show="activePath && Object.keys(noteFrontmatter).length > 0" class="frontmatter-bar">
+        <button class="fm-toggle" @click="frontmatterOpen = !frontmatterOpen">
+          <span x-text="frontmatterOpen ? '▼' : '▶'"></span>
+          frontmatter
+          <span x-text="'(' + Object.keys(noteFrontmatter).length + ' fields)'"></span>
+        </button>
+        <div x-show="frontmatterOpen" x-transition class="fm-content">
+          <template x-for="[key, val] in Object.entries(noteFrontmatter)" :key="key">
+            <div class="fm-field">
+              <span class="fm-key" x-text="key + ':'"></span>
+              <span class="fm-val" x-text="Array.isArray(val) ? val.join(', ') : String(val)"></span>
+            </div>
+          </template>
+        </div>
+      </div>
+
+      <!-- Empty state -->
+      <template x-if="!activePath">
+        <div class="empty-state">
+          <div class="icon">📄</div>
+          <p>Select a note from the sidebar</p>
+          <template x-if="vaults.length === 0">
+            <p style="font-size:12px">No vaults found at <code>/vaults</code></p>
+          </template>
+        </div>
+      </template>
+
+      <!-- Preview mode -->
+      <div id="preview"
+           x-show="activePath && mode === 'preview'"
+           x-html="noteHtml"
+           @click="handlePreviewClick($event)">
+      </div>
+
+      <!-- Editor mode -->
+      <div id="editor-wrap"
+           x-show="activePath && mode === 'edit'"
+           style="display:none">
+        <div id="cm-editor"></div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ─── Backlinks ────────────────────────────── -->
+  <div id="backlinks" :class="{ closed: !backlinksOpen }">
+    <div class="backlinks-header" @click="backlinksOpen = !backlinksOpen">
+      <h2>Backlinks</h2>
+      <span class="count" x-text="backlinks.length"></span>
+    </div>
+    <div class="backlinks-list">
+      <template x-if="backlinks.length === 0">
+        <p style="padding:14px;font-size:13px;color:var(--text3)">No backlinks.</p>
+      </template>
+      <template x-for="bl in backlinks" :key="bl.vault + ':' + bl.path">
+        <div class="backlink-item" @click="openNote(bl.vault, bl.path)">
+          <div class="backlink-title" x-text="bl.title || bl.path"></div>
+          <div class="backlink-excerpt" x-show="bl.excerpt" x-text="bl.excerpt"></div>
+        </div>
+      </template>
+    </div>
+  </div>
+
+  <!-- ─── Search overlay ───────────────────────── -->
+  <div id="search-overlay"
+       x-show="searchOpen"
+       x-transition.opacity
+       @click.self="searchOpen = false"
+       @keydown.escape.window="searchOpen = false">
+    <div class="search-box">
+      <div class="search-input-wrap">
+        <span>🔍</span>
+        <input
+          type="text"
+          placeholder="Search notes…"
+          x-model="searchQuery"
+          @input.debounce.300ms="doSearch()"
+          @keydown.arrow-down.prevent="searchFocus = Math.min(searchFocus + 1, searchResults.length - 1)"
+          @keydown.arrow-up.prevent="searchFocus = Math.max(searchFocus - 1, 0)"
+          @keydown.enter.prevent="openSearchResult(searchFocus)"
+          x-ref="searchInput"
+          autocomplete="off">
+      </div>
+      <div class="search-results">
+        <template x-if="searchQuery && searchResults.length === 0">
+          <div class="search-empty">No results for "<span x-text="searchQuery"></span>"</div>
+        </template>
+        <template x-for="(r, i) in searchResults" :key="r.vault + ':' + r.path">
+          <div class="search-result"
+               :class="{ focused: searchFocus === i }"
+               @click="openSearchResult(i)"
+               @mouseenter="searchFocus = i">
+            <div class="sr-path" x-text="r.vault + ' / ' + r.path"></div>
+            <div class="sr-title" x-text="r.title || r.path"></div>
+            <div class="sr-excerpt" x-show="r.excerpt" x-text="r.excerpt"></div>
+          </div>
+        </template>
+      </div>
+    </div>
+  </div>
+
+</div><!-- #app -->
+
+<!-- ─── CodeMirror 6 (ESM module) ────────────── -->
+<script type="module">
+import { EditorView, keymap, lineNumbers } from 'https://esm.sh/@codemirror/view@6'
+import { EditorState } from 'https://esm.sh/@codemirror/state@6'
+import { defaultKeymap, history, historyKeymap, indentWithTab } from 'https://esm.sh/@codemirror/commands@6'
+import { markdown } from 'https://esm.sh/@codemirror/lang-markdown@6'
+import { oneDark } from 'https://esm.sh/@codemirror/theme-one-dark@6'
+
+const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches
+
+window.__cmAPI = {
+  view: null,
+
+  create(content, onChange) {
+    // destroy existing
+    if (this.view) {
+      this.view.destroy()
+      this.view = null
+    }
+
+    const extensions = [
+      history(),
+      keymap.of([...defaultKeymap, ...historyKeymap, indentWithTab]),
+      lineNumbers(),
+      markdown(),
+      EditorView.lineWrapping,
+      EditorView.updateListener.of(update => {
+        if (update.docChanged) onChange(update.state.doc.toString())
+      }),
+    ]
+    if (prefersDark) extensions.push(oneDark)
+
+    this.view = new EditorView({
+      state: EditorState.create({
+        doc: content,
+        extensions,
+      }),
+      parent: document.getElementById('cm-editor')
+    })
+    return this.view
+  },
+
+  setContent(content) {
+    if (!this.view) return
+    const current = this.view.state.doc.toString()
+    if (current === content) return
+    this.view.dispatch({
+      changes: { from: 0, to: current.length, insert: content }
+    })
+  },
+
+  getContent() {
+    if (!this.view) return ''
+    return this.view.state.doc.toString()
+  },
+
+  destroy() {
+    if (this.view) {
+      this.view.destroy()
+      this.view = null
+    }
+  }
+}
+</script>
+
+<!-- ─── Alpine App ─────────────────────────────── -->
+<script>
+function vaultApp() {
+  return {
+    // state
+    vaults: [],
+    activeVault: '',
+    tree: [],
+    activePath: '',
+    noteRaw: '',
+    noteHtml: '',
+    noteFrontmatter: {},
+    backlinks: [],
+    mode: 'preview',
+    sidebarOpen: true,
+    backlinksOpen: false,
+    frontmatterOpen: false,
+    searchQuery: '',
+    searchResults: [],
+    searchFocus: 0,
+    searchOpen: false,
+    isDirty: false,
+    saveStatus: '',   // '', 'saving', 'saved', 'error'
+    saveTimer: null,
+
+    // ── init ──────────────────────────────────────
+    async init() {
+      // Ctrl+K global shortcut
+      window.addEventListener('keydown', (e) => {
+        if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+          e.preventDefault()
+          this.searchOpen = true
+          this.$nextTick(() => this.$refs.searchInput?.focus())
+        }
+      })
+
+      // watch searchOpen to focus input
+      this.$watch('searchOpen', v => {
+        if (v) {
+          this.searchQuery = ''
+          this.searchResults = []
+          this.searchFocus = 0
+          this.$nextTick(() => this.$refs.searchInput?.focus())
+        }
+      })
+
+      try {
+        const res = await fetch('/api/vaults')
+        this.vaults = await res.json()
+        if (this.vaults.length > 0) {
+          this.activeVault = this.vaults[0]
+          await this.loadVault(this.activeVault)
+        }
+      } catch(e) {
+        console.error('init:', e)
+      }
+    },
+
+    // ── load vault ────────────────────────────────
+    async loadVault(vault) {
+      if (!vault) return
+      this.activeVault = vault
+      this.tree = []
+      this.activePath = ''
+      this.noteRaw = ''
+      this.noteHtml = ''
+      this.noteFrontmatter = {}
+      this.backlinks = []
+      try {
+        const res = await fetch('/api/tree?vault=' + encodeURIComponent(vault))
+        this.tree = await res.json()
+        // open first note
+        const first = this.findFirstNote(this.tree)
+        if (first) this.openNote(vault, first)
+      } catch(e) {
+        console.error('loadVault:', e)
+      }
+    },
+
+    findFirstNote(nodes) {
+      for (const n of nodes) {
+        if (!n.isDir) return n.path
+        const found = this.findFirstNote(n.children || [])
+        if (found) return found
+      }
+      return null
+    },
+
+    // ── open note ─────────────────────────────────
+    async openNote(vault, path) {
+      this.activeVault = vault
+      this.activePath = path
+      this.frontmatterOpen = false
+      this.mode = 'preview'
+      this.searchOpen = false
+      try {
+        const url = '/api/note?vault=' + encodeURIComponent(vault) + '&path=' + encodeURIComponent(path)
+        const res = await fetch(url)
+        if (!res.ok) throw new Error('HTTP ' + res.status)
+        const data = await res.json()
+        this.noteRaw = data.raw || ''
+        this.noteHtml = data.html || ''
+        this.noteFrontmatter = data.frontmatter || {}
+        this.backlinks = data.backlinks || []
+        this.isDirty = false
+        this.saveStatus = ''
+        // destroy any existing editor
+        if (window.__cmAPI) window.__cmAPI.destroy()
+      } catch(e) {
+        console.error('openNote:', e)
+      }
+    },
+
+    // ── mode switch ───────────────────────────────
+    setMode(m) {
+      if (m === this.mode) return
+      this.mode = m
+      if (m === 'edit') {
+        this.$nextTick(() => {
+          if (window.__cmAPI) {
+            window.__cmAPI.create(this.noteRaw, (content) => {
+              this.noteRaw = content
+              this.isDirty = true
+              this.scheduleSave()
+            })
+          }
+        })
+      } else {
+        // switching to preview — re-render from raw
+        this.rerenderPreview()
+      }
+    },
+
+    async rerenderPreview() {
+      // save first if dirty
+      if (this.isDirty) await this.saveNow()
+      // reload from server to get fresh HTML (with wikilinks resolved)
+      const url = '/api/note?vault=' + encodeURIComponent(this.activeVault) + '&path=' + encodeURIComponent(this.activePath)
+      try {
+        const res = await fetch(url)
+        const data = await res.json()
+        this.noteHtml = data.html || ''
+        this.noteFrontmatter = data.frontmatter || {}
+        this.backlinks = data.backlinks || []
+      } catch(e) { /* ignore */ }
+    },
+
+    // ── auto-save ─────────────────────────────────
+    scheduleSave() {
+      if (this.saveTimer) clearTimeout(this.saveTimer)
+      this.saveTimer = setTimeout(() => this.saveNow(), 1500)
+    },
+
+    async saveNow() {
+      if (!this.activePath || !this.isDirty) return
+      this.saveStatus = 'saving'
+      try {
+        const url = '/api/note?vault=' + encodeURIComponent(this.activeVault) + '&path=' + encodeURIComponent(this.activePath)
+        const res = await fetch(url, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+          body: this.noteRaw
+        })
+        if (!res.ok) throw new Error('HTTP ' + res.status)
+        this.isDirty = false
+        this.saveStatus = 'saved'
+        setTimeout(() => { if (this.saveStatus === 'saved') this.saveStatus = '' }, 2000)
+      } catch(e) {
+        this.saveStatus = 'error'
+        console.error('save:', e)
+      }
+    },
+
+    saveStatusText() {
+      switch(this.saveStatus) {
+        case 'saving': return 'Saving…'
+        case 'saved':  return '✓ Saved'
+        case 'error':  return '✗ Error'
+        default:       return ''
+      }
+    },
+
+    // ── tree rendering ────────────────────────────
+    renderTree(nodes, depth) {
+      if (!nodes || nodes.length === 0) return ''
+      let html = ''
+      for (const node of nodes) {
+        const indent = depth * 14
+        const isActive = !node.isDir && node.path === this.activePath
+        if (node.isDir) {
+          const children = this.renderTree(node.children || [], depth + 1)
+          html += `<div class="tree-node">
+            <div class="tree-item" style="padding-left:${14 + indent}px"
+                 onclick="void(this.parentElement.querySelector('.tree-children').classList.toggle('hidden'))">
+              <span class="tree-icon">📁</span>
+              <span class="tree-label">${escapeHtml(node.name)}</span>
+            </div>
+            <div class="tree-children">${children}</div>
+          </div>`
+        } else {
+          const activeClass = isActive ? ' active' : ''
+          html += `<div class="tree-node">
+            <div class="tree-item${activeClass}" style="padding-left:${14 + indent}px"
+                 data-vault="${escapeHtml(this.activeVault)}"
+                 data-path="${escapeHtml(node.path)}"
+                 onclick="Alpine.evaluate(this.closest('[x-data]'), 'openNote($el.dataset.vault, $el.dataset.path)')">
+              <span class="tree-icon">📄</span>
+              <span class="tree-label">${escapeHtml(node.name)}</span>
+            </div>
+          </div>`
+        }
+      }
+      return html
+    },
+
+    // ── preview click (wikilinks) ─────────────────
+    handlePreviewClick(e) {
+      const a = e.target.closest('a.wikilink')
+      if (!a) return
+      e.preventDefault()
+      const vault = a.dataset.vault || this.activeVault
+      const path = a.dataset.path
+      if (path) this.openNote(vault, path)
+    },
+
+    // ── note title ────────────────────────────────
+    noteTitle() {
+      if (!this.activePath) return ''
+      const base = this.activePath.split('/').pop()
+      return base.replace(/\.md$/, '')
+    },
+
+    // ── search ────────────────────────────────────
+    async doSearch() {
+      if (!this.searchQuery.trim()) {
+        this.searchResults = []
+        return
+      }
+      try {
+        const url = '/api/search?q=' + encodeURIComponent(this.searchQuery) +
+                    '&vault=' + encodeURIComponent(this.activeVault)
+        const res = await fetch(url)
+        this.searchResults = await res.json()
+        this.searchFocus = 0
+      } catch(e) {
+        console.error('search:', e)
+      }
+    },
+
+    openSearchResult(idx) {
+      const r = this.searchResults[idx]
+      if (!r) return
+      this.searchOpen = false
+      this.openNote(r.vault, r.path)
+    },
+  }
+}
+
+function escapeHtml(s) {
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
+</script>
+
+</body>
+</html>

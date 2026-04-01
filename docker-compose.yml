@@ -1,0 +1,25 @@
+services:
+  vaultreader:
+    image: ghcr.io/joaompfp/vaultreader:latest
+    container_name: vaultreader
+    build:
+      context: .
+      dockerfile: Dockerfile
+    volumes:
+      - /home/joao/vaults:/vaults:ro
+    networks:
+      - t2_proxy
+    restart: unless-stopped
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.vaultreader-rtr.rule=Host(`notes.joao.date`)"
+      - "traefik.http.routers.vaultreader-rtr.entrypoints=websecure"
+      - "traefik.http.routers.vaultreader-rtr.tls=true"
+      - "traefik.http.routers.vaultreader-rtr.tls.certresolver=dns-cloudflare"
+      - "traefik.http.routers.vaultreader-rtr.middlewares=chain-tailscale@file,chain-authelia@file"
+      - "traefik.http.routers.vaultreader-rtr.service=vaultreader-svc"
+      - "traefik.http.services.vaultreader-svc.loadbalancer.server.port=8080"
+
+networks:
+  t2_proxy:
+    external: true
