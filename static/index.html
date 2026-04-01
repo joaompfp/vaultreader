@@ -403,9 +403,39 @@
     </template>
   </div>
 
+  <!-- ─── Settings pane ────────────────────────── -->
+  <div id="settings-pane" x-show="settingsOpen" @click.self="settingsOpen=false"
+       x-transition:enter="transition ease-out duration-150"
+       x-transition:enter-start="opacity-0"
+       x-transition:enter-end="opacity-100"
+       x-transition:leave="transition ease-in duration-100"
+       x-transition:leave-start="opacity-100"
+       x-transition:leave-end="opacity-0"
+       style="display:none">
+    <div class="settings-box" @click.stop>
+      <div class="settings-header">
+        <span class="settings-title">VaultReader</span>
+        <button class="btn-icon" @click="settingsOpen=false" title="Close">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+      <div class="settings-row">
+        <span class="settings-label">Dark mode</span>
+        <button class="settings-toggle" :class="{on: darkMode}" @click="toggleDark()">
+          <span class="settings-toggle-knob"></span>
+        </button>
+      </div>
+      <div class="settings-version">v1.7.0</div>
+    </div>
+  </div>
+
   <!-- ─── Status Bar ──────────────────────────── -->
   <div id="status-bar">
-    <span class="sb-brand">VaultReader v1.6.0</span>
+    <button class="sb-brand-btn" @click.stop="settingsOpen = !settingsOpen" title="Settings">VaultReader
+      <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="opacity:.5;flex-shrink:0">
+        <circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+      </svg>
+    </button>
     <span class="sb-sep">·</span>
     <span class="sb-context" x-html="sbContext()"></span>
     <span class="sb-sync" :class="'sb-sync-' + syncState" :title="syncTitle()">
@@ -505,6 +535,9 @@ function vaultApp() {
     ctxMenu: { open: false, x: 0, y: 0, items: [] },
     // new item dropdown
     newMenuOpen: false,
+    // settings
+    settingsOpen: false,
+    darkMode: window.matchMedia('(prefers-color-scheme: dark)').matches,
     newMenuX: 0,
     newMenuY: 0,
 
@@ -527,6 +560,7 @@ function vaultApp() {
         if (e.key === 'Escape') {
           this.ctxMenu.open = false
           this.newMenuOpen = false
+          this.settingsOpen = false
         }
       })
       window.addEventListener('click', () => { this.ctxMenu.open = false })
@@ -552,6 +586,13 @@ function vaultApp() {
           localStorage.setItem('vr-recent-' + v, JSON.stringify(items))
         }
         localStorage.removeItem(legacyKey)
+      }
+
+      // restore dark mode preference
+      const saved = localStorage.getItem('vr-dark')
+      if (saved !== null) {
+        this.darkMode = saved === '1'
+        document.documentElement.setAttribute('data-theme', this.darkMode ? 'dark' : 'light')
       }
 
       try {
@@ -1126,6 +1167,13 @@ function vaultApp() {
       if (x + menuW > window.innerWidth - margin) x = window.innerWidth - menuW - margin
       if (y + menuH > window.innerHeight - margin) y = window.innerHeight - menuH - margin
       this.ctxMenu = { open: true, x, y, items }
+    },
+
+    // ── settings ──────────────────────────────────
+    toggleDark() {
+      this.darkMode = !this.darkMode
+      document.documentElement.setAttribute('data-theme', this.darkMode ? 'dark' : 'light')
+      localStorage.setItem('vr-dark', this.darkMode ? '1' : '0')
     },
 
     // ── vault icons ───────────────────────────────

@@ -33,7 +33,7 @@
 }
 
 @media (prefers-color-scheme: dark) {
-  :root {
+  :root:not([data-theme="light"]) {
     --bg:          #1e1e2e;
     --bg2:         #181825;
     --bg3:         #313244;
@@ -41,12 +41,26 @@
     --text:        #cdd6f4;
     --text2:       #a6adc8;
     --text3:       #6c7086;
+    --accent:      #f87171;
+    --accent-dim:  #fca5a5;
+    --link:        #89b4fa;
+    --link-wiki:   #fca5a5;
+    --link-wiki-missing: #f38ba8;
+  }
+}
+[data-theme="dark"] {
+  --bg:          #1e1e2e;
+  --bg2:         #181825;
+  --bg3:         #313244;
+  --border:      #45475a;
+  --text:        #cdd6f4;
+  --text2:       #a6adc8;
+  --text3:       #6c7086;
   --accent:      #f87171;
   --accent-dim:  #fca5a5;
   --link:        #89b4fa;
   --link-wiki:   #fca5a5;
   --link-wiki-missing: #f38ba8;
-  }
 }
 
 /* ── Reset / Base ────────────────────────────── */
@@ -308,8 +322,9 @@ a:hover { text-decoration: underline; }
   z-index: 201; /* above bl-backdrop (199) and backlinks panel (200) */
 }
 @media (prefers-color-scheme: dark) {
-  #toolbar { background: #16182a; }
+  :root:not([data-theme="light"]) #toolbar { background: #16182a; }
 }
+[data-theme="dark"] #toolbar { background: #16182a; }
 .toolbar-title {
   flex: 1;
   font-size: 13px;
@@ -788,7 +803,14 @@ mark {
   z-index: 90;
   user-select: none;
 }
-.sb-brand { color: var(--text2); font-weight: 500; white-space: nowrap; flex-shrink: 0; }
+.sb-brand-btn {
+  display: inline-flex; align-items: center; gap: 5px;
+  background: none; border: none; cursor: pointer;
+  color: var(--text3); font-size: 11px; font-family: var(--font); font-weight: 500;
+  padding: 0; white-space: nowrap; flex-shrink: 0;
+  transition: color var(--transition);
+}
+.sb-brand-btn:hover { color: var(--text2); }
 .sb-sep { color: var(--text3); margin: 0 6px; flex-shrink: 0; }
 .sb-context { flex: 1; color: var(--text3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sb-num { color: var(--text2); font-variant-numeric: tabular-nums; }
@@ -830,6 +852,59 @@ mark {
 
 /* ── Utility ─────────────────────────────────── */
 [x-cloak] { display: none !important; }
+
+/* ── Settings pane ───────────────────────────── */
+#settings-pane {
+  position: fixed; inset: 0; z-index: 800;
+  /* no background overlay — pane is self-contained */
+}
+.settings-box {
+  position: absolute;
+  bottom: 36px; left: 12px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 14px 16px;
+  min-width: 220px;
+  box-shadow: 0 8px 32px rgba(0,0,0,.25);
+  display: flex; flex-direction: column; gap: 12px;
+}
+.settings-header {
+  display: flex; align-items: center; justify-content: space-between;
+}
+.settings-title {
+  font-size: 13px; font-weight: 700;
+  color: var(--text); letter-spacing: .02em;
+}
+.settings-row {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 16px;
+}
+.settings-label {
+  font-size: 13px; color: var(--text2);
+}
+.settings-toggle {
+  width: 36px; height: 20px;
+  background: var(--bg3); border: none; border-radius: 10px;
+  cursor: pointer; position: relative;
+  transition: background .2s ease;
+  flex-shrink: 0;
+}
+.settings-toggle.on { background: var(--accent); }
+.settings-toggle-knob {
+  position: absolute;
+  top: 2px; left: 2px;
+  width: 16px; height: 16px;
+  background: #fff;
+  border-radius: 50%;
+  transition: transform .2s ease;
+  pointer-events: none;
+}
+.settings-toggle.on .settings-toggle-knob { transform: translateX(16px); }
+.settings-version {
+  font-size: 11px; color: var(--text3);
+  text-align: right; margin-top: -4px;
+}
 
 /* ── Modal ───────────────────────────────────── */
 #modal-overlay {
