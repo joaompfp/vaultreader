@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"compress/gzip"
+	"crypto/tls"
 	"embed"
 	"encoding/json"
 	"flag"
@@ -724,6 +725,127 @@ func (s *server) handleResolve(w http.ResponseWriter, r *http.Request) {
 	jsonResponse(w, ResolveResult{Vault: v, Path: p})
 }
 
+// ─── Stats handler ────────────────────────────────────────────────────────────
+
+type VaultStat struct {
+	Name      string `json:"name"`
+	NoteCount int    `json:"noteCount"`
+}
+
+type StatsResponse struct {
+	TotalNotes int         `json:"totalNotes"`
+	Vaults     []VaultStat `json:"vaults"`
+}
+
+func (s *server) handleStats(w http.ResponseWriter, r *http.Request) {
+	entries, err := os.ReadDir(s.vaultsDir)
+	if err != nil {
+		errResponse(w, 500, err.Error())
+		return
+	}
+
+	// count notes per vault from the filesystem (not index, to avoid double-counting compound keys)
+	var stats []VaultStat
+	total := 0
+	for _, e := range entries {
+		if !e.IsDir() || shouldSkip(e.Name()) {
+			continue
+		}
+		count := 0
+		vp := filepath.Join(s.vaultsDir, e.Name())
+		_ = filepath.Walk(vp, func(p string, info os.FileInfo, err error) error {
+			if err != nil {
+				return nil
+			}
+			if !info.IsDir() && strings.HasSuffix(p, ".md") && !shouldSkip(info.Name()) {
+				count++
+			}
+			return nil
+		})
+		// sort vaults by vaultOrder then alphabetically handled at display layer
+		stats = append(stats, VaultStat{Name: e.Name(), NoteCount: count})
+		total += count
+	}
+
+	// apply preferred vault order
+	sort.SliceStable(stats, func(i, j int) bool {
+		pi, pj := len(vaultOrder), len(vaultOrder)
+		for k, v := range vaultOrder {
+			if stats[i].Name == v {
+				pi = k
+			}
+			if stats[j].Name == v {
+				pj = k
+			}
+		}
+		if pi != pj {
+			return pi < pj
+		}
+		return stats[i].Name < stats[j].Name
+	})
+
+	jsonResponse(w, StatsResponse{TotalNotes: total, Vaults: stats})
+}
+
+// ─── Sync status handler ───────────────────────────────────────────────────────
+
+type SyncStatus struct {
+	Available bool   `json:"available"`
+	State     string `json:"state"` // "synced", "syncing", "error", "unknown"
+	Message   string `json:"message,omitempty"`
+}
+
+var syncHTTPClient = &http.Client{
+	Timeout: 3 * time.Second,
+	Transport: &http.Transport{
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+	},
+}
+
+func (s *server) handleSyncStatus(w http.ResponseWriter, r *http.Request) {
+	apiKey := os.Getenv("SYNCTHING_API_KEY")
+	apiURL := os.Getenv("SYNCTHING_API_URL") // e.g. https://172.10.0.5:8384
+	if apiKey == "" || apiURL == "" {
+		jsonResponse(w, SyncStatus{Available: false, State: "unknown"})
+		return
+	}
+
+	req, err := http.NewRequest("GET", apiURL+"/rest/db/completion", nil)
+	if err != nil {
+		jsonResponse(w, SyncStatus{Available: false, State: "error", Message: err.Error()})
+		return
+	}
+	req.Header.Set("X-API-Key", apiKey)
+
+	resp, err := syncHTTPClient.Do(req)
+	if err != nil {
+		jsonResponse(w, SyncStatus{Available: false, State: "error", Message: "unreachable"})
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		jsonResponse(w, SyncStatus{Available: true, State: "error", Message: fmt.Sprintf("HTTP %d", resp.StatusCode)})
+		return
+	}
+
+	var completion struct {
+		Completion float64 `json:"completion"`
+		NeedBytes  int64   `json:"needBytes"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&completion); err != nil {
+		jsonResponse(w, SyncStatus{Available: true, State: "error", Message: "parse error"})
+		return
+	}
+
+	if completion.NeedBytes == 0 {
+		jsonResponse(w, SyncStatus{Available: true, State: "synced", Message: "Up to date"})
+	} else {
+		jsonResponse(w, SyncStatus{Available: true, State: "syncing",
+			Message: fmt.Sprintf("%.0f%%", completion.Completion)})
+	}
+}
+
 // ─── Static files ─────────────────────────────────────────────────────────────
 
 func (s *server) handleIndex(w http.ResponseWriter, r *http.Request) {
@@ -782,6 +904,8 @@ func main() {
 	mux.HandleFunc("/api/note", srv.handleNote)
 	mux.HandleFunc("/api/search", srv.handleSearch)
 	mux.HandleFunc("/api/resolve", srv.handleResolve)
+	mux.HandleFunc("/api/stats", srv.handleStats)
+	mux.HandleFunc("/api/sync-status", srv.handleSyncStatus)
 
 	addr := ":" + *port
 	log.Printf("listening on %s", addr)

@@ -673,5 +673,33 @@ mark {
 .note-missing { padding: 2rem; color: var(--text2); font-style: italic; }
 .note-missing p { margin: 0.5rem 0; }
 
+/* ── Status bar ──────────────────────────────── */
+#status-bar {
+  position: fixed;
+  bottom: 0; left: 0; right: 0;
+  height: 24px;
+  background: var(--bg2);
+  border-top: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  gap: 0;
+  font-size: 11px;
+  color: var(--text3);
+  z-index: 90;
+  user-select: none;
+}
+.sb-notes { flex: 1; display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
+.sb-vault-stat { color: var(--text3); }
+.sb-count { color: var(--text2); font-variant-numeric: tabular-nums; }
+.sb-sync { margin-left: auto; font-size: 11px; }
+.sb-sync-synced  { color: #22c55e; }
+.sb-sync-syncing { color: var(--accent); }
+.sb-sync-error   { color: #ef4444; }
+.sb-sync-unknown { color: var(--text3); }
+
+/* push main content up so status bar doesn't overlap */
+#app { padding-bottom: 24px; }
+
 /* ── Utility ─────────────────────────────────── */
 [x-cloak] { display: none !important; }

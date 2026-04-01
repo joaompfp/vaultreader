@@ -248,6 +248,21 @@
     </div>
   </div>
 
+  <!-- ─── Status Bar ──────────────────────────── -->
+  <div id="status-bar">
+    <span class="sb-notes" x-show="totalNotes > 0">
+      <span x-text="totalNotes"></span> notes
+      <template x-for="vs in vaultStats" :key="vs.name">
+        <span class="sb-vault-stat">
+          · <span x-text="vs.name"></span> <span class="sb-count" x-text="vs.noteCount"></span>
+        </span>
+      </template>
+    </span>
+    <span class="sb-sync" :class="'sb-sync-' + syncState" x-show="syncAvailable">
+      <span x-text="syncState === 'synced' ? '⬤ synced' : syncState === 'syncing' ? '⬤ ' + syncMessage : '⬤ sync err'"></span>
+    </span>
+  </div>
+
 </div><!-- #app -->
 
 <!-- ─── CodeMirror 6 (local IIFE bundle) ─────── -->
@@ -322,6 +337,12 @@ function vaultApp() {
     saveStatus: '',
     saveTimer: null,
     recentFiles: JSON.parse(localStorage.getItem('vr-recent') || '[]'),
+    // status bar
+    totalNotes: 0,
+    vaultStats: [],
+    syncAvailable: false,
+    syncState: 'unknown',
+    syncMessage: '',
 
     // ── init ──────────────────────────────────────
     async init() {
@@ -348,6 +369,32 @@ function vaultApp() {
           await this.enterDir(this.activeVault, '')
         }
       } catch(e) { console.error('init:', e) }
+      // load status bar stats
+      this.refreshStats()
+      setInterval(() => this.refreshSyncStatus(), 30000)
+    },
+
+    async refreshStats() {
+      try {
+        const [sr, sy] = await Promise.all([
+          fetch('/api/stats').then(r => r.json()),
+          fetch('/api/sync-status').then(r => r.json())
+        ])
+        this.totalNotes = sr.totalNotes || 0
+        this.vaultStats = sr.vaults || []
+        this.syncAvailable = sy.available
+        this.syncState = sy.state
+        this.syncMessage = sy.message || ''
+      } catch(e) { console.error('stats:', e) }
+    },
+
+    async refreshSyncStatus() {
+      try {
+        const sy = await fetch('/api/sync-status').then(r => r.json())
+        this.syncAvailable = sy.available
+        this.syncState = sy.state
+        this.syncMessage = sy.message || ''
+      } catch(e) {}
     },
 
     // ── file commander navigation ──────────────────
@@ -509,13 +556,26 @@ function vaultApp() {
     },
 
     // ── preview click (wikilinks) ─────────────────
-    handlePreviewClick(e) {
+    async handlePreviewClick(e) {
       const a = e.target.closest('a.wikilink')
       if (!a) return
       e.preventDefault()
       const vault = a.dataset.vault || this.activeVault
       const path = a.dataset.path
-      if (path) this.openNote(vault, path)
+      if (path) {
+        this.openNote(vault, path)
+        return
+      }
+      // missing link — try resolving by name
+      const name = a.dataset.name
+      if (!name) return
+      try {
+        const res = await fetch('/api/resolve?name=' + encodeURIComponent(name) + '&vault=' + encodeURIComponent(this.activeVault))
+        if (res.ok) {
+          const d = await res.json()
+          this.openNote(d.vault, d.path)
+        }
+      } catch(e) { console.error('resolve wikilink:', e) }
     },
 
     // ── note title + toolbar breadcrumb ───────────
