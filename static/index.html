@@ -26,10 +26,9 @@
       <template x-for="v in vaults" :key="v">
         <button class="vault-btn"
                 :class="{ active: activeVault === v }"
-                :title="v"
+                :title="v.charAt(0).toUpperCase() + v.slice(1)"
                 @click="enterDir(v, '')">
           <span class="vault-btn-icon" x-html="vaultIcon(v)"></span>
-          <span class="vault-btn-label" x-text="v"></span>
         </button>
       </template>
     </div>
@@ -85,14 +84,23 @@
 
       <div class="toolbar-title">
         <template x-if="activePath">
-          <span>
-            <span x-text="activeVault" style="opacity:.6"></span>
-            <span style="opacity:.4"> / </span>
-            <strong x-text="noteTitle()"></strong>
+          <span class="toolbar-breadcrumb">
+            <span class="tb-vault" @click="enterDir(activeVault, '')" x-text="activeVault"></span>
+            <template x-for="(seg, i) in activeBreadcrumbs()" :key="i">
+              <span>
+                <span class="tb-sep">/</span>
+                <span class="tb-seg" @click="navigateToSegment(i)" x-text="seg"></span>
+              </span>
+            </template>
+            <span class="tb-sep">/</span>
+            <strong class="tb-note" x-text="noteTitle()"></strong>
           </span>
         </template>
-        <template x-if="!activePath">
-          <span style="color:var(--text3)">No note selected</span>
+        <template x-if="!activePath && activeVault">
+          <span class="tb-vault" @click="enterDir(activeVault, '')" x-text="activeVault" style="cursor:default;opacity:.7"></span>
+        </template>
+        <template x-if="!activePath && !activeVault">
+          <span style="color:var(--text3)">Select a vault</span>
         </template>
       </div>
 
@@ -470,10 +478,25 @@ function vaultApp() {
       if (path) this.openNote(vault, path)
     },
 
-    // ── note title ────────────────────────────────
+    // ── note title + toolbar breadcrumb ───────────
     noteTitle() {
       if (!this.activePath) return ''
       return this.activePath.split('/').pop().replace(/\.md$/, '')
+    },
+
+    // segments of the active path excluding filename
+    activeBreadcrumbs() {
+      if (!this.activePath) return []
+      const parts = this.activePath.split('/')
+      parts.pop() // remove filename
+      return parts.filter(Boolean)
+    },
+
+    // click a breadcrumb segment in the toolbar → navigate sidebar to that dir
+    navigateToSegment(i) {
+      const segs = this.activeBreadcrumbs()
+      const dir = segs.slice(0, i + 1).join('/')
+      this.cwd = dir
     },
 
     // ── search ────────────────────────────────────
@@ -498,14 +521,62 @@ function vaultApp() {
     // ── vault icons ───────────────────────────────
     vaultIcon(vault) {
       const icons = {
-        pessoal:    `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>`,
-        work:       `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/><line x1="12" y1="12" x2="12" y2="16"/><line x1="10" y1="14" x2="14" y2="14"/></svg>`,
-        projects:   `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="2" y="8" width="20" height="13" rx="2"/><path d="M8 8V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v3"/><path d="M6 13h2m4 0h6M6 17h2m4 0h2"/></svg>`,
-        sosracismo: `<img src="/sos-hand.svg" style="width:100%;height:100%;object-fit:contain;filter:invert(0)" alt="SOS">`,
-        pcp:        `<img src="/pcp.svg" style="width:100%;height:100%;object-fit:contain" alt="PCP">`,
+        // Pessoal — warm person silhouette with gradient fill
+        pessoal: `<svg viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <radialGradient id="pg" cx="50%" cy="30%" r="70%">
+              <stop offset="0%" stop-color="#f9a8d4"/>
+              <stop offset="100%" stop-color="#db2777"/>
+            </radialGradient>
+          </defs>
+          <circle cx="16" cy="11" r="5.5" fill="url(#pg)"/>
+          <path d="M4 27c0-6.6 5.4-11 12-11s12 4.4 12 11" fill="url(#pg)" opacity=".9"/>
+        </svg>`,
+
+        // Work — professional briefcase, navy/gold
+        work: `<svg viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <linearGradient id="wg" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stop-color="#60a5fa"/>
+              <stop offset="100%" stop-color="#1d4ed8"/>
+            </linearGradient>
+          </defs>
+          <rect x="3" y="10" width="26" height="17" rx="3" fill="url(#wg)"/>
+          <path d="M11 10V7a1 1 0 0 1 1-1h8a1 1 0 0 1 1 1v3" fill="none" stroke="#93c5fd" stroke-width="1.5"/>
+          <rect x="3" y="17" width="26" height="2" fill="#bfdbfe" opacity=".5"/>
+          <rect x="14" y="15.5" width="4" height="5" rx="1" fill="#fbbf24"/>
+        </svg>`,
+
+        // PCP — use real logo
+        pcp: `<img src="/pcp.svg" style="width:100%;height:100%;object-fit:contain" alt="PCP">`,
+
+        // SOS Racismo — hand logo in crimson
+        sosracismo: `<img src="/sos-hand.svg" style="width:100%;height:100%;object-fit:contain;filter:invert(20%) sepia(90%) saturate(600%) hue-rotate(330deg) brightness(85%)" alt="SOS">`,
+
+        // Projects — colourful toolbox / gear
+        projects: `<svg viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg">
+          <defs>
+            <linearGradient id="prg" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stop-color="#6ee7b7"/>
+              <stop offset="100%" stop-color="#059669"/>
+            </linearGradient>
+          </defs>
+          <rect x="3" y="12" width="26" height="16" rx="3" fill="url(#prg)"/>
+          <path d="M10 12V8a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v4" fill="none" stroke="#34d399" stroke-width="1.8"/>
+          <circle cx="16" cy="20" r="3.5" fill="#fff" opacity=".9"/>
+          <circle cx="16" cy="20" r="1.5" fill="#059669"/>
+          <line x1="16" y1="15" x2="16" y2="17" stroke="#fff" stroke-width="1.5" opacity=".8"/>
+          <line x1="16" y1="23" x2="16" y2="25" stroke="#fff" stroke-width="1.5" opacity=".8"/>
+          <line x1="11" y1="20" x2="13" y2="20" stroke="#fff" stroke-width="1.5" opacity=".8"/>
+          <line x1="19" y1="20" x2="21" y2="20" stroke="#fff" stroke-width="1.5" opacity=".8"/>
+        </svg>`,
       }
-      return icons[vault.toLowerCase()] ||
-        `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 3h6l2 3H21a1 1 0 0 1 1 1v11a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z"/></svg>`
+      const key = vault.toLowerCase().replace(/[^a-z]/g, '')
+      return icons[key] ||
+        `<svg viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <rect x="3" y="5" width="20" height="4" rx="1.5" fill="#94a3b8"/>
+          <rect x="3" y="12" width="26" height="16" rx="3" fill="#64748b"/>
+        </svg>`
     },
   }
 }

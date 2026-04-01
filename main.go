@@ -497,19 +497,35 @@ func (s *server) safePath(vaultP, notePath string) (string, bool) {
 	return full, true
 }
 
+// preferred vault display order — vaults not listed here appear alphabetically after
+var vaultOrder = []string{"pessoal", "work", "pcp", "sosracismo", "projects"}
+
 func (s *server) handleVaults(w http.ResponseWriter, r *http.Request) {
 	entries, err := os.ReadDir(s.vaultsDir)
 	if err != nil {
-		jsonResponse(w, []string{})
+		http.Error(w, err.Error(), 500)
 		return
 	}
-	var vaults []string
+	found := map[string]bool{}
 	for _, e := range entries {
-		if e.IsDir() && !shouldSkip(e.Name()) {
-			vaults = append(vaults, e.Name())
+		if e.IsDir() && !strings.HasPrefix(e.Name(), ".") {
+			found[e.Name()] = true
 		}
 	}
-	sort.Strings(vaults)
+	// ordered first, then any extras alphabetically
+	var vaults []string
+	for _, v := range vaultOrder {
+		if found[v] {
+			vaults = append(vaults, v)
+			delete(found, v)
+		}
+	}
+	var extra []string
+	for v := range found {
+		extra = append(extra, v)
+	}
+	sort.Strings(extra)
+	vaults = append(vaults, extra...)
 	jsonResponse(w, vaults)
 }
 
