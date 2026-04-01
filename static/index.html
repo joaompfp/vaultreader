@@ -350,8 +350,9 @@
     <span class="sb-brand">VaultReader v1.5.0</span>
     <span class="sb-sep">·</span>
     <span class="sb-context" x-html="sbContext()"></span>
-    <span class="sb-sync" :class="'sb-sync-' + syncState" x-show="syncAvailable">
-      <span x-text="syncState === 'synced' ? '⬤ synced' : syncState === 'syncing' ? '⬤ ' + syncMessage : '⬤ sync err'"></span>
+    <span class="sb-sync" :class="'sb-sync-' + syncState" :title="syncTitle()">
+      <span class="sb-sync-dot"></span>
+      <span class="sb-sync-label" x-text="syncLabel()"></span>
     </span>
   </div>
 
@@ -489,7 +490,7 @@ function vaultApp() {
       } catch(e) { console.error('init:', e) }
       // load status bar stats
       this.refreshStats()
-      setInterval(() => this.refreshSyncStatus(), 30000)
+      setInterval(() => this.refreshSyncStatus(), 10000)
     },
 
     async refreshStats() {
@@ -513,6 +514,20 @@ function vaultApp() {
         this.syncState = sy.state
         this.syncMessage = sy.message || ''
       } catch(e) {}
+    },
+
+    syncLabel() {
+      if (!this.syncAvailable) return 'sync'
+      if (this.syncState === 'synced') return 'synced'
+      if (this.syncState === 'syncing') return this.syncMessage || 'syncing'
+      return 'sync error'
+    },
+
+    syncTitle() {
+      if (!this.syncAvailable) return 'Syncthing: not configured'
+      if (this.syncState === 'synced') return 'Syncthing: up to date'
+      if (this.syncState === 'syncing') return 'Syncthing: syncing — ' + (this.syncMessage || '')
+      return 'Syncthing: error'
     },
 
     // ── file commander navigation ──────────────────

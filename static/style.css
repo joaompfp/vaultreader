@@ -814,11 +814,37 @@ mark {
 .sb-context { flex: 1; color: var(--text3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .sb-num { color: var(--text2); font-variant-numeric: tabular-nums; }
 .sb-dim { color: var(--text3); font-style: italic; }
-.sb-sync { margin-left: 12px; font-size: 11px; white-space: nowrap; flex-shrink: 0; }
+.sb-sync {
+  margin-left: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 11px;
+  white-space: nowrap;
+  flex-shrink: 0;
+  cursor: default;
+}
+.sb-sync-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: currentColor;
+}
+.sb-sync-label { color: var(--text3); }
+/* traffic light colours */
 .sb-sync-synced  { color: #22c55e; }
-.sb-sync-syncing { color: var(--accent); }
+.sb-sync-syncing { color: #f59e0b; }
 .sb-sync-error   { color: #ef4444; }
 .sb-sync-unknown { color: var(--text3); }
+/* pulse animation when syncing */
+.sb-sync-syncing .sb-sync-dot {
+  animation: sb-pulse 1.2s ease-in-out infinite;
+}
+@keyframes sb-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
 
 /* push main content up so status bar doesn't overlap */
 #app { padding-bottom: 24px; }
