@@ -239,6 +239,32 @@ func (idx *NoteIndex) updateNote(vault, path, content string) {
 	}
 }
 
+func (idx *NoteIndex) removeNote(vault, path string) {
+	idx.mu.Lock()
+	defer idx.mu.Unlock()
+
+	nname := normalizeName(filepath.Base(path))
+	key := vaultKey(vault, path)
+	compoundKey := vault + ":" + nname
+
+	delete(idx.allNotes, compoundKey)
+	delete(idx.allNotes, nname)
+
+	// remove outbound links from inbound index
+	old := idx.outbound[key]
+	for _, t := range old {
+		links := idx.inbound[t]
+		var filtered []string
+		for _, l := range links {
+			if l != key {
+				filtered = append(filtered, l)
+			}
+		}
+		idx.inbound[t] = filtered
+	}
+	delete(idx.outbound, key)
+}
+
 func (idx *NoteIndex) resolve(name, preferVault string) (string, string, bool) {
 	idx.mu.RLock()
 	defer idx.mu.RUnlock()
@@ -605,9 +631,160 @@ func (s *server) handleNote(w http.ResponseWriter, r *http.Request) {
 		s.handleGetNote(w, r)
 	case http.MethodPut:
 		s.handlePutNote(w, r)
+	case http.MethodPost:
+		s.handleCreateNote(w, r)
+	case http.MethodDelete:
+		s.handleDeleteNote(w, r)
 	default:
 		errResponse(w, 405, "method not allowed")
 	}
+}
+
+func (s *server) handleCreateNote(w http.ResponseWriter, r *http.Request) {
+	vault := r.URL.Query().Get("vault")
+	path := r.URL.Query().Get("path")
+
+	vp, ok := s.vaultPath(vault)
+	if !ok {
+		errResponse(w, 400, "invalid vault")
+		return
+	}
+	if path == "" {
+		errResponse(w, 400, "path required")
+		return
+	}
+	// ensure .md extension
+	if !strings.HasSuffix(path, ".md") {
+		path = path + ".md"
+	}
+	full, ok := s.safePath(vp, path)
+	if !ok {
+		errResponse(w, 400, "invalid path")
+		return
+	}
+	// don't overwrite existing notes
+	if _, err := os.Stat(full); err == nil {
+		errResponse(w, 409, "note already exists")
+		return
+	}
+
+	var body struct {
+		Raw string `json:"raw"`
+	}
+	_ = json.NewDecoder(r.Body).Decode(&body)
+
+	if err := saveNote(vp, path, body.Raw); err != nil {
+		errResponse(w, 500, err.Error())
+		return
+	}
+	s.idx.updateNote(vault, path, body.Raw)
+
+	w.WriteHeader(http.StatusCreated)
+	jsonResponse(w, map[string]string{"status": "created", "path": path})
+}
+
+func (s *server) handleDeleteNote(w http.ResponseWriter, r *http.Request) {
+	vault := r.URL.Query().Get("vault")
+	path := r.URL.Query().Get("path")
+
+	vp, ok := s.vaultPath(vault)
+	if !ok {
+		errResponse(w, 400, "invalid vault")
+		return
+	}
+	full, ok := s.safePath(vp, path)
+	if !ok {
+		errResponse(w, 400, "invalid path")
+		return
+	}
+	if _, err := os.Stat(full); os.IsNotExist(err) {
+		errResponse(w, 404, "note not found")
+		return
+	}
+
+	// soft-delete: move to .trash/ inside vault
+	trashDir := filepath.Join(vp, ".trash")
+	if err := os.MkdirAll(trashDir, 0755); err != nil {
+		errResponse(w, 500, "cannot create trash: "+err.Error())
+		return
+	}
+
+	// preserve sub-path inside trash to avoid name collisions
+	trashPath := filepath.Join(trashDir, strings.ReplaceAll(path, "/", "__"))
+	// if file already in trash with same name, add timestamp
+	if _, err := os.Stat(trashPath); err == nil {
+		ext := filepath.Ext(trashPath)
+		base := strings.TrimSuffix(trashPath, ext)
+		trashPath = fmt.Sprintf("%s_%d%s", base, time.Now().Unix(), ext)
+	}
+
+	if err := os.Rename(full, trashPath); err != nil {
+		errResponse(w, 500, err.Error())
+		return
+	}
+	s.idx.removeNote(vault, path)
+
+	jsonResponse(w, map[string]string{"status": "deleted", "movedTo": ".trash/" + filepath.Base(trashPath)})
+}
+
+func (s *server) handleMove(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		errResponse(w, 405, "method not allowed")
+		return
+	}
+	vault := r.URL.Query().Get("vault")
+	from := r.URL.Query().Get("from")
+	to := r.URL.Query().Get("to")
+
+	vp, ok := s.vaultPath(vault)
+	if !ok {
+		errResponse(w, 400, "invalid vault")
+		return
+	}
+	if from == "" || to == "" {
+		errResponse(w, 400, "from and to required")
+		return
+	}
+	// ensure .md extension on target
+	if !strings.HasSuffix(to, ".md") {
+		to = to + ".md"
+	}
+
+	fullFrom, ok := s.safePath(vp, from)
+	if !ok {
+		errResponse(w, 400, "invalid from path")
+		return
+	}
+	fullTo, ok := s.safePath(vp, to)
+	if !ok {
+		errResponse(w, 400, "invalid to path")
+		return
+	}
+	if _, err := os.Stat(fullFrom); os.IsNotExist(err) {
+		errResponse(w, 404, "source not found")
+		return
+	}
+	if _, err := os.Stat(fullTo); err == nil {
+		errResponse(w, 409, "destination already exists")
+		return
+	}
+
+	// ensure target dir exists
+	if err := os.MkdirAll(filepath.Dir(fullTo), 0755); err != nil {
+		errResponse(w, 500, err.Error())
+		return
+	}
+	if err := os.Rename(fullFrom, fullTo); err != nil {
+		errResponse(w, 500, err.Error())
+		return
+	}
+
+	// update index: remove old, add new
+	data, _ := os.ReadFile(fullTo)
+	s.idx.removeNote(vault, from)
+	s.idx.updateNote(vault, to, string(data))
+
+	jsonResponse(w, map[string]string{"status": "moved", "newPath": to})
 }
 
 func (s *server) handleGetNote(w http.ResponseWriter, r *http.Request) {
@@ -916,6 +1093,7 @@ func main() {
 	mux.HandleFunc("/api/vaults", srv.handleVaults)
 	mux.HandleFunc("/api/tree", srv.handleTree)
 	mux.HandleFunc("/api/note", srv.handleNote)
+	mux.HandleFunc("/api/move", srv.handleMove)
 	mux.HandleFunc("/api/search", srv.handleSearch)
 	mux.HandleFunc("/api/resolve", srv.handleResolve)
 	mux.HandleFunc("/api/stats", srv.handleStats)

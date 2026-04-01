@@ -57,7 +57,8 @@
 
       <!-- Dirs first -->
       <template x-for="item in currentDirs()" :key="item.path">
-        <div class="fl-item fl-dir" @click="enterDir(activeVault, item.path)">
+        <div class="fl-item fl-dir" @click="enterDir(activeVault, item.path)"
+             @contextmenu.prevent="openCtxMenu($event, item)">
           <span class="fl-icon">📁</span>
           <span class="fl-name" x-text="item.name"></span>
         </div>
@@ -66,7 +67,8 @@
       <!-- Files -->
       <template x-for="item in currentFiles()" :key="item.path">
         <div class="fl-item fl-file" :class="{ active: item.path === activePath }"
-             @click="openNote(activeVault, item.path)">
+             @click="openNote(activeVault, item.path)"
+             @contextmenu.prevent="openCtxMenu($event, item)">
           <span class="fl-icon">📄</span>
           <span class="fl-name" x-text="item.name.replace(/\.md$/, '')"></span>
         </div>
@@ -108,6 +110,14 @@
       </div>
 
       <span x-show="saveStatus" :class="'save-status ' + saveStatus" x-text="saveStatusText()"></span>
+
+      <template x-if="activeVault">
+        <button class="btn-icon btn-newnote" @click="promptCreateNote()" title="New note (Ctrl+N)">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 5v14M5 12h14"/>
+          </svg>
+        </button>
+      </template>
 
       <button class="btn-icon" @click="searchOpen = true" title="Search (Ctrl+K)">🔍</button>
 
@@ -220,7 +230,8 @@
                 <div class="fv-list">
                   <template x-for="item in sortedFolderItems()" :key="item.path">
                     <div class="fv-item" :class="item.isDir ? 'fv-item-dir' : 'fv-item-note'"
-                         @click="item.isDir ? enterDir(activeVault, item.path) : openNote(activeVault, item.path)">
+                         @click="item.isDir ? enterDir(activeVault, item.path) : openNote(activeVault, item.path)"
+                         @contextmenu.prevent="openCtxMenu($event, item)">
                       <span class="fv-icon" x-text="item.isDir ? '▶' : '◈'"></span>
                       <span class="fv-name" x-text="item.isDir ? item.name : item.name.replace(/\.md$/,'')"></span>
                       <span class="fv-meta" x-text="fvMeta(item)"></span>
@@ -245,7 +256,8 @@
               <div class="fv-list">
                 <template x-for="item in sortedFolderItems()" :key="item.path">
                   <div class="fv-item" :class="item.isDir ? 'fv-item-dir' : 'fv-item-note'"
-                       @click="item.isDir ? enterDir(activeVault, item.path) : openNote(activeVault, item.path)">
+                       @click="item.isDir ? enterDir(activeVault, item.path) : openNote(activeVault, item.path)"
+                       @contextmenu.prevent="openCtxMenu($event, item)">
                     <span class="fv-icon" x-text="item.isDir ? '▶' : '◈'"></span>
                     <span class="fv-name" x-text="item.isDir ? item.name : item.name.replace(/\.md$/,'')"></span>
                     <span class="fv-meta" x-text="fvMeta(item)"></span>
@@ -345,9 +357,45 @@
     </div>
   </div>
 
+  <!-- ─── Modal Dialog ────────────────────────── -->
+  <div id="modal-overlay"
+       x-show="modal.open"
+       x-transition.opacity
+       @click.self="modal.open = false"
+       @keydown.escape.window="modal.open = false"
+       style="display:none">
+    <div class="modal-box">
+      <div class="modal-title" x-text="modal.title"></div>
+      <input class="modal-input" type="text"
+             x-model="modal.value"
+             x-ref="modalInput"
+             @keydown.enter.prevent="confirmModal()"
+             @keydown.escape.prevent="modal.open = false"
+             :placeholder="modal.placeholder">
+      <div class="modal-error" x-show="modal.error" x-text="modal.error"></div>
+      <div class="modal-actions">
+        <button class="btn" @click="modal.open = false">Cancel</button>
+        <button class="btn btn-primary" @click="confirmModal()" x-text="modal.confirmLabel || 'OK'"></button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── Context Menu ──────────────────────────── -->
+  <div id="ctx-menu"
+       x-show="ctxMenu.open"
+       :style="'top:' + ctxMenu.y + 'px;left:' + ctxMenu.x + 'px'"
+       @click.outside="ctxMenu.open = false"
+       style="display:none">
+    <template x-for="item in ctxMenu.items" :key="item.label">
+      <button class="ctx-item" :class="item.danger ? 'ctx-danger' : ''"
+              @click="item.action(); ctxMenu.open = false"
+              x-text="item.label"></button>
+    </template>
+  </div>
+
   <!-- ─── Status Bar ──────────────────────────── -->
   <div id="status-bar">
-    <span class="sb-brand">VaultReader v1.5.0</span>
+    <span class="sb-brand">VaultReader v1.6.0</span>
     <span class="sb-sep">·</span>
     <span class="sb-context" x-html="sbContext()"></span>
     <span class="sb-sync" :class="'sb-sync-' + syncState" :title="syncTitle()">
@@ -441,6 +489,10 @@ function vaultApp() {
     folderSort: 'name',
     // copy link
     copyLinkDone: false,
+    // modal dialog
+    modal: { open: false, title: '', value: '', placeholder: '', error: '', confirmLabel: 'OK', onConfirm: null },
+    // context menu
+    ctxMenu: { open: false, x: 0, y: 0, items: [] },
 
     // ── init ──────────────────────────────────────
     async init() {
@@ -454,7 +506,15 @@ function vaultApp() {
           e.preventDefault()
           if (this.activePath) this.copyNoteLink()
         }
+        if ((e.ctrlKey || e.metaKey) && e.key === 'n' && !e.shiftKey) {
+          e.preventDefault()
+          if (this.activeVault) this.promptCreateNote()
+        }
+        if (e.key === 'Escape') {
+          this.ctxMenu.open = false
+        }
       })
+      window.addEventListener('click', () => { this.ctxMenu.open = false })
       this.$watch('searchOpen', v => {
         if (v) {
           this.searchQuery = ''
@@ -872,6 +932,130 @@ function vaultApp() {
       const updated = [{ vault, path, title }, ...filtered].slice(0, 7)
       localStorage.setItem(key, JSON.stringify(updated))
       this.recentFiles = updated
+    },
+
+    // ── modal helpers ─────────────────────────────
+    openModal({ title, value = '', placeholder = '', confirmLabel = 'OK', onConfirm }) {
+      this.modal = { open: true, title, value, placeholder, error: '', confirmLabel, onConfirm }
+      this.$nextTick(() => this.$refs.modalInput?.focus())
+    },
+
+    confirmModal() {
+      this.modal.error = ''
+      const val = this.modal.value.trim()
+      if (!val) { this.modal.error = 'Name cannot be empty.'; return }
+      // basic filename validation: no / \ : * ? " < > |
+      if (/[/\\:*?"<>|]/.test(val)) { this.modal.error = 'Invalid characters in name.'; return }
+      if (this.modal.onConfirm) this.modal.onConfirm(val)
+    },
+
+    // ── create note ───────────────────────────────
+    promptCreateNote() {
+      const prefix = this.cwd ? this.cwd + '/' : ''
+      this.openModal({
+        title: 'New note',
+        placeholder: 'Note name',
+        confirmLabel: 'Create',
+        onConfirm: async (name) => {
+          const path = prefix + name + (name.endsWith('.md') ? '' : '.md')
+          try {
+            const res = await fetch('/api/note?vault=' + encodeURIComponent(this.activeVault) +
+              '&path=' + encodeURIComponent(path), {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ raw: '' })
+            })
+            if (res.status === 409) { this.modal.error = 'A note with that name already exists.'; return }
+            if (!res.ok) { this.modal.error = 'Error creating note.'; return }
+            this.modal.open = false
+            await this.enterDir(this.activeVault, this.cwd)
+            await this.openNote(this.activeVault, path)
+            this.setMode('edit')
+          } catch(e) { this.modal.error = 'Network error.'; console.error('createNote:', e) }
+        }
+      })
+    },
+
+    // ── delete note ───────────────────────────────
+    async deleteNote(path) {
+      const name = path.split('/').pop().replace(/\.md$/, '')
+      if (!confirm('Delete "' + name + '"?\n\nIt will be moved to .trash/ and can be recovered manually.')) return
+      try {
+        const res = await fetch('/api/note?vault=' + encodeURIComponent(this.activeVault) +
+          '&path=' + encodeURIComponent(path), { method: 'DELETE' })
+        if (!res.ok) { alert('Error deleting note.'); return }
+        if (this.activePath === path) {
+          this.activePath = ''
+          this.noteRaw = ''
+          this.noteHtml = ''
+          this.noteFrontmatter = {}
+          this.backlinks = []
+        }
+        await this.enterDir(this.activeVault, this.cwd)
+        // remove from recents
+        const key = 'vr-recent-' + this.activeVault
+        const recent = JSON.parse(localStorage.getItem(key) || '[]').filter(r => r.path !== path)
+        localStorage.setItem(key, JSON.stringify(recent))
+        this.recentFiles = recent
+      } catch(e) { alert('Network error.'); console.error('deleteNote:', e) }
+    },
+
+    // ── rename/move note ──────────────────────────
+    promptRenameNote(path) {
+      const oldName = path.split('/').pop().replace(/\.md$/, '')
+      const dir = path.includes('/') ? path.substring(0, path.lastIndexOf('/')) : ''
+      this.openModal({
+        title: 'Rename note',
+        value: oldName,
+        placeholder: 'New name',
+        confirmLabel: 'Rename',
+        onConfirm: async (newName) => {
+          const newPath = (dir ? dir + '/' : '') + newName + (newName.endsWith('.md') ? '' : '.md')
+          if (newPath === path) { this.modal.open = false; return }
+          try {
+            const res = await fetch('/api/move?vault=' + encodeURIComponent(this.activeVault) +
+              '&from=' + encodeURIComponent(path) +
+              '&to=' + encodeURIComponent(newPath), { method: 'POST' })
+            if (res.status === 409) { this.modal.error = 'A note with that name already exists.'; return }
+            if (!res.ok) { this.modal.error = 'Error renaming note.'; return }
+            this.modal.open = false
+            await this.enterDir(this.activeVault, this.cwd)
+            if (this.activePath === path) {
+              await this.openNote(this.activeVault, newPath)
+            }
+          } catch(e) { this.modal.error = 'Network error.'; console.error('renameNote:', e) }
+        }
+      })
+    },
+
+    // ── context menu ──────────────────────────────
+    openCtxMenu(event, item) {
+      const items = []
+      if (!item.isDir) {
+        items.push({ label: 'Open', action: () => this.openNote(this.activeVault, item.path) })
+        items.push({ label: 'Rename', action: () => this.promptRenameNote(item.path) })
+        items.push({ label: 'Delete', danger: true, action: () => this.deleteNote(item.path) })
+      } else {
+        items.push({ label: 'Open folder', action: () => this.enterDir(this.activeVault, item.path) })
+        items.push({ label: 'New note here', action: () => {
+          const savedCwd = this.cwd
+          this.cwd = item.path
+          this.promptCreateNote()
+          // restore cwd if user cancels (handled by modal cancel)
+          const origOnConfirm = this.modal.onConfirm
+          this.modal.onConfirm = async (name) => {
+            await origOnConfirm(name)
+            // enterDir inside promptCreateNote handles cwd update
+          }
+        }})
+      }
+      // position near cursor but keep inside viewport
+      const margin = 8
+      const menuW = 160, menuH = items.length * 36 + 8
+      let x = event.clientX, y = event.clientY
+      if (x + menuW > window.innerWidth - margin) x = window.innerWidth - menuW - margin
+      if (y + menuH > window.innerHeight - margin) y = window.innerHeight - menuH - margin
+      this.ctxMenu = { open: true, x, y, items }
     },
 
     // ── vault icons ───────────────────────────────
