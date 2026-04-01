@@ -5,23 +5,22 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>VaultReader</title>
   <link rel="stylesheet" href="/style.css">
-  <!-- Alpine.js (local) -->
   <script defer src="/alpine.min.js"></script>
 </head>
 <body>
 
 <div id="app" x-data="vaultApp()" x-init="init()">
 
-  <!-- ─── Sidebar ─────────────────────────────── -->
+  <!-- ─── Sidebar (file commander) ─────────────── -->
   <div id="sidebar" :class="{ closed: !sidebarOpen }">
     <div class="sidebar-header">
       <h1>📓 VaultReader</h1>
-      <button class="btn-icon" @click="sidebarOpen = false" title="Close sidebar">✕</button>
+      <button class="btn-icon" @click="sidebarOpen = false" title="Close">✕</button>
     </div>
 
     <!-- Vault selector -->
     <div class="vault-selector">
-      <select x-model="activeVault" @change="loadVault(activeVault)">
+      <select x-model="activeVault" @change="enterDir(activeVault, '')">
         <option value="" disabled>Select vault…</option>
         <template x-for="v in vaults" :key="v">
           <option :value="v" x-text="v"></option>
@@ -29,12 +28,46 @@
       </select>
     </div>
 
-    <!-- File tree -->
-    <div class="tree-scroll">
-      <template x-if="tree.length === 0 && activeVault">
-        <p style="padding:12px 16px;font-size:13px;color:var(--text3)">No notes found.</p>
+    <!-- Breadcrumb -->
+    <div class="breadcrumb" x-show="activeVault">
+      <span class="bc-item" @click="enterDir(activeVault, '')" x-text="activeVault" style="cursor:pointer"></span>
+      <template x-for="(seg, i) in cwdSegments()" :key="i">
+        <span>
+          <span class="bc-sep">/</span>
+          <span class="bc-item" @click="enterDir(activeVault, cwdUpTo(i))" x-text="seg" style="cursor:pointer"></span>
+        </span>
       </template>
-      <div x-html="renderTree(tree, 0)"></div>
+    </div>
+
+    <!-- File listing (flat, file-commander style) -->
+    <div class="file-list">
+      <!-- Up dir -->
+      <div class="fl-item fl-up" x-show="cwd !== ''" @click="goUp()">
+        <span class="fl-icon">⬆</span>
+        <span class="fl-name">..</span>
+      </div>
+
+      <!-- Dirs first -->
+      <template x-for="item in currentDirs()" :key="item.path">
+        <div class="fl-item fl-dir" @click="enterDir(activeVault, item.path)">
+          <span class="fl-icon">📁</span>
+          <span class="fl-name" x-text="item.name"></span>
+        </div>
+      </template>
+
+      <!-- Files -->
+      <template x-for="item in currentFiles()" :key="item.path">
+        <div class="fl-item fl-file" :class="{ active: item.path === activePath }"
+             @click="openNote(activeVault, item.path)">
+          <span class="fl-icon">📄</span>
+          <span class="fl-name" x-text="item.name.replace(/\.md$/, '')"></span>
+        </div>
+      </template>
+
+      <!-- Empty -->
+      <template x-if="currentDirs().length === 0 && currentFiles().length === 0 && activeVault">
+        <div style="padding:14px;font-size:13px;color:var(--text3)">Empty folder</div>
+      </template>
     </div>
   </div>
 
@@ -57,13 +90,10 @@
         </template>
       </div>
 
-      <!-- Save status -->
       <span x-show="saveStatus" :class="'save-status ' + saveStatus" x-text="saveStatusText()"></span>
 
-      <!-- Ctrl+K search button -->
       <button class="btn-icon" @click="searchOpen = true" title="Search (Ctrl+K)">🔍</button>
 
-      <!-- Edit / Preview toggle -->
       <template x-if="activePath">
         <div class="btn-group">
           <button class="btn" :class="{ active: mode === 'preview' }" @click="setMode('preview')">Preview</button>
@@ -71,7 +101,7 @@
         </div>
       </template>
 
-      <button class="btn-icon" @click="backlinksOpen = !backlinksOpen" title="Toggle backlinks">⬅</button>
+      <button class="btn-icon" @click="backlinksOpen = !backlinksOpen" title="Backlinks">⬅</button>
     </div>
 
     <!-- Content area -->
@@ -99,9 +129,6 @@
         <div class="empty-state">
           <div class="icon">📄</div>
           <p>Select a note from the sidebar</p>
-          <template x-if="vaults.length === 0">
-            <p style="font-size:12px">No vaults found at <code>/vaults</code></p>
-          </template>
         </div>
       </template>
 
@@ -150,16 +177,13 @@
     <div class="search-box">
       <div class="search-input-wrap">
         <span>🔍</span>
-        <input
-          type="text"
-          placeholder="Search notes…"
+        <input type="text" placeholder="Search notes…"
           x-model="searchQuery"
           @input.debounce.300ms="doSearch()"
           @keydown.arrow-down.prevent="searchFocus = Math.min(searchFocus + 1, searchResults.length - 1)"
           @keydown.arrow-up.prevent="searchFocus = Math.max(searchFocus - 1, 0)"
           @keydown.enter.prevent="openSearchResult(searchFocus)"
-          x-ref="searchInput"
-          autocomplete="off">
+          x-ref="searchInput" autocomplete="off">
       </div>
       <div class="search-results">
         <template x-if="searchQuery && searchResults.length === 0">
@@ -184,7 +208,6 @@
 <!-- ─── CodeMirror 6 (local IIFE bundle) ─────── -->
 <script src="/codemirror.bundle.js"></script>
 <script>
-// CM is now window.CM (IIFE bundle)
 const { EditorView, keymap, lineNumbers } = CM
 const { EditorState } = CM
 const { defaultKeymap, history, historyKeymap, indentWithTab } = CM
@@ -197,12 +220,7 @@ window.__cmAPI = {
   view: null,
 
   create(content, onChange) {
-    // destroy existing
-    if (this.view) {
-      this.view.destroy()
-      this.view = null
-    }
-
+    if (this.view) { this.view.destroy(); this.view = null }
     const extensions = [
       history(),
       keymap.of([...defaultKeymap, ...historyKeymap, indentWithTab]),
@@ -214,37 +232,21 @@ window.__cmAPI = {
       }),
     ]
     if (prefersDark) extensions.push(oneDark)
-
     this.view = new EditorView({
-      state: EditorState.create({
-        doc: content,
-        extensions,
-      }),
+      state: EditorState.create({ doc: content, extensions }),
       parent: document.getElementById('cm-editor')
     })
-    return this.view
   },
 
   setContent(content) {
     if (!this.view) return
-    const current = this.view.state.doc.toString()
-    if (current === content) return
-    this.view.dispatch({
-      changes: { from: 0, to: current.length, insert: content }
-    })
+    const cur = this.view.state.doc.toString()
+    if (cur === content) return
+    this.view.dispatch({ changes: { from: 0, to: cur.length, insert: content } })
   },
 
-  getContent() {
-    if (!this.view) return ''
-    return this.view.state.doc.toString()
-  },
-
-  destroy() {
-    if (this.view) {
-      this.view.destroy()
-      this.view = null
-    }
-  }
+  getContent() { return this.view ? this.view.state.doc.toString() : '' },
+  destroy() { if (this.view) { this.view.destroy(); this.view = null } }
 }
 </script>
 
@@ -252,10 +254,12 @@ window.__cmAPI = {
 <script>
 function vaultApp() {
   return {
-    // state
     vaults: [],
     activeVault: '',
-    tree: [],
+    // flat list of all nodes in current vault
+    allNodes: [],
+    // current directory path ('' = root)
+    cwd: '',
     activePath: '',
     noteRaw: '',
     noteHtml: '',
@@ -270,12 +274,11 @@ function vaultApp() {
     searchFocus: 0,
     searchOpen: false,
     isDirty: false,
-    saveStatus: '',   // '', 'saving', 'saved', 'error'
+    saveStatus: '',
     saveTimer: null,
 
     // ── init ──────────────────────────────────────
     async init() {
-      // Ctrl+K global shortcut
       window.addEventListener('keydown', (e) => {
         if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
           e.preventDefault()
@@ -283,8 +286,6 @@ function vaultApp() {
           this.$nextTick(() => this.$refs.searchInput?.focus())
         }
       })
-
-      // watch searchOpen to focus input
       this.$watch('searchOpen', v => {
         if (v) {
           this.searchQuery = ''
@@ -293,47 +294,72 @@ function vaultApp() {
           this.$nextTick(() => this.$refs.searchInput?.focus())
         }
       })
-
       try {
         const res = await fetch('/api/vaults')
         this.vaults = await res.json()
         if (this.vaults.length > 0) {
           this.activeVault = this.vaults[0]
-          await this.loadVault(this.activeVault)
+          await this.enterDir(this.activeVault, '')
         }
-      } catch(e) {
-        console.error('init:', e)
-      }
+      } catch(e) { console.error('init:', e) }
     },
 
-    // ── load vault ────────────────────────────────
-    async loadVault(vault) {
-      if (!vault) return
+    // ── file commander navigation ──────────────────
+    async enterDir(vault, path) {
       this.activeVault = vault
-      this.tree = []
-      this.activePath = ''
-      this.noteRaw = ''
-      this.noteHtml = ''
-      this.noteFrontmatter = {}
-      this.backlinks = []
+      this.cwd = path
+      this.allNodes = []
       try {
         const res = await fetch('/api/tree?vault=' + encodeURIComponent(vault))
-        this.tree = await res.json()
-        // open first note
-        const first = this.findFirstNote(this.tree)
-        if (first) this.openNote(vault, first)
-      } catch(e) {
-        console.error('loadVault:', e)
-      }
+        const tree = await res.json()
+        // flatten tree into a single list keeping paths
+        this.allNodes = this.flattenTree(tree)
+      } catch(e) { console.error('enterDir:', e) }
     },
 
-    findFirstNote(nodes) {
+    // flatten recursive tree into flat array
+    flattenTree(nodes) {
+      const result = []
       for (const n of nodes) {
-        if (!n.isDir) return n.path
-        const found = this.findFirstNote(n.children || [])
-        if (found) return found
+        result.push(n)
+        if (n.isDir && n.children) {
+          result.push(...this.flattenTree(n.children))
+        }
       }
-      return null
+      return result
+    },
+
+    // items directly inside cwd
+    currentItems() {
+      return this.allNodes.filter(n => {
+        const p = n.path
+        const prefix = this.cwd ? this.cwd + '/' : ''
+        if (!p.startsWith(prefix)) return false
+        const rest = p.slice(prefix.length)
+        // direct child = no more slashes
+        return !rest.includes('/')
+      })
+    },
+
+    currentDirs()  { return this.currentItems().filter(n => n.isDir) },
+    currentFiles() { return this.currentItems().filter(n => !n.isDir) },
+
+    // breadcrumb segments for cwd
+    cwdSegments() {
+      if (!this.cwd) return []
+      return this.cwd.split('/')
+    },
+
+    // path up to segment index i (inclusive)
+    cwdUpTo(i) {
+      return this.cwdSegments().slice(0, i + 1).join('/')
+    },
+
+    goUp() {
+      if (!this.cwd) return
+      const parts = this.cwd.split('/')
+      parts.pop()
+      this.cwd = parts.join('/')
     },
 
     // ── open note ─────────────────────────────────
@@ -343,8 +369,15 @@ function vaultApp() {
       this.frontmatterOpen = false
       this.mode = 'preview'
       this.searchOpen = false
+
+      // navigate sidebar to the folder containing this note
+      const parts = path.split('/')
+      parts.pop()
+      this.cwd = parts.join('/')
+
       try {
-        const url = '/api/note?vault=' + encodeURIComponent(vault) + '&path=' + encodeURIComponent(path)
+        const url = '/api/note?vault=' + encodeURIComponent(vault) +
+                    '&path=' + encodeURIComponent(path)
         const res = await fetch(url)
         if (!res.ok) throw new Error('HTTP ' + res.status)
         const data = await res.json()
@@ -354,11 +387,8 @@ function vaultApp() {
         this.backlinks = data.backlinks || []
         this.isDirty = false
         this.saveStatus = ''
-        // destroy any existing editor
         if (window.__cmAPI) window.__cmAPI.destroy()
-      } catch(e) {
-        console.error('openNote:', e)
-      }
+      } catch(e) { console.error('openNote:', e) }
     },
 
     // ── mode switch ───────────────────────────────
@@ -376,16 +406,14 @@ function vaultApp() {
           }
         })
       } else {
-        // switching to preview — re-render from raw
         this.rerenderPreview()
       }
     },
 
     async rerenderPreview() {
-      // save first if dirty
       if (this.isDirty) await this.saveNow()
-      // reload from server to get fresh HTML (with wikilinks resolved)
-      const url = '/api/note?vault=' + encodeURIComponent(this.activeVault) + '&path=' + encodeURIComponent(this.activePath)
+      const url = '/api/note?vault=' + encodeURIComponent(this.activeVault) +
+                  '&path=' + encodeURIComponent(this.activePath)
       try {
         const res = await fetch(url)
         const data = await res.json()
@@ -405,7 +433,8 @@ function vaultApp() {
       if (!this.activePath || !this.isDirty) return
       this.saveStatus = 'saving'
       try {
-        const url = '/api/note?vault=' + encodeURIComponent(this.activeVault) + '&path=' + encodeURIComponent(this.activePath)
+        const url = '/api/note?vault=' + encodeURIComponent(this.activeVault) +
+                    '&path=' + encodeURIComponent(this.activePath)
         const res = await fetch(url, {
           method: 'PUT',
           headers: { 'Content-Type': 'text/plain; charset=utf-8' },
@@ -422,45 +451,7 @@ function vaultApp() {
     },
 
     saveStatusText() {
-      switch(this.saveStatus) {
-        case 'saving': return 'Saving…'
-        case 'saved':  return '✓ Saved'
-        case 'error':  return '✗ Error'
-        default:       return ''
-      }
-    },
-
-    // ── tree rendering ────────────────────────────
-    renderTree(nodes, depth) {
-      if (!nodes || nodes.length === 0) return ''
-      let html = ''
-      for (const node of nodes) {
-        const indent = depth * 14
-        const isActive = !node.isDir && node.path === this.activePath
-        if (node.isDir) {
-          const children = this.renderTree(node.children || [], depth + 1)
-          html += `<div class="tree-node">
-            <div class="tree-item" style="padding-left:${14 + indent}px"
-                 onclick="void(this.parentElement.querySelector('.tree-children').classList.toggle('hidden'))">
-              <span class="tree-icon">📁</span>
-              <span class="tree-label">${escapeHtml(node.name)}</span>
-            </div>
-            <div class="tree-children">${children}</div>
-          </div>`
-        } else {
-          const activeClass = isActive ? ' active' : ''
-          html += `<div class="tree-node">
-            <div class="tree-item${activeClass}" style="padding-left:${14 + indent}px"
-                 data-vault="${escapeHtml(this.activeVault)}"
-                 data-path="${escapeHtml(node.path)}"
-                 onclick="Alpine.evaluate(this.closest('[x-data]'), 'openNote($el.dataset.vault, $el.dataset.path)')">
-              <span class="tree-icon">📄</span>
-              <span class="tree-label">${escapeHtml(node.name)}</span>
-            </div>
-          </div>`
-        }
-      }
-      return html
+      return { saving: 'Saving…', saved: '✓ Saved', error: '✗ Error' }[this.saveStatus] || ''
     },
 
     // ── preview click (wikilinks) ─────────────────
@@ -476,25 +467,19 @@ function vaultApp() {
     // ── note title ────────────────────────────────
     noteTitle() {
       if (!this.activePath) return ''
-      const base = this.activePath.split('/').pop()
-      return base.replace(/\.md$/, '')
+      return this.activePath.split('/').pop().replace(/\.md$/, '')
     },
 
     // ── search ────────────────────────────────────
     async doSearch() {
-      if (!this.searchQuery.trim()) {
-        this.searchResults = []
-        return
-      }
+      if (!this.searchQuery.trim()) { this.searchResults = []; return }
       try {
         const url = '/api/search?q=' + encodeURIComponent(this.searchQuery) +
                     '&vault=' + encodeURIComponent(this.activeVault)
         const res = await fetch(url)
         this.searchResults = await res.json()
         this.searchFocus = 0
-      } catch(e) {
-        console.error('search:', e)
-      }
+      } catch(e) { console.error('search:', e) }
     },
 
     openSearchResult(idx) {
@@ -504,15 +489,6 @@ function vaultApp() {
       this.openNote(r.vault, r.path)
     },
   }
-}
-
-function escapeHtml(s) {
-  return String(s)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;')
 }
 </script>
 
