@@ -921,9 +921,7 @@ mark {
 .btn-newnote { color: var(--accent); }
 .btn-copylink.copied { color: #22c55e; }
 .new-dropdown {
-  position: absolute;
-  top: calc(100% + 4px);
-  left: 0;
+  position: fixed;
   z-index: 700;
   background: var(--bg);
   border: 1px solid var(--border);

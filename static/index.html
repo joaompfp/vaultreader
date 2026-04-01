@@ -112,13 +112,15 @@
       <span x-show="saveStatus" :class="'save-status ' + saveStatus" x-text="saveStatusText()"></span>
 
       <template x-if="activeVault">
-        <div class="btn-new-wrap" style="position:relative">
-          <button class="btn-icon btn-newnote" @click="newMenuOpen = !newMenuOpen" title="New… (Ctrl+N)">
+        <div class="btn-new-wrap">
+          <button class="btn-icon btn-newnote" @click.stop="toggleNewMenu($event)" title="New… (Ctrl+N)">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
               <path d="M12 5v14M5 12h14"/>
             </svg>
           </button>
-          <div class="new-dropdown" x-show="newMenuOpen" @click.outside="newMenuOpen=false" style="display:none">
+          <div class="new-dropdown" x-show="newMenuOpen"
+               :style="'top:'+newMenuY+'px;left:'+newMenuX+'px'"
+               @click.stop @click.outside="newMenuOpen=false" style="display:none">
             <button class="new-dropdown-item" @click="newMenuOpen=false; promptCreateNote()">
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
               New note
@@ -503,6 +505,8 @@ function vaultApp() {
     ctxMenu: { open: false, x: 0, y: 0, items: [] },
     // new item dropdown
     newMenuOpen: false,
+    newMenuX: 0,
+    newMenuY: 0,
 
     // ── init ──────────────────────────────────────
     async init() {
@@ -641,8 +645,14 @@ function vaultApp() {
       })
     },
 
-    currentDirs()  { return this.currentItems().filter(n => n.isDir) },
-    currentFiles() { return this.currentItems().filter(n => !n.isDir) },
+    currentDirs()  {
+      return this.currentItems().filter(n => n.isDir)
+        .sort((a,b) => a.name.localeCompare(b.name, undefined, {sensitivity:'base'}))
+    },
+    currentFiles() {
+      return this.currentItems().filter(n => !n.isDir)
+        .sort((a,b) => a.name.localeCompare(b.name, undefined, {sensitivity:'base'}))
+    },
 
     // sorted items for the main-pane folder view (dirs first, then files)
     sortedFolderItems() {
@@ -945,6 +955,20 @@ function vaultApp() {
       this.recentFiles = updated
     },
 
+    // ── new menu toggle ───────────────────────────
+    toggleNewMenu(event) {
+      if (this.newMenuOpen) { this.newMenuOpen = false; return }
+      const rect = event.currentTarget.getBoundingClientRect()
+      const menuW = 170, menuH = 84
+      let x = rect.left
+      let y = rect.bottom + 4
+      if (x + menuW > window.innerWidth - 8) x = window.innerWidth - menuW - 8
+      if (y + menuH > window.innerHeight - 8) y = rect.top - menuH - 4
+      this.newMenuX = x
+      this.newMenuY = y
+      this.newMenuOpen = true
+    },
+
     // ── modal helpers ─────────────────────────────
     openModal({ title, value = '', placeholder = '', confirmLabel = 'OK', onConfirm }) {
       this.modal = { open: true, title, value, placeholder, error: '', confirmLabel, onConfirm }
@@ -1107,17 +1131,18 @@ function vaultApp() {
     // ── vault icons ───────────────────────────────
     vaultIcon(vault) {
       const icons = {
-        // Pessoal — flat pink person silhouette: circle head + body arc
+        // Pessoal — crisp person silhouette in crimson
         pessoal: `<svg viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg">
-          <circle cx="16" cy="10" r="5" fill="#ec4899"/>
-          <path d="M6 28c0-5.52 4.48-10 10-10s10 4.48 10 10z" fill="#ec4899"/>
+          <circle cx="16" cy="10" r="5.5" fill="#b91c1c"/>
+          <path d="M4 29c0-6.63 5.37-12 12-12s12 5.37 12 12" fill="#b91c1c"/>
         </svg>`,
 
-        // Work — flat blue briefcase: rect body + handle arch + centre divider
+        // Work — clean briefcase in crimson
         work: `<svg viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg">
-          <path d="M12 11V8a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v3" fill="none" stroke="#3b82f6" stroke-width="3" stroke-linejoin="round"/>
-          <rect x="3" y="11" width="26" height="16" rx="2" fill="#3b82f6"/>
-          <rect x="3" y="18" width="26" height="2" fill="#ffffff" opacity="0.3"/>
+          <path d="M11 10V8.5A1.5 1.5 0 0 1 12.5 7h7A1.5 1.5 0 0 1 21 8.5V10" fill="none" stroke="#b91c1c" stroke-width="2.5" stroke-linecap="round"/>
+          <rect x="3" y="10" width="26" height="17" rx="2.5" fill="#b91c1c"/>
+          <line x1="3" y1="17" x2="29" y2="17" stroke="#fff" stroke-width="1.5" opacity="0.35"/>
+          <rect x="13" y="15" width="6" height="4" rx="1" fill="#fff" opacity="0.55"/>
         </svg>`,
 
         // PCP — use real logo
@@ -1126,9 +1151,10 @@ function vaultApp() {
         // SOS Racismo — hand logo in crimson #9c1c1f
         sosracismo: `<img src="/sos-hand.svg" style="width:100%;height:100%;object-fit:contain;filter:brightness(0) saturate(100%) invert(13%) sepia(85%) saturate(2000%) hue-rotate(340deg) brightness(90%)" alt="SOS">`,
 
-        // Projects — flat emerald wrench silhouette
+        // Projects — gear/cog in crimson
         projects: `<svg viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg">
-          <path d="M26.5 5.5a5.5 5.5 0 0 0-7.07 7.07L6.5 25.5a1.5 1.5 0 0 0 0 2.12 1.5 1.5 0 0 0 2.12 0L21.5 14.7a5.5 5.5 0 0 0 7.07-7.07l-3.18 3.18-2.12-2.12 3.18-3.18z" fill="#10b981"/>
+          <path d="M13.2 3.5l-.7 2.6a9 9 0 0 0-2.3 1.3L7.6 6.5 4.5 11.6l2 1.9a9.1 9.1 0 0 0 0 2.7l-2 1.9 3.1 5 2.6-.9a9 9 0 0 0 2.3 1.3l.7 2.6h6.1l.7-2.6a9 9 0 0 0 2.3-1.3l2.6.9 3.1-5-2-1.9a9.1 9.1 0 0 0 0-2.7l2-1.9-3.1-5-2.6.9a9 9 0 0 0-2.3-1.3l-.7-2.6z" fill="#b91c1c"/>
+          <circle cx="16" cy="16" r="4" fill="#fff" opacity="0.9"/>
         </svg>`,
       }
       const key = vault.toLowerCase().replace(/[^a-z]/g, '')
