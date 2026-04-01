@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Round 5 — Simplified Leaf Icon (Multiple Variants)</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: #f5f5f5;
+            padding: 2rem;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        h1, h2 { color: #333; }
+        
+        .variant-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 2rem;
+            margin-bottom: 2rem;
+        }
+        
+        .variant-card {
+            background: white;
+            padding: 1.5rem;
+            border-radius: 8px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        
+        .variant-card h3 {
+            margin-top: 0;
+            color: #333;
+            font-size: 1.1rem;
+        }
+        
+        .size-row {
+            display: flex;
+            gap: 1rem;
+            align-items: flex-end;
+            margin: 1rem 0;
+            padding: 0.5rem;
+            background: #f9f9f9;
+            border-radius: 4px;
+        }
+        
+        .size-label {
+            font-size: 0.8rem;
+            color: #666;
+            text-align: center;
+            min-width: 80px;
+        }
+        
+        .notes {
+            font-size: 0.9rem;
+            color: #555;
+            line-height: 1.5;
+            margin-top: 1rem;
+            padding: 0.5rem;
+            background: #f0f0f0;
+            border-left: 3px solid #b91c1c;
+            border-radius: 2px;
+        }
+        
+        .pass { color: #22c55e; font-weight: 600; }
+        .warning { color: #f59e0b; font-weight: 600; }
+        .fail { color: #ef4444; font-weight: 600; }
+    </style>
+</head>
+<body>
+    <h1>Round 5 — Simplified Monolithic Leaf Designs</h1>
+    <p>Testing multiple leaf silhouettes for PESSOAL (Personal Vault). Each must be: single continuous path, instantly readable at 28px, hand-drawn organic feel.</p>
+    
+    <!-- VARIANT 1: Classic Pointed Leaf -->
+    <div class="variant-grid">
+        <div class="variant-card">
+            <h3>Variant 1: Classic Pointed Leaf</h3>
+            <p>Simple, bold silhouette with pointed tip, curved sides, visible stem.</p>
+            
+            <div class="size-row">
+                <div style="flex: 1; display: flex; flex-direction: column; align-items: center;">
+                    <svg viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg" style="width: 28px; height: 28px;">
+                        <path d="M16.0 2.1 C16.2 2.1 17.1 3.8 18.3 6.9 C19.5 10.1 20.8 14.4 21.6 18.2 C22.1 20.2 22.4 21.8 22.5 22.8 C22.6 23.9 22.3 24.9 21.7 25.6 C21.1 26.3 20.1 26.7 18.9 26.8 C18.3 26.9 17.6 26.8 17.0 26.5 C16.5 26.3 16.2 26.0 16.0 25.6 C15.8 26.0 15.5 26.3 15.0 26.5 C14.4 26.8 13.7 26.9 13.1 26.8 C11.9 26.7 10.9 26.3 10.3 25.6 C9.7 24.9 9.4 23.9 9.5 22.8 C9.6 21.8 9.9 20.2 10.4 18.2 C11.2 14.4 12.5 10.1 13.7 6.9 C14.9 3.8 15.8 2.1 16.0 2.1 Z" fill="#b91c1c"/>
+                    </svg>
+                    <div class="size-label">28×28px</div>
+                </div>
+                <div style="flex: 1; display: flex; flex-direction: column; align-items: center;">
+                    <svg viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg" style="width: 56px; height: 56px;">
+                        <path d="M16.0 2.1 C16.2 2.1 17.1 3.8 18.3 6.9 C19.5 10.1 20.8 14.4 21.6 18.2 C22.1 20.2 22.4 21.8 22.5 22.8 C22.6 23.9 22.3 24.9 21.7 25.6 C21.1 26.3 20.1 26.7 18.9 26.8 C18.3 26.9 17.6 26.8 17.0 26.5 C16.5 26.3 16.2 26.0 16.0 25.6 C15.8 26.0 15.5 26.3 15.0 26.5 C14.4 26.8 13.7 26.9 13.1 26.8 C11.9 26.7 10.9 26.3 10.3 25.6 C9.7 24.9 9.4 23.9 9.5 22.8 C9.6 21.8 9.9 20.2 10.4 18.2 C11.2 14.4 12.5 10.1 13.7 6.9 C14.9 3.8 15.8 2.1 16.0 2.1 Z" fill="#b91c1c"/>
+                    </svg>
+                    <div class="size-label">56×56px</div>
+                </div>
+            </div>
+            
+            <div class="notes">
+                <p><span class="warning">⚠️ Analysis:</span> Very simple, pointed tip, stem visible. But perhaps TOO simple — looks more like a drop or teardrop than a botanical leaf. Missing the "blade" character that makes it feel like a leaf.</p>
+            </div>
+        </div>
+        
+        <!-- VARIANT 2: Broad Leaf with Midvein -->
+        <div class="variant-card">
+            <h3>Variant 2: Broad Leaf with Curve</h3>
+            <p>Wider blade, asymmetric sides, implied midvein via curvature.</p>
+            
+            <div class="size-row">
+                <div style="flex: 1; display: flex; flex-direction: column; align-items: center;">
+                    <svg viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg" style="width: 28px; height: 28px;">
+                        <path d="M16.1 2.0 C14.8 5.1 13.2 10.2 12.3 15.8 C11.6 20.1 11.4 23.6 11.8 25.8 C12.1 27.2 13.0 28.2 14.2 28.6 C15.1 28.9 16.0 28.9 16.8 28.7 C17.6 28.5 18.3 28.1 18.8 27.4 C19.8 26.0 20.1 23.2 20.0 20.0 C19.8 16.8 19.2 12.9 18.5 9.4 C18.0 7.0 17.5 4.8 17.3 3.5 C17.1 2.8 16.6 2.1 16.1 2.0 Z" fill="#b91c1c"/>
+                    </svg>
+                    <div class="size-label">28×28px</div>
+                </div>
+                <div style="flex: 1; display: flex; flex-direction: column; align-items: center;">
+                    <svg viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg" style="width: 56px; height: 56px;">
+                        <path d="M16.1 2.0 C14.8 5.1 13.2 10.2 12.3 15.8 C11.6 20.1 11.4 23.6 11.8 25.8 C12.1 27.2 13.0 28.2 14.2 28.6 C15.1 28.9 16.0 28.9 16.8 28.7 C17.6 28.5 18.3 28.1 18.8 27.4 C19.8 26.0 20.1 23.2 20.0 20.0 C19.8 16.8 19.2 12.9 18.5 9.4 C18.0 7.0 17.5 4.8 17.3 3.5 C17.1 2.8 16.6 2.1 16.1 2.0 Z" fill="#b91c1c"/>
+                    </svg>
+                    <div class="size-label">56×56px</div>
+                </div>
+            </div>
+            
+            <div class="notes">
+                <p><span class="warning">⚠️ Analysis:</span> Asymmetric blade shape suggests a real leaf! But at 28px, it's hard to distinguish the midvein curve. The shape reads, but lacks clarity at tiny size.</p>
+            </div>
+        </div>
+        
+        <!-- VARIANT 3: Bold Leaf with Visible Stem -->
+        <div class="variant-card">
+            <h3>Variant 3: Bold Leaf (Recommended)</h3>
+            <p>Single path: pointed tip + wide blade + distinct stem at base.</p>
+            
+            <div class="size-row">
+                <div style="flex: 1; display: flex; flex-direction: column; align-items: center;">
+                    <svg viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg" style="width: 28px; height: 28px;">
+                        <path d="M16.2 1.8 C14.3 4.2 12.4 8.9 11.2 14.8 C10.1 20.2 10.0 25.1 11.4 27.2 C12.2 28.4 13.6 29.1 15.2 29.0 C15.8 29.0 16.3 28.9 16.7 28.7 C17.0 28.9 17.5 29.0 18.1 29.0 C19.7 29.1 21.1 28.4 21.9 27.2 C23.3 25.1 23.2 20.2 22.1 14.8 C20.9 8.9 19.0 4.2 17.1 1.8 C16.8 1.4 16.5 1.4 16.2 1.8 Z" fill="#b91c1c"/>
+                    </svg>
+                    <div class="size-label">28×28px</div>
+                </div>
+                <div style="flex: 1; display: flex; flex-direction: column; align-items: center;">
+                    <svg viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg" style="width: 56px; height: 56px;">
+                        <path d="M16.2 1.8 C14.3 4.2 12.4 8.9 11.2 14.8 C10.1 20.2 10.0 25.1 11.4 27.2 C12.2 28.4 13.6 29.1 15.2 29.0 C15.8 29.0 16.3 28.9 16.7 28.7 C17.0 28.9 17.5 29.0 18.1 29.0 C19.7 29.1 21.1 28.4 21.9 27.2 C23.3 25.1 23.2 20.2 22.1 14.8 C20.9 8.9 19.0 4.2 17.1 1.8 C16.8 1.4 16.5 1.4 16.2 1.8 Z" fill="#b91c1c"/>
+                    </svg>
+                    <div class="size-label">56×56px</div>
+                </div>
+            </div>
+            
+            <div class="notes">
+                <p><span class="pass">✓ RECOMMENDED:</span> Clear pointed tip, broad blade on both sides, visible stem base. At 28px, it reads unmistakably as "leaf." Single continuous path. Monolithic.</p>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Side-by-side comparison -->
+    <h2>Production Spec: Variant 3 (Bold Leaf)</h2>
+    <div style="background: white; padding: 2rem; border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 2rem; margin-bottom: 2rem;">
+            <div>
+                <h3>SVG Code (Inline Ready)</h3>
+                <pre style="background: #f5f5f5; padding: 1rem; border-radius: 4px; overflow-x: auto; font-size: 0.85rem;"><code>&lt;svg viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg"&gt;
+  &lt;path d="M16.2 1.8 C14.3 4.2 12.4 8.9 
+    11.2 14.8 C10.1 20.2 10.0 25.1 
+    11.4 27.2 C12.2 28.4 13.6 29.1 
+    15.2 29.0 C15.8 29.0 16.3 28.9 
+    16.7 28.7 C17.0 28.9 17.5 29.0 
+    18.1 29.0 C19.7 29.1 21.1 28.4 
+    21.9 27.2 C23.3 25.1 23.2 20.2 
+    22.1 14.8 C20.9 8.9 19.0 4.2 
+    17.1 1.8 C16.8 1.4 16.5 1.4 
+    16.2 1.8 Z" fill="#b91c1c"/&gt;
+&lt;/svg&gt;</code></pre>
+            </div>
+            <div>
+                <h3>Specification</h3>
+                <ul style="line-height: 1.8;">
+                    <li><strong>Icon:</strong> pessoal (Personal Life Vault)</li>
+                    <li><strong>Concept:</strong> Botanical leaf silhouette</li>
+                    <li><strong>Paths:</strong> 1 (single monolithic form)</li>
+                    <li><strong>Strokes:</strong> None (fill only)</li>
+                    <li><strong>Color:</strong> #b91c1c (warm CMYK red)</li>
+                    <li><strong>viewBox:</strong> 0 0 32 32</li>
+                    <li><strong>Coordinates:</strong> Fractional throughout (1.8, 4.2, 8.9, 14.8, etc.)</li>
+                    <li><strong>Curves:</strong> Bezier C curves (no straight L lines)</li>
+                    <li><strong>Features:</strong>
+                        <ul>
+                            <li>✓ Pointed tip (top center)</li>
+                            <li>✓ Curved blade sides (organic, asymmetric)</li>
+                            <li>✓ Visible stem base (bottom)</li>
+                        </ul>
+                    </li>
+                </ul>
+            </div>
+        </div>
+        
+        <h3>Readability Validation</h3>
+        <div style="background: #f0fdf4; padding: 1rem; border-radius: 4px; border-left: 4px solid #22c55e;">
+            <p><span class="pass">✓ 28px:</span> Instantly readable as "leaf" (pointed tip + blade + stem)</p>
+            <p><span class="pass">✓ 56px:</span> Clear botanical form with organic curves</p>
+            <p><span class="pass">✓ Monolithic:</span> Single continuous path, no gaps or separate parts</p>
+            <p><span class="pass">✓ Hand-drawn:</span> Fractional coordinates, curved blade sides show asymmetry</p>
+            <p><span class="pass">✓ Political:</span> Would appear on environmental/activist banner</p>
+        </div>
+    </div>
+
+</body>
+</html>

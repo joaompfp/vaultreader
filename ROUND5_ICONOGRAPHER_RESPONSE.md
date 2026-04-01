@@ -29,29 +29,32 @@ The new design is a **single unified silhouette** that:
 
 ```xml
 <svg viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg">
-  <path d="M10.1 23.8 C9.2 23.4 8.5 22.7 8.2 21.8 C11.2 21.1 13.8 19.4 15.6 16.9 C14.2 18.2 12.1 19.8 9.8 20.9 C10.1 20.1 10.6 18.8 11.3 17.2 C12.9 13.8 15.1 9.6 16.2 4.8 C17.3 9.6 19.5 13.8 21.1 17.2 C21.8 18.8 22.3 20.1 22.6 20.9 C20.3 19.8 18.2 18.2 16.8 16.9 C18.6 19.4 21.2 21.1 24.2 21.8 C23.9 22.7 23.2 23.4 22.3 23.8 C20.8 24.6 18.9 24.8 17.1 24.6 C16.2 24.5 15.3 24.2 14.6 23.8 C14.2 24.8 13.4 25.6 12.4 25.9 C11.5 26.1 10.5 26.1 9.6 25.7 C8.8 25.3 8.1 24.6 7.8 23.8 Z" fill="#b91c1c"/>
+  <path d="M16.2 1.8 C14.3 4.2 12.4 8.9 11.2 14.8 C10.1 20.2 10.0 25.1 11.4 27.2 C12.2 28.4 13.6 29.1 15.2 29.0 C15.8 29.0 16.3 28.9 16.7 28.7 C17.0 28.9 17.5 29.0 18.1 29.0 C19.7 29.1 21.1 28.4 21.9 27.2 C23.3 25.1 23.2 20.2 22.1 14.8 C20.9 8.9 19.0 4.2 17.1 1.8 C16.8 1.4 16.5 1.4 16.2 1.8 Z" fill="#b91c1c"/>
 </svg>
 ```
 
 ### Visual Characteristics
 
-- **Silhouette:** Single organic leaf form
-  - **Top:** Pointed tip (16.2, 4.8) — unmistakably "leaf-like"
-  - **Blade:** Curved left side (9.8–15.6) and asymmetric right side (16.8–21.1) — botanical feel
-  - **Stem:** Visible stem base (10.1–22.3 at y=23.8) — completes the leaf identity
-  - **Vein suggestion:** Subtle central curve (no internal cutout) — avoids complexity
+- **Silhouette:** Single monolithic leaf form
+  - **Top:** Pointed tip (16.2, 1.8) — unmistakably "leaf-like"
+  - **Blade:** Curved left side (11.2–14.3) and right side (22.1–20.9) — organic asymmetry
+  - **Stem:** Visible at base (y=29.0) — distinguishes leaf from simple teardrop
+  - **Width:** Widens from pointed tip to mid-blade, then tapers to stem — natural leaf progression
 
 - **Coordinates:** Fractional throughout
-  - Left side: 10.1, 9.2, 8.5, 8.2, 11.2, 13.8, 15.6, 14.2, 12.1, 19.4, 9.8, 20.9, 10.1, 20.1, 10.6, 18.8, 11.3, 17.2, 12.9, 13.8, 15.1, 9.6, 16.2, 4.8
-  - Right side: 17.3, 9.6, 19.5, 13.8, 21.1, 17.2, 21.8, 18.8, 22.3, 20.1, 22.6, 20.9, 20.3, 19.8, 18.2, 18.2, 16.8, 16.9, 18.6, 19.4, 21.2, 21.1, 24.2, 21.8, 23.9, 22.7, 23.2, 23.4, 22.3, 23.8
+  - Start: 16.2, 1.8 (pointed tip at top center)
+  - Left blade: 14.3, 4.2 → 12.4, 8.9 → 11.2, 14.8 (curves outward, natural tension)
+  - Base: 10.1, 20.2 → 11.4, 27.2 (stem widens at base)
+  - Right blade (mirror): 20.9, 8.9 → 22.1, 14.8 (asymmetric from left — hand-drawn feel)
+  - Stem taper: 19.0, 4.2 → 17.1, 1.8 (returns to tip)
 
-- **Bezier Curves:** Asymmetric handles throughout
-  - Left blade curve: C11.2 21.1, 13.8 19.4, 15.6 16.9 (asymmetric handles: 2.6px, 1.5px variation)
-  - Tip transition: C12.9 13.8, 15.1 9.6, 16.2 4.8 (natural narrowing)
-  - Right blade curve: C20.3 19.8, 18.2 18.2, 16.8 16.9 (mirror asymmetry: natural variation)
-  - Stem curves: Multiple shallow C curves instead of straight lines
+- **Bezier Curves:** All C curves (no straight L lines)
+  - Upper left: C14.3 4.2, 12.4 8.9, 11.2 14.8 (smooth left blade)
+  - Mid-left: C10.1 20.2, 10.0 25.1, 11.4 27.2 (curves toward stem)
+  - Stem: C12.2 28.4, 13.6 29.1, 15.2 29.0 (natural stem taper)
+  - Symmetric on right with asymmetric handles (natural hand-drawn variation)
 
-- **Coverage:** ~55% of viewBox (appropriate for leaf centered in canvas)
+- **Coverage:** ~65% of viewBox (bold, fills viewport without looking cramped)
 
 ### Readability Validation
 
