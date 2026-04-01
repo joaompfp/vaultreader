@@ -118,6 +118,23 @@
         </div>
       </template>
 
+      <template x-if="activePath">
+        <button class="btn-icon btn-copylink" :class="{ copied: copyLinkDone }" @click="copyNoteLink()"
+                :title="copyLinkDone ? 'Copied!' : 'Copy wikilink'">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <template x-if="!copyLinkDone">
+              <g>
+                <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+              </g>
+            </template>
+            <template x-if="copyLinkDone">
+              <polyline points="20 6 9 17 4 12"/>
+            </template>
+          </svg>
+        </button>
+      </template>
+
       <button class="btn-icon btn-backlinks" :class="{ active: backlinksOpen }" @click="backlinksOpen = !backlinksOpen" title="Backlinks (incoming links)">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
@@ -414,6 +431,8 @@ function vaultApp() {
     syncMessage: '',
     // folder view
     folderSort: 'name',
+    // copy link
+    copyLinkDone: false,
 
     // ── init ──────────────────────────────────────
     async init() {
@@ -694,6 +713,26 @@ function vaultApp() {
           this.openNote(d.vault, d.path)
         }
       } catch(e) { console.error('resolve wikilink:', e) }
+    },
+
+    // ── copy wikilink ─────────────────────────────
+    async copyNoteLink() {
+      const name = this.activePath.split('/').pop().replace(/\.md$/, '')
+      const link = '[[' + name + ']]'
+      try {
+        await navigator.clipboard.writeText(link)
+      } catch(e) {
+        // fallback for older mobile browsers
+        const ta = document.createElement('textarea')
+        ta.value = link
+        ta.style.position = 'fixed'; ta.style.opacity = '0'
+        document.body.appendChild(ta)
+        ta.focus(); ta.select()
+        document.execCommand('copy')
+        document.body.removeChild(ta)
+      }
+      this.copyLinkDone = true
+      setTimeout(() => { this.copyLinkDone = false }, 2000)
     },
 
     // ── status bar context ────────────────────────

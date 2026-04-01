@@ -182,6 +182,8 @@ a:hover { text-decoration: underline; }
   z-index: 199;
   cursor: pointer;
 }
+.btn-copylink { transition: color var(--transition); }
+.btn-copylink.copied { color: #22c55e; }
 .btn-backlinks { position: relative; }
 .bl-badge {
   position: absolute;
