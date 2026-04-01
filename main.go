@@ -41,6 +41,8 @@ type TreeNode struct {
 	Name     string      `json:"name"`
 	Path     string      `json:"path"`
 	IsDir    bool        `json:"isDir"`
+	MTime    int64       `json:"mtime"`
+	Size     int64       `json:"size"`
 	Children []*TreeNode `json:"children,omitempty"`
 }
 
@@ -373,19 +375,31 @@ func buildTree(root, current string) ([]*TreeNode, error) {
 	for _, e := range dirs {
 		rel, _ := filepath.Rel(root, filepath.Join(current, e.Name()))
 		children, _ := buildTree(root, filepath.Join(current, e.Name()))
+		var mtime int64
+		if info, err := e.Info(); err == nil {
+			mtime = info.ModTime().Unix()
+		}
 		nodes = append(nodes, &TreeNode{
 			Name:     e.Name(),
 			Path:     rel,
 			IsDir:    true,
+			MTime:    mtime,
 			Children: children,
 		})
 	}
 	for _, e := range files {
 		rel, _ := filepath.Rel(root, filepath.Join(current, e.Name()))
+		var mtime, size int64
+		if info, err := e.Info(); err == nil {
+			mtime = info.ModTime().Unix()
+			size = info.Size()
+		}
 		nodes = append(nodes, &TreeNode{
 			Name:  e.Name(),
 			Path:  rel,
 			IsDir: false,
+			MTime: mtime,
+			Size:  size,
 		})
 	}
 	return nodes, nil

@@ -685,6 +685,74 @@ mark {
 .note-missing { padding: 2rem; color: var(--text2); font-style: italic; }
 .note-missing p { margin: 0.5rem 0; }
 
+/* ── Folder view (main pane) ─────────────────── */
+.folder-view {
+  padding: 20px 24px;
+  max-width: 800px;
+  margin: 0 auto;
+}
+.fv-section { margin-bottom: 28px; }
+.fv-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+}
+.fv-title {
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  color: var(--text3);
+  flex: 1;
+}
+.fv-sort-btns { display: flex; gap: 2px; }
+.fv-sort-btn {
+  font-size: 11px;
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text3);
+  cursor: pointer;
+  transition: all var(--transition);
+}
+.fv-sort-btn:hover { background: var(--bg3); color: var(--text); }
+.fv-sort-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+.fv-list { display: flex; flex-direction: column; gap: 1px; }
+.fv-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 8px;
+  border-radius: 5px;
+  cursor: pointer;
+  transition: background var(--transition);
+  min-width: 0;
+}
+.fv-item:hover { background: var(--bg3); }
+.fv-icon { font-size: 10px; color: var(--text3); flex-shrink: 0; width: 14px; }
+.fv-item-dir .fv-icon { color: var(--accent); }
+.fv-name {
+  flex: 1;
+  font-size: 14px;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.fv-item-dir .fv-name { font-weight: 500; }
+.fv-meta {
+  font-size: 11px;
+  color: var(--text3);
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+.fv-vault { color: var(--accent); opacity: .7; }
+.fv-empty { padding: 16px 8px; font-size: 13px; color: var(--text3); font-style: italic; }
+
 /* ── Status bar ──────────────────────────────── */
 #status-bar {
   position: fixed;

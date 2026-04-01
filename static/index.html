@@ -30,7 +30,7 @@
         <button class="vault-btn"
                 :class="{ active: activeVault === v }"
                 :title="v.charAt(0).toUpperCase() + v.slice(1)"
-                @click="enterDir(v, '')">
+                @click="enterDir(v, ''); activePath = ''">
           <span class="vault-btn-icon" x-html="vaultIcon(v)"></span>
         </button>
       </template>
@@ -147,12 +147,12 @@
         </div>
       </div>
 
-      <!-- Empty state -->
-      <template x-if="!activePath">
+      <!-- No vault selected → welcome + recents -->
+      <template x-if="!activePath && !activeVault">
         <div class="empty-state">
           <div class="icon">📄</div>
           <template x-if="recentFiles.length === 0">
-            <p>Select a note from the sidebar</p>
+            <p>Select a vault to get started</p>
           </template>
           <template x-if="recentFiles.length > 0">
             <div class="recent-files">
@@ -163,6 +163,80 @@
                   <span class="recent-title" x-text="r.title || r.path.split('/').pop().replace(/\.md$/, '')"></span>
                 </div>
               </template>
+            </div>
+          </template>
+        </div>
+      </template>
+
+      <!-- Vault root selected but no note → show recents if at root, folder view otherwise -->
+      <template x-if="!activePath && activeVault">
+        <div class="folder-view">
+          <!-- vault root: show recents + folder list -->
+          <template x-if="cwd === ''">
+            <div>
+              <template x-if="recentFiles.length > 0">
+                <div class="fv-section">
+                  <div class="fv-header">
+                    <span class="fv-title">Recent</span>
+                  </div>
+                  <div class="fv-list">
+                    <template x-for="r in recentFiles" :key="r.vault + r.path">
+                      <div class="fv-item fv-item-note" @click="openNote(r.vault, r.path)">
+                        <span class="fv-icon">◈</span>
+                        <span class="fv-name" x-text="r.title || r.path.split('/').pop().replace(/\.md$/, '')"></span>
+                        <span class="fv-meta fv-vault" x-text="r.vault"></span>
+                      </div>
+                    </template>
+                  </div>
+                </div>
+              </template>
+              <div class="fv-section">
+                <div class="fv-header">
+                  <span class="fv-title" x-text="activeVault"></span>
+                  <div class="fv-sort-btns">
+                    <button class="fv-sort-btn" :class="{active: folderSort==='name'}" @click="folderSort='name'">Name</button>
+                    <button class="fv-sort-btn" :class="{active: folderSort==='date'}" @click="folderSort='date'">Date</button>
+                    <button class="fv-sort-btn" :class="{active: folderSort==='size'}" @click="folderSort='size'">Size</button>
+                  </div>
+                </div>
+                <div class="fv-list">
+                  <template x-for="item in sortedFolderItems()" :key="item.path">
+                    <div class="fv-item" :class="item.isDir ? 'fv-item-dir' : 'fv-item-note'"
+                         @click="item.isDir ? (enterDir(activeVault, item.path), sidebarOpen=true) : openNote(activeVault, item.path)">
+                      <span class="fv-icon" x-text="item.isDir ? '▶' : '◈'"></span>
+                      <span class="fv-name" x-text="item.isDir ? item.name : item.name.replace(/\.md$/,'')"></span>
+                      <span class="fv-meta" x-text="fvMeta(item)"></span>
+                    </div>
+                  </template>
+                </div>
+              </div>
+            </div>
+          </template>
+
+          <!-- inside a subfolder: just the folder contents -->
+          <template x-if="cwd !== ''">
+            <div class="fv-section">
+              <div class="fv-header">
+                <span class="fv-title" x-text="cwd.split('/').pop()"></span>
+                <div class="fv-sort-btns">
+                  <button class="fv-sort-btn" :class="{active: folderSort==='name'}" @click="folderSort='name'">Name</button>
+                  <button class="fv-sort-btn" :class="{active: folderSort==='date'}" @click="folderSort='date'">Date</button>
+                  <button class="fv-sort-btn" :class="{active: folderSort==='size'}" @click="folderSort='size'">Size</button>
+                </div>
+              </div>
+              <div class="fv-list">
+                <template x-for="item in sortedFolderItems()" :key="item.path">
+                  <div class="fv-item" :class="item.isDir ? 'fv-item-dir' : 'fv-item-note'"
+                       @click="item.isDir ? (enterDir(activeVault, item.path), sidebarOpen=true) : openNote(activeVault, item.path)">
+                    <span class="fv-icon" x-text="item.isDir ? '▶' : '◈'"></span>
+                    <span class="fv-name" x-text="item.isDir ? item.name : item.name.replace(/\.md$/,'')"></span>
+                    <span class="fv-meta" x-text="fvMeta(item)"></span>
+                  </div>
+                </template>
+                <template x-if="sortedFolderItems().length === 0">
+                  <p class="fv-empty">Empty folder</p>
+                </template>
+              </div>
             </div>
           </template>
         </div>
@@ -338,6 +412,8 @@ function vaultApp() {
     syncAvailable: false,
     syncState: 'unknown',
     syncMessage: '',
+    // folder view
+    folderSort: 'name',
 
     // ── init ──────────────────────────────────────
     async init() {
@@ -431,6 +507,53 @@ function vaultApp() {
 
     currentDirs()  { return this.currentItems().filter(n => n.isDir) },
     currentFiles() { return this.currentItems().filter(n => !n.isDir) },
+
+    // sorted items for the main-pane folder view (dirs first, then files)
+    sortedFolderItems() {
+      const dirs = [...this.currentDirs()]
+      const files = [...this.currentFiles()]
+      const cmp = (a, b) => {
+        if (this.folderSort === 'date') return (b.mtime || 0) - (a.mtime || 0)
+        if (this.folderSort === 'size') return (b.size || 0) - (a.size || 0)
+        return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })
+      }
+      dirs.sort(cmp)
+      files.sort(cmp)
+      return [...dirs, ...files]
+    },
+
+    fvMeta(item) {
+      if (item.isDir) {
+        // count direct children
+        const prefix = item.path + '/'
+        const children = this.allNodes.filter(n => {
+          const rest = n.path.slice(prefix.length)
+          return n.path.startsWith(prefix) && !rest.includes('/')
+        })
+        const fc = children.filter(n => !n.isDir).length
+        const dc = children.filter(n => n.isDir).length
+        const parts = []
+        if (dc > 0) parts.push(dc + (dc === 1 ? ' folder' : ' folders'))
+        if (fc > 0) parts.push(fc + (fc === 1 ? ' note' : ' notes'))
+        return parts.join(', ') || 'empty'
+      }
+      if (this.folderSort === 'size' && item.size > 0) {
+        return item.size < 1024 ? item.size + ' B'
+          : item.size < 1024*1024 ? Math.round(item.size/1024) + ' KB'
+          : (item.size/1024/1024).toFixed(1) + ' MB'
+      }
+      if (item.mtime) {
+        const d = new Date(item.mtime * 1000)
+        const now = new Date()
+        const diff = now - d
+        if (diff < 60000) return 'just now'
+        if (diff < 3600000) return Math.floor(diff/60000) + 'm ago'
+        if (diff < 86400000) return Math.floor(diff/3600000) + 'h ago'
+        if (diff < 7*86400000) return Math.floor(diff/86400000) + 'd ago'
+        return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
+      }
+      return ''
+    },
 
     // breadcrumb segments for cwd
     cwdSegments() {
