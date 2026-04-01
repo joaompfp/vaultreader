@@ -181,9 +181,30 @@ a:hover { text-decoration: underline; }
   background: rgba(0,0,0,0.2);
   z-index: 199;
   cursor: pointer;
+  /* must NOT cover #toolbar — toolbar z-index sits above */
 }
-.btn-copylink { transition: color var(--transition); }
-.btn-copylink.copied { color: #22c55e; }
+.btn-copylink {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 8px;
+  font-size: 11px;
+  font-family: monospace;
+  font-weight: 600;
+  color: var(--text2);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg);
+  cursor: pointer;
+  transition: background var(--transition), color var(--transition), border-color var(--transition);
+  white-space: nowrap;
+}
+.btn-copylink:hover { background: var(--bg3); color: var(--text); }
+.btn-copylink.copied { background: #d1fae5; color: #065f46; border-color: #6ee7b7; }
+@media (max-width: 700px) {
+  .btn-copylink-label { display: none; }
+  .btn-copylink { padding: 5px 7px; }
+}
 .btn-backlinks { position: relative; }
 .bl-badge {
   position: absolute;
@@ -305,6 +326,8 @@ a:hover { text-decoration: underline; }
   flex-shrink: 0;
   min-height: 46px;
   box-shadow: 0 1px 0 var(--border);
+  position: relative;
+  z-index: 201; /* above bl-backdrop (199) and backlinks panel (200) */
 }
 @media (prefers-color-scheme: dark) {
   #toolbar { background: #16182a; }
@@ -516,6 +539,10 @@ a.wikilink-missing {
 }
 #backlinks.closed {
   transform: translateX(110%);
+  pointer-events: none;
+}
+#backlinks:not(.closed) {
+  pointer-events: auto;
 }
 
 .backlinks-header {
@@ -525,9 +552,20 @@ a.wikilink-missing {
   align-items: center;
   gap: 6px;
   flex-shrink: 0;
-  cursor: pointer;
   user-select: none;
 }
+.bl-close {
+  margin-left: auto;
+  padding: 4px;
+  color: var(--text3);
+  background: none;
+  border: none;
+  cursor: pointer;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+}
+.bl-close:hover { background: var(--bg3); color: var(--text); }
 .backlinks-header h2 {
   font-size: 12px;
   font-weight: 700;

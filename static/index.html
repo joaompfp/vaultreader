@@ -88,7 +88,7 @@
       <div class="toolbar-title">
         <template x-if="activePath">
           <span class="toolbar-breadcrumb">
-            <span class="tb-vault" @click="enterDir(activeVault, ''); activePath = ''; sidebarOpen = true" x-text="activeVault"></span>
+            <span class="tb-vault" @click="enterDir(activeVault, ''); activePath = ''" x-text="activeVault"></span>
             <template x-for="(seg, i) in activeBreadcrumbs()" :key="i">
               <span>
                 <span class="tb-sep">/</span>
@@ -119,9 +119,9 @@
       </template>
 
       <template x-if="activePath">
-        <button class="btn-icon btn-copylink" :class="{ copied: copyLinkDone }" @click="copyNoteLink()"
-                :title="copyLinkDone ? 'Copied!' : 'Copy wikilink'">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <button class="btn-copylink" :class="{ copied: copyLinkDone }" @click="copyNoteLink()"
+                :title="copyLinkDone ? 'Copied!' : 'Copy wikilink (Ctrl+Shift+C)'">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0">
             <template x-if="!copyLinkDone">
               <g>
                 <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
@@ -132,6 +132,7 @@
               <polyline points="20 6 9 17 4 12"/>
             </template>
           </svg>
+          <span class="btn-copylink-label" x-text="copyLinkDone ? 'Copied!' : '[[link]]'"></span>
         </button>
       </template>
 
@@ -287,9 +288,14 @@
 
   <!-- ─── Backlinks ────────────────────────────── -->
   <div id="backlinks" :class="{ closed: !backlinksOpen }">
-    <div class="backlinks-header" @click="backlinksOpen = !backlinksOpen">
+    <div class="backlinks-header">
       <h2>Backlinks</h2>
       <span class="count" x-text="backlinks.length"></span>
+      <button class="bl-close" @click="backlinksOpen = false" aria-label="Close backlinks" title="Close">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+          <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+        </svg>
+      </button>
     </div>
     <div class="backlinks-list">
       <template x-if="backlinks.length === 0">
@@ -422,7 +428,8 @@ function vaultApp() {
     isDirty: false,
     saveStatus: '',
     saveTimer: null,
-    recentFiles: JSON.parse(localStorage.getItem('vr-recent') || '[]'),
+    recentFiles: [],
+    _recentKey() { return 'vr-recent-' + (this.activeVault || '_global') },
     // status bar
     totalNotes: 0,
     vaultStats: [],
@@ -442,6 +449,10 @@ function vaultApp() {
           this.searchOpen = true
           this.$nextTick(() => this.$refs.searchInput?.focus())
         }
+        if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'C') {
+          e.preventDefault()
+          if (this.activePath) this.copyNoteLink()
+        }
       })
       this.$watch('searchOpen', v => {
         if (v) {
@@ -451,12 +462,29 @@ function vaultApp() {
           this.$nextTick(() => this.$refs.searchInput?.focus())
         }
       })
+      // one-time migration: move old global recents into per-vault buckets
+      const legacyKey = 'vr-recent'
+      const legacy = JSON.parse(localStorage.getItem(legacyKey) || '[]')
+      if (legacy.length) {
+        const byVault = {}
+        for (const r of legacy) {
+          const v = r.vault || '_global'
+          if (!byVault[v]) byVault[v] = []
+          if (byVault[v].length < 7) byVault[v].push(r)
+        }
+        for (const [v, items] of Object.entries(byVault)) {
+          localStorage.setItem('vr-recent-' + v, JSON.stringify(items))
+        }
+        localStorage.removeItem(legacyKey)
+      }
+
       try {
         const res = await fetch('/api/vaults')
         this.vaults = await res.json()
         if (this.vaults.length > 0) {
           this.activeVault = this.vaults[0]
           await this.enterDir(this.activeVault, '')
+          this.recentFiles = JSON.parse(localStorage.getItem(this._recentKey()) || '[]')
         }
       } catch(e) { console.error('init:', e) }
       // load status bar stats
@@ -489,15 +517,18 @@ function vaultApp() {
 
     // ── file commander navigation ──────────────────
     async enterDir(vault, path) {
+      const vaultChanged = vault !== this.activeVault
       this.activeVault = vault
       this.cwd = path
       this.allNodes = []
       try {
         const res = await fetch('/api/tree?vault=' + encodeURIComponent(vault))
         const tree = await res.json()
-        // flatten tree into a single list keeping paths
         this.allNodes = this.flattenTree(tree)
       } catch(e) { console.error('enterDir:', e) }
+      if (vaultChanged) {
+        this.recentFiles = JSON.parse(localStorage.getItem(this._recentKey()) || '[]')
+      }
     },
 
     // flatten recursive tree into flat array
@@ -820,10 +851,11 @@ function vaultApp() {
 
     // ── recent files ──────────────────────────────
     _recordRecent(vault, path, title) {
-      const recent = JSON.parse(localStorage.getItem('vr-recent') || '[]')
-      const filtered = recent.filter(r => !(r.vault === vault && r.path === path))
+      const key = 'vr-recent-' + vault
+      const recent = JSON.parse(localStorage.getItem(key) || '[]')
+      const filtered = recent.filter(r => r.path !== path)
       const updated = [{ vault, path, title }, ...filtered].slice(0, 7)
-      localStorage.setItem('vr-recent', JSON.stringify(updated))
+      localStorage.setItem(key, JSON.stringify(updated))
       this.recentFiles = updated
     },
 
