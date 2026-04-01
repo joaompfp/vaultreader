@@ -202,7 +202,7 @@
                 <div class="fv-list">
                   <template x-for="item in sortedFolderItems()" :key="item.path">
                     <div class="fv-item" :class="item.isDir ? 'fv-item-dir' : 'fv-item-note'"
-                         @click="item.isDir ? (enterDir(activeVault, item.path), sidebarOpen=true) : openNote(activeVault, item.path)">
+                         @click="item.isDir ? enterDir(activeVault, item.path) : openNote(activeVault, item.path)">
                       <span class="fv-icon" x-text="item.isDir ? '▶' : '◈'"></span>
                       <span class="fv-name" x-text="item.isDir ? item.name : item.name.replace(/\.md$/,'')"></span>
                       <span class="fv-meta" x-text="fvMeta(item)"></span>
@@ -227,7 +227,7 @@
               <div class="fv-list">
                 <template x-for="item in sortedFolderItems()" :key="item.path">
                   <div class="fv-item" :class="item.isDir ? 'fv-item-dir' : 'fv-item-note'"
-                       @click="item.isDir ? (enterDir(activeVault, item.path), sidebarOpen=true) : openNote(activeVault, item.path)">
+                       @click="item.isDir ? enterDir(activeVault, item.path) : openNote(activeVault, item.path)">
                     <span class="fv-icon" x-text="item.isDir ? '▶' : '◈'"></span>
                     <span class="fv-name" x-text="item.isDir ? item.name : item.name.replace(/\.md$/,'')"></span>
                     <span class="fv-meta" x-text="fvMeta(item)"></span>
@@ -748,7 +748,6 @@ function vaultApp() {
       // enterDir reloads the tree and sets cwd — works even if vault hasn't changed
       await this.enterDir(this.activeVault, dir)
       this.activePath = '' // deselect note so folder view shows
-      this.sidebarOpen = true
     },
 
     // ── search ────────────────────────────────────
