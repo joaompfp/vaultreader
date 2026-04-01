@@ -622,7 +622,19 @@ a.wikilink-missing {
     transform: translateX(0);
   }
   #sidebar.closed { transform: translateX(-100%); width: var(--sidebar-w); min-width: var(--sidebar-w); }
-  #backlinks { display: none; }
+  #backlinks {
+    width: 100% !important;
+    left: 0;
+    right: 0;
+    top: auto;
+    bottom: 24px; /* above status bar */
+    height: 60vh;
+    border-left: none;
+    border-top: 1px solid var(--border);
+    border-radius: 12px 12px 0 0;
+    box-shadow: 0 -4px 24px rgba(0,0,0,0.18);
+  }
+  #backlinks.closed { transform: translateY(110%); }
   #preview { padding: 16px; }
 }
 
@@ -689,10 +701,12 @@ mark {
   z-index: 90;
   user-select: none;
 }
-.sb-notes { flex: 1; display: flex; align-items: center; gap: 4px; flex-wrap: wrap; }
-.sb-vault-stat { color: var(--text3); }
-.sb-count { color: var(--text2); font-variant-numeric: tabular-nums; }
-.sb-sync { margin-left: auto; font-size: 11px; }
+.sb-brand { color: var(--text2); font-weight: 500; white-space: nowrap; flex-shrink: 0; }
+.sb-sep { color: var(--text3); margin: 0 6px; flex-shrink: 0; }
+.sb-context { flex: 1; color: var(--text3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sb-num { color: var(--text2); font-variant-numeric: tabular-nums; }
+.sb-dim { color: var(--text3); font-style: italic; }
+.sb-sync { margin-left: 12px; font-size: 11px; white-space: nowrap; flex-shrink: 0; }
 .sb-sync-synced  { color: #22c55e; }
 .sb-sync-syncing { color: var(--accent); }
 .sb-sync-error   { color: #ef4444; }

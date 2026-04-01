@@ -88,7 +88,7 @@
       <div class="toolbar-title">
         <template x-if="activePath">
           <span class="toolbar-breadcrumb">
-            <span class="tb-vault" @click="enterDir(activeVault, '')" x-text="activeVault"></span>
+            <span class="tb-vault" @click="enterDir(activeVault, ''); activePath = ''; sidebarOpen = true" x-text="activeVault"></span>
             <template x-for="(seg, i) in activeBreadcrumbs()" :key="i">
               <span>
                 <span class="tb-sep">/</span>
@@ -250,14 +250,9 @@
 
   <!-- ─── Status Bar ──────────────────────────── -->
   <div id="status-bar">
-    <span class="sb-notes" x-show="totalNotes > 0">
-      <span x-text="totalNotes"></span> notes
-      <template x-for="vs in vaultStats" :key="vs.name">
-        <span class="sb-vault-stat">
-          · <span x-text="vs.name"></span> <span class="sb-count" x-text="vs.noteCount"></span>
-        </span>
-      </template>
-    </span>
+    <span class="sb-brand">VaultReader v1.5.0</span>
+    <span class="sb-sep">·</span>
+    <span class="sb-context" x-html="sbContext()"></span>
     <span class="sb-sync" :class="'sb-sync-' + syncState" x-show="syncAvailable">
       <span x-text="syncState === 'synced' ? '⬤ synced' : syncState === 'syncing' ? '⬤ ' + syncMessage : '⬤ sync err'"></span>
     </span>
@@ -578,6 +573,37 @@ function vaultApp() {
       } catch(e) { console.error('resolve wikilink:', e) }
     },
 
+    // ── status bar context ────────────────────────
+    sbContext() {
+      // note open → word/char/page counts
+      if (this.activePath) {
+        const raw = this.noteRaw || ''
+        const stripped = raw.replace(/^---[\s\S]*?---\n?/, '').trim()
+        const words = stripped ? stripped.split(/\s+/).filter(Boolean).length : 0
+        const chars = stripped.length
+        const pages = Math.max(1, Math.round(words / 250))
+        const pLabel = pages === 1 ? '1 page' : pages + ' pages'
+        return `<span class="sb-num">${words.toLocaleString()}</span> words &nbsp;·&nbsp; <span class="sb-num">${chars.toLocaleString()}</span> chars &nbsp;·&nbsp; <span class="sb-num">${pLabel}</span>`
+      }
+      // folder active → notes + subfolders in current cwd
+      if (this.activeVault) {
+        const dirs = this.currentDirs().length
+        const files = this.currentFiles().length
+        const dLabel = dirs === 1 ? '1 subfolder' : dirs + ' subfolders'
+        const fLabel = files === 1 ? '1 note' : files + ' notes'
+        if (dirs > 0 && files > 0) return `<span class="sb-num">${fLabel}</span> &nbsp;·&nbsp; <span class="sb-num">${dLabel}</span>`
+        if (dirs > 0) return `<span class="sb-num">${dLabel}</span>`
+        if (files > 0) return `<span class="sb-num">${fLabel}</span>`
+        return '<span class="sb-dim">empty</span>'
+      }
+      // nothing loaded → global totals
+      if (this.totalNotes > 0) {
+        const parts = this.vaultStats.map(vs => `${vs.name} <span class="sb-num">${vs.noteCount}</span>`).join(' &nbsp;·&nbsp; ')
+        return `<span class="sb-num">${this.totalNotes.toLocaleString()}</span> notes &nbsp;·&nbsp; ${parts}`
+      }
+      return ''
+    },
+
     // ── note title + toolbar breadcrumb ───────────
     noteTitle() {
       if (!this.activePath) return ''
@@ -593,10 +619,13 @@ function vaultApp() {
     },
 
     // click a breadcrumb segment in the toolbar → navigate sidebar to that dir
-    navigateToSegment(i) {
+    async navigateToSegment(i) {
       const segs = this.activeBreadcrumbs()
       const dir = segs.slice(0, i + 1).join('/')
-      this.cwd = dir
+      // enterDir reloads the tree and sets cwd — works even if vault hasn't changed
+      await this.enterDir(this.activeVault, dir)
+      this.activePath = '' // deselect note so folder view shows
+      this.sidebarOpen = true
     },
 
     // ── search ────────────────────────────────────
