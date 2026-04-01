@@ -5,10 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>VaultReader</title>
   <link rel="stylesheet" href="/style.css">
-  <!-- Alpine.js (deferred) -->
-  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+  <!-- Alpine.js (local) -->
+  <script defer src="/alpine.min.js"></script>
 </head>
-<body x-cloak>
+<body>
 
 <div id="app" x-data="vaultApp()" x-init="init()">
 
@@ -181,13 +181,15 @@
 
 </div><!-- #app -->
 
-<!-- ─── CodeMirror 6 (ESM module) ────────────── -->
-<script type="module">
-import { EditorView, keymap, lineNumbers } from 'https://esm.sh/@codemirror/view@6'
-import { EditorState } from 'https://esm.sh/@codemirror/state@6'
-import { defaultKeymap, history, historyKeymap, indentWithTab } from 'https://esm.sh/@codemirror/commands@6'
-import { markdown } from 'https://esm.sh/@codemirror/lang-markdown@6'
-import { oneDark } from 'https://esm.sh/@codemirror/theme-one-dark@6'
+<!-- ─── CodeMirror 6 (local IIFE bundle) ─────── -->
+<script src="/codemirror.bundle.js"></script>
+<script>
+// CM is now window.CM (IIFE bundle)
+const { EditorView, keymap, lineNumbers } = CM
+const { EditorState } = CM
+const { defaultKeymap, history, historyKeymap, indentWithTab } = CM
+const { markdown } = CM
+const { oneDark } = CM
 
 const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches
 
