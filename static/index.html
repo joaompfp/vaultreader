@@ -12,6 +12,8 @@
 
 <div id="app" x-data="vaultApp()" x-init="init()">
 
+  <div class="sidebar-scrim" x-show="sidebarOpen" @click="sidebarOpen = false"></div>
+
   <!-- ─── Sidebar (file commander) ─────────────── -->
   <div id="sidebar" :class="{ closed: !sidebarOpen }">
 
@@ -143,7 +145,20 @@
       <template x-if="!activePath">
         <div class="empty-state">
           <div class="icon">📄</div>
-          <p>Select a note from the sidebar</p>
+          <template x-if="recentFiles.length === 0">
+            <p>Select a note from the sidebar</p>
+          </template>
+          <template x-if="recentFiles.length > 0">
+            <div class="recent-files">
+              <p class="recent-label">Recent</p>
+              <template x-for="r in recentFiles" :key="r.vault + r.path">
+                <div class="recent-item" @click="openNote(r.vault, r.path)">
+                  <span class="recent-vault" x-text="r.vault"></span>
+                  <span class="recent-title" x-text="r.title || r.path.split('/').pop().replace(/\.md$/, '')"></span>
+                </div>
+              </template>
+            </div>
+          </template>
         </div>
       </template>
 
@@ -211,7 +226,7 @@
                @mouseenter="searchFocus = i">
             <div class="sr-path" x-text="r.vault + ' / ' + r.path"></div>
             <div class="sr-title" x-text="r.title || r.path"></div>
-            <div class="sr-excerpt" x-show="r.excerpt" x-text="r.excerpt"></div>
+            <div class="sr-excerpt" x-show="r.excerpt" x-html="highlightMatch(r.excerpt, searchQuery)"></div>
           </div>
         </template>
       </div>
@@ -526,6 +541,16 @@ function vaultApp() {
       if (!r) return
       this.searchOpen = false
       this.openNote(r.vault, r.path)
+    },
+
+    highlightMatch(text, query) {
+      if (!text || !query) return text || ''
+      const terms = query.trim().split(/\s+/).map(t =>
+        t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+      ).filter(Boolean)
+      if (!terms.length) return text
+      const re = new RegExp(`(${terms.join('|')})`, 'gi')
+      return text.replace(re, '<mark>$1</mark>')
     },
 
     // ── recent files ──────────────────────────────

@@ -2,10 +2,12 @@ package main
 
 import (
 	"bytes"
+	"compress/gzip"
 	"embed"
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"io/fs"
 	"log"
 	"net/http"
@@ -173,6 +175,10 @@ func (idx *NoteIndex) buildAll(vaultsPath string) {
 			nname := normalizeName(filepath.Base(rel))
 			key := vaultKey(vaultName, rel)
 
+			// Add compound key for vault-scoped lookup
+			compoundKey := vaultName + ":" + nname
+			idx.allNotes[compoundKey] = NoteRef{Vault: vaultName, Path: rel, Title: title}
+			// Keep global key as fallback
 			idx.allNotes[nname] = NoteRef{Vault: vaultName, Path: rel, Title: title}
 
 			// extract wikilinks
@@ -200,7 +206,9 @@ func (idx *NoteIndex) updateNote(vault, path, content string) {
 	nname := normalizeName(filepath.Base(path))
 	key := vaultKey(vault, path)
 
-	// update allNotes
+	// update allNotes (both compound and global keys)
+	compoundKey := vault + ":" + nname
+	idx.allNotes[compoundKey] = NoteRef{Vault: vault, Path: path, Title: title}
 	idx.allNotes[nname] = NoteRef{Vault: vault, Path: path, Title: title}
 
 	// remove old outbound links from inbound index
@@ -233,6 +241,13 @@ func (idx *NoteIndex) resolve(name, preferVault string) (string, string, bool) {
 	defer idx.mu.RUnlock()
 
 	nname := normalizeName(name)
+	// Pass 1: prefer current vault
+	if preferVault != "" {
+		if ref, ok := idx.allNotes[preferVault+":"+nname]; ok {
+			return ref.Vault, ref.Path, true
+		}
+	}
+	// Pass 2: global fallback
 	ref, ok := idx.allNotes[nname]
 	if !ok {
 		return "", "", false
@@ -450,6 +465,31 @@ func saveNote(vaultPath, notePath, content string) error {
 	}
 	return os.Rename(tmp, full)
 }
+
+// ─── Gzip middleware ──────────────────────────────────────────────────────────
+
+func gzipMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.Contains(r.Header.Get("Accept-Encoding"), "gzip") {
+			next.ServeHTTP(w, r)
+			return
+		}
+		w.Header().Set("Content-Encoding", "gzip")
+		w.Header().Set("Vary", "Accept-Encoding")
+		gz, _ := gzip.NewWriterLevel(w, gzip.BestSpeed)
+		defer gz.Close()
+		next.ServeHTTP(&gzipResponseWriter{Writer: gz, ResponseWriter: w}, r)
+	})
+}
+
+type gzipResponseWriter struct {
+	io.Writer
+	http.ResponseWriter
+}
+
+func (g *gzipResponseWriter) Write(b []byte) (int, error)  { return g.Writer.Write(b) }
+func (g *gzipResponseWriter) Header() http.Header          { return g.ResponseWriter.Header() }
+func (g *gzipResponseWriter) WriteHeader(code int)         { g.ResponseWriter.WriteHeader(code) }
 
 // ─── HTTP handlers ────────────────────────────────────────────────────────────
 
@@ -745,7 +785,7 @@ func main() {
 
 	addr := ":" + *port
 	log.Printf("listening on %s", addr)
-	if err := http.ListenAndServe(addr, mux); err != nil {
+	if err := http.ListenAndServe(addr, gzipMiddleware(mux)); err != nil {
 		log.Fatalf("server error: %v", err)
 	}
 }
