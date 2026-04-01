@@ -12,10 +12,10 @@
   --text:        #1a1a1a;
   --text2:       #555555;
   --text3:       #888888;
-  --accent:      #6c63ff;
-  --accent-dim:  #9b94ff;
+  --accent:      #b91c1c;
+  --accent-dim:  #ef4444;
   --link:        #1d72b8;
-  --link-wiki:   #7c5cbf;
+  --link-wiki:   #9b1c1c;
   --link-wiki-missing: #cc4444;
   --sidebar-w:   240px;
   --backlinks-w: 260px;
@@ -41,11 +41,11 @@
     --text:        #cdd6f4;
     --text2:       #a6adc8;
     --text3:       #6c7086;
-    --accent:      #cba6f7;
-    --accent-dim:  #9d7ecf;
-    --link:        #89b4fa;
-    --link-wiki:   #cba6f7;
-    --link-wiki-missing: #f38ba8;
+  --accent:      #f87171;
+  --accent-dim:  #fca5a5;
+  --link:        #89b4fa;
+  --link-wiki:   #fca5a5;
+  --link-wiki-missing: #f38ba8;
   }
 }
 
@@ -183,7 +183,6 @@ a:hover { text-decoration: underline; }
   cursor: pointer;
   /* must NOT cover #toolbar — toolbar z-index sits above */
 }
-.btn-copylink.copied { color: #22c55e; }
 .btn-backlinks { position: relative; }
 .bl-badge {
   position: absolute;
@@ -365,14 +364,15 @@ a:hover { text-decoration: underline; }
 .btn-group .btn {
   background: none;
   border: none;
-  padding: 4px 12px;
-  font-size: 12px;
+  padding: 5px 14px;
+  font-size: 13px;
   font-family: var(--font);
+  font-weight: 500;
   cursor: pointer;
   color: var(--text2);
   transition: background var(--transition), color var(--transition);
 }
-.btn-group .btn.active { background: var(--accent); color: #fff; }
+.btn-group .btn.active { background: var(--accent); color: #fff; font-weight: 600; }
 .btn-group .btn:not(.active):hover { background: var(--bg3); color: var(--text); }
 .btn-group .btn + .btn { border-left: 1px solid var(--border); }
 
@@ -841,39 +841,56 @@ mark {
   background: var(--bg);
   border: 1px solid var(--border);
   border-radius: 10px;
-  padding: 20px 24px;
-  min-width: 320px;
-  max-width: 90vw;
-  display: flex; flex-direction: column; gap: 12px;
-  box-shadow: 0 8px 32px rgba(0,0,0,.5);
+  padding: 24px 28px;
+  min-width: 360px;
+  max-width: 92vw;
+  display: flex; flex-direction: column; gap: 14px;
+  box-shadow: 0 12px 40px rgba(0,0,0,.45);
 }
 .modal-title {
-  font-size: 15px; font-weight: 600;
-  color: var(--text);
+  font-size: 16px; font-weight: 700;
+  color: var(--text); letter-spacing: -.01em;
 }
 .modal-input {
   background: var(--bg2);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 8px 12px;
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius);
+  padding: 9px 13px;
   font-size: 14px;
+  font-family: var(--font);
   color: var(--text);
   outline: none;
   width: 100%; box-sizing: border-box;
+  transition: border-color var(--transition);
 }
-.modal-input:focus { border-color: var(--accent, #6366f1); }
+.modal-input:focus { border-color: var(--accent); }
 .modal-error {
-  font-size: 12px; color: #ef4444;
+  font-size: 12px; color: #ef4444; margin-top: -6px;
 }
 .modal-actions {
-  display: flex; justify-content: flex-end; gap: 8px;
+  display: flex; justify-content: flex-end; gap: 8px; margin-top: 2px;
 }
+/* shared .btn style used in modals and elsewhere */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  padding: 6px 16px;
+  font-size: 13px; font-weight: 500; font-family: var(--font);
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--bg2);
+  color: var(--text);
+  cursor: pointer;
+  transition: background var(--transition), color var(--transition), border-color var(--transition);
+  white-space: nowrap;
+}
+.btn:hover { background: var(--bg3); }
 .btn-primary {
-  background: var(--accent, #6366f1);
+  background: var(--accent);
   color: #fff;
   border-color: transparent;
+  font-weight: 600;
 }
-.btn-primary:hover { opacity: .85; }
+.btn-primary:hover { opacity: .88; background: var(--accent); }
 
 /* ── Context Menu ────────────────────────────── */
 #ctx-menu {
@@ -900,7 +917,36 @@ mark {
 .ctx-danger { color: #ef4444 !important; }
 .ctx-danger:hover { background: rgba(239,68,68,.12) !important; }
 
-/* ── New note button ─────────────────────────── */
-.btn-newnote {
-  color: var(--accent, #6366f1);
+/* ── New item button + dropdown ──────────────── */
+.btn-newnote { color: var(--accent); }
+.btn-copylink.copied { color: #22c55e; }
+.new-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  z-index: 700;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 4px;
+  min-width: 160px;
+  box-shadow: 0 4px 20px rgba(0,0,0,.35);
+  display: flex; flex-direction: column;
+}
+.new-dropdown-item {
+  display: flex; align-items: center; gap: 8px;
+  background: none; border: none;
+  padding: 7px 10px;
+  font-size: 13px; font-family: var(--font);
+  color: var(--text);
+  border-radius: 4px;
+  cursor: pointer;
+  text-align: left; white-space: nowrap;
+}
+.new-dropdown-item:hover { background: var(--bg3); }
+.new-dropdown-kbd {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--text3);
+  font-family: var(--mono);
 }

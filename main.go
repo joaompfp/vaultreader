@@ -727,6 +727,105 @@ func (s *server) handleDeleteNote(w http.ResponseWriter, r *http.Request) {
 	jsonResponse(w, map[string]string{"status": "deleted", "movedTo": ".trash/" + filepath.Base(trashPath)})
 }
 
+func (s *server) handleFolder(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodPost:
+		s.handleCreateFolder(w, r)
+	case http.MethodDelete:
+		s.handleDeleteFolder(w, r)
+	default:
+		errResponse(w, 405, "method not allowed")
+	}
+}
+
+func (s *server) handleCreateFolder(w http.ResponseWriter, r *http.Request) {
+	vault := r.URL.Query().Get("vault")
+	path := r.URL.Query().Get("path")
+
+	vp, ok := s.vaultPath(vault)
+	if !ok {
+		errResponse(w, 400, "invalid vault")
+		return
+	}
+	if path == "" {
+		errResponse(w, 400, "path required")
+		return
+	}
+	full, ok := s.safePath(vp, path)
+	if !ok {
+		errResponse(w, 400, "invalid path")
+		return
+	}
+	if _, err := os.Stat(full); err == nil {
+		errResponse(w, 409, "folder already exists")
+		return
+	}
+	if err := os.MkdirAll(full, 0755); err != nil {
+		errResponse(w, 500, err.Error())
+		return
+	}
+	w.WriteHeader(http.StatusCreated)
+	jsonResponse(w, map[string]string{"status": "created", "path": path})
+}
+
+func (s *server) handleDeleteFolder(w http.ResponseWriter, r *http.Request) {
+	vault := r.URL.Query().Get("vault")
+	path := r.URL.Query().Get("path")
+
+	vp, ok := s.vaultPath(vault)
+	if !ok {
+		errResponse(w, 400, "invalid vault")
+		return
+	}
+	if path == "" {
+		errResponse(w, 400, "path required")
+		return
+	}
+	full, ok := s.safePath(vp, path)
+	if !ok {
+		errResponse(w, 400, "invalid path")
+		return
+	}
+	info, err := os.Stat(full)
+	if os.IsNotExist(err) {
+		errResponse(w, 404, "folder not found")
+		return
+	}
+	if !info.IsDir() {
+		errResponse(w, 400, "path is not a folder")
+		return
+	}
+
+	// soft-delete: move to .trash/ inside vault
+	trashDir := filepath.Join(vp, ".trash")
+	if err := os.MkdirAll(trashDir, 0755); err != nil {
+		errResponse(w, 500, "cannot create trash: "+err.Error())
+		return
+	}
+	trashPath := filepath.Join(trashDir, strings.ReplaceAll(path, "/", "__"))
+	if _, err := os.Stat(trashPath); err == nil {
+		trashPath = fmt.Sprintf("%s_%d", trashPath, time.Now().Unix())
+	}
+	if err := os.Rename(full, trashPath); err != nil {
+		errResponse(w, 500, err.Error())
+		return
+	}
+
+	// remove all notes in this folder from the index
+	s.idx.mu.Lock()
+	prefix := vault + ":" // walk allNotes to find matching paths
+	for key := range s.idx.allNotes {
+		ref := s.idx.allNotes[key]
+		if ref.Vault == vault && (strings.HasPrefix(ref.Path, path+"/") || ref.Path == path) {
+			delete(s.idx.allNotes, key)
+		}
+		_ = prefix
+	}
+	s.idx.mu.Unlock()
+
+	jsonResponse(w, map[string]string{"status": "deleted", "movedTo": ".trash/" + filepath.Base(trashPath)})
+}
+
 func (s *server) handleMove(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		errResponse(w, 405, "method not allowed")
@@ -1094,6 +1193,7 @@ func main() {
 	mux.HandleFunc("/api/tree", srv.handleTree)
 	mux.HandleFunc("/api/note", srv.handleNote)
 	mux.HandleFunc("/api/move", srv.handleMove)
+	mux.HandleFunc("/api/folder", srv.handleFolder)
 	mux.HandleFunc("/api/search", srv.handleSearch)
 	mux.HandleFunc("/api/resolve", srv.handleResolve)
 	mux.HandleFunc("/api/stats", srv.handleStats)

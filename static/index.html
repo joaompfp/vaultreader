@@ -112,11 +112,24 @@
       <span x-show="saveStatus" :class="'save-status ' + saveStatus" x-text="saveStatusText()"></span>
 
       <template x-if="activeVault">
-        <button class="btn-icon btn-newnote" @click="promptCreateNote()" title="New note (Ctrl+N)">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M12 5v14M5 12h14"/>
-          </svg>
-        </button>
+        <div class="btn-new-wrap" style="position:relative">
+          <button class="btn-icon btn-newnote" @click="newMenuOpen = !newMenuOpen" title="New… (Ctrl+N)">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M12 5v14M5 12h14"/>
+            </svg>
+          </button>
+          <div class="new-dropdown" x-show="newMenuOpen" @click.outside="newMenuOpen=false" style="display:none">
+            <button class="new-dropdown-item" @click="newMenuOpen=false; promptCreateNote()">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+              New note
+              <span class="new-dropdown-kbd">Ctrl+N</span>
+            </button>
+            <button class="new-dropdown-item" @click="newMenuOpen=false; promptCreateFolder()">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+              New folder
+            </button>
+          </div>
+        </div>
       </template>
 
       <button class="btn-icon" @click="searchOpen = true" title="Search (Ctrl+K)">🔍</button>
@@ -132,15 +145,11 @@
         <button class="btn-icon btn-copylink" :class="{ copied: copyLinkDone }" @click="copyNoteLink()"
                 :title="copyLinkDone ? 'Copied!' : 'Copy wikilink (Ctrl+Shift+C)'">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-            <template x-if="!copyLinkDone">
-              <g>
-                <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
-                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
-              </g>
-            </template>
-            <template x-if="copyLinkDone">
-              <polyline points="20 6 9 17 4 12"/>
-            </template>
+            <g x-show="!copyLinkDone">
+              <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+            </g>
+            <polyline x-show="copyLinkDone" points="20 6 9 17 4 12"/>
           </svg>
         </button>
       </template>
@@ -492,6 +501,8 @@ function vaultApp() {
     modal: { open: false, title: '', value: '', placeholder: '', error: '', confirmLabel: 'OK', onConfirm: null },
     // context menu
     ctxMenu: { open: false, x: 0, y: 0, items: [] },
+    // new item dropdown
+    newMenuOpen: false,
 
     // ── init ──────────────────────────────────────
     async init() {
@@ -511,6 +522,7 @@ function vaultApp() {
         }
         if (e.key === 'Escape') {
           this.ctxMenu.open = false
+          this.newMenuOpen = false
         }
       })
       window.addEventListener('click', () => { this.ctxMenu.open = false })
@@ -1027,6 +1039,49 @@ function vaultApp() {
       })
     },
 
+    // ── create folder ─────────────────────────────
+    promptCreateFolder(inDir) {
+      const prefix = (inDir !== undefined ? inDir : this.cwd) ? (inDir !== undefined ? inDir : this.cwd) + '/' : ''
+      this.openModal({
+        title: 'New folder',
+        placeholder: 'Folder name',
+        confirmLabel: 'Create',
+        onConfirm: async (name) => {
+          const path = prefix + name
+          try {
+            const res = await fetch('/api/folder?vault=' + encodeURIComponent(this.activeVault) +
+              '&path=' + encodeURIComponent(path), { method: 'POST' })
+            if (res.status === 409) { this.modal.error = 'A folder with that name already exists.'; return }
+            if (!res.ok) { this.modal.error = 'Error creating folder.'; return }
+            this.modal.open = false
+            await this.enterDir(this.activeVault, this.cwd)
+          } catch(e) { this.modal.error = 'Network error.'; console.error('createFolder:', e) }
+        }
+      })
+    },
+
+    // ── delete folder ─────────────────────────────
+    async deleteFolder(path) {
+      const name = path.split('/').pop()
+      if (!confirm('Delete folder "' + name + '"?\n\nAll notes inside will be moved to .trash/ and can be recovered manually.')) return
+      try {
+        const res = await fetch('/api/folder?vault=' + encodeURIComponent(this.activeVault) +
+          '&path=' + encodeURIComponent(path), { method: 'DELETE' })
+        if (!res.ok) { alert('Error deleting folder.'); return }
+        // if we were inside it, navigate up
+        if (this.cwd === path || this.cwd.startsWith(path + '/')) {
+          const parent = path.includes('/') ? path.substring(0, path.lastIndexOf('/')) : ''
+          await this.enterDir(this.activeVault, parent)
+        } else {
+          await this.enterDir(this.activeVault, this.cwd)
+        }
+        // clear note if it was inside deleted folder
+        if (this.activePath && (this.activePath.startsWith(path + '/') || this.activePath === path)) {
+          this.activePath = ''; this.noteRaw = ''; this.noteHtml = ''; this.noteFrontmatter = {}; this.backlinks = []
+        }
+      } catch(e) { alert('Network error.'); console.error('deleteFolder:', e) }
+    },
+
     // ── context menu ──────────────────────────────
     openCtxMenu(event, item) {
       const items = []
@@ -1036,17 +1091,9 @@ function vaultApp() {
         items.push({ label: 'Delete', danger: true, action: () => this.deleteNote(item.path) })
       } else {
         items.push({ label: 'Open folder', action: () => this.enterDir(this.activeVault, item.path) })
-        items.push({ label: 'New note here', action: () => {
-          const savedCwd = this.cwd
-          this.cwd = item.path
-          this.promptCreateNote()
-          // restore cwd if user cancels (handled by modal cancel)
-          const origOnConfirm = this.modal.onConfirm
-          this.modal.onConfirm = async (name) => {
-            await origOnConfirm(name)
-            // enterDir inside promptCreateNote handles cwd update
-          }
-        }})
+        items.push({ label: 'New note here', action: () => { this.cwd = item.path; this.promptCreateNote() } })
+        items.push({ label: 'New folder here', action: () => this.promptCreateFolder(item.path) })
+        items.push({ label: 'Delete folder', danger: true, action: () => this.deleteFolder(item.path) })
       }
       // position near cursor but keep inside viewport
       const margin = 8
