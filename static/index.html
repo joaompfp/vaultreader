@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>VaultReader</title>
+  <link rel="icon" href="/obsidian.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/style.css">
   <script defer src="/alpine.min.js"></script>
 </head>
@@ -290,6 +291,7 @@ function vaultApp() {
     isDirty: false,
     saveStatus: '',
     saveTimer: null,
+    recentFiles: JSON.parse(localStorage.getItem('vr-recent') || '[]'),
 
     // ── init ──────────────────────────────────────
     async init() {
@@ -393,6 +395,13 @@ function vaultApp() {
         const url = '/api/note?vault=' + encodeURIComponent(vault) +
                     '&path=' + encodeURIComponent(path)
         const res = await fetch(url)
+        if (res.status === 404) {
+          this.noteHtml = '<div class="note-missing"><p>This note no longer exists.</p><p>It may have been deleted or moved.</p></div>'
+          this.noteRaw = ''
+          this.noteFrontmatter = {}
+          this.backlinks = []
+          return
+        }
         if (!res.ok) throw new Error('HTTP ' + res.status)
         const data = await res.json()
         this.noteRaw = data.raw || ''
@@ -402,6 +411,7 @@ function vaultApp() {
         this.isDirty = false
         this.saveStatus = ''
         if (window.__cmAPI) window.__cmAPI.destroy()
+        this._recordRecent(vault, path, this.noteTitle())
       } catch(e) { console.error('openNote:', e) }
     },
 
@@ -518,33 +528,29 @@ function vaultApp() {
       this.openNote(r.vault, r.path)
     },
 
+    // ── recent files ──────────────────────────────
+    _recordRecent(vault, path, title) {
+      const recent = JSON.parse(localStorage.getItem('vr-recent') || '[]')
+      const filtered = recent.filter(r => !(r.vault === vault && r.path === path))
+      const updated = [{ vault, path, title }, ...filtered].slice(0, 7)
+      localStorage.setItem('vr-recent', JSON.stringify(updated))
+      this.recentFiles = updated
+    },
+
     // ── vault icons ───────────────────────────────
     vaultIcon(vault) {
       const icons = {
-        // Pessoal — warm person silhouette with gradient fill
+        // Pessoal — flat pink person silhouette: circle head + body arc
         pessoal: `<svg viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg">
-          <defs>
-            <radialGradient id="pg" cx="50%" cy="30%" r="70%">
-              <stop offset="0%" stop-color="#f9a8d4"/>
-              <stop offset="100%" stop-color="#db2777"/>
-            </radialGradient>
-          </defs>
-          <circle cx="16" cy="11" r="5.5" fill="url(#pg)"/>
-          <path d="M4 27c0-6.6 5.4-11 12-11s12 4.4 12 11" fill="url(#pg)" opacity=".9"/>
+          <circle cx="16" cy="10" r="5" fill="#ec4899"/>
+          <path d="M6 28c0-5.52 4.48-10 10-10s10 4.48 10 10z" fill="#ec4899"/>
         </svg>`,
 
-        // Work — professional briefcase, navy/gold
+        // Work — flat blue briefcase: rect body + handle arch + centre divider
         work: `<svg viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg">
-          <defs>
-            <linearGradient id="wg" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stop-color="#60a5fa"/>
-              <stop offset="100%" stop-color="#1d4ed8"/>
-            </linearGradient>
-          </defs>
-          <rect x="3" y="10" width="26" height="17" rx="3" fill="url(#wg)"/>
-          <path d="M11 10V7a1 1 0 0 1 1-1h8a1 1 0 0 1 1 1v3" fill="none" stroke="#93c5fd" stroke-width="1.5"/>
-          <rect x="3" y="17" width="26" height="2" fill="#bfdbfe" opacity=".5"/>
-          <rect x="14" y="15.5" width="4" height="5" rx="1" fill="#fbbf24"/>
+          <path d="M12 11V8a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v3" fill="none" stroke="#3b82f6" stroke-width="3" stroke-linejoin="round"/>
+          <rect x="3" y="11" width="26" height="16" rx="2" fill="#3b82f6"/>
+          <rect x="3" y="18" width="26" height="2" fill="#ffffff" opacity="0.3"/>
         </svg>`,
 
         // PCP — use real logo
@@ -553,22 +559,9 @@ function vaultApp() {
         // SOS Racismo — hand logo in crimson #9c1c1f
         sosracismo: `<img src="/sos-hand.svg" style="width:100%;height:100%;object-fit:contain;filter:brightness(0) saturate(100%) invert(13%) sepia(85%) saturate(2000%) hue-rotate(340deg) brightness(90%)" alt="SOS">`,
 
-        // Projects — colourful toolbox / gear
+        // Projects — flat emerald wrench silhouette
         projects: `<svg viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg">
-          <defs>
-            <linearGradient id="prg" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stop-color="#6ee7b7"/>
-              <stop offset="100%" stop-color="#059669"/>
-            </linearGradient>
-          </defs>
-          <rect x="3" y="12" width="26" height="16" rx="3" fill="url(#prg)"/>
-          <path d="M10 12V8a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v4" fill="none" stroke="#34d399" stroke-width="1.8"/>
-          <circle cx="16" cy="20" r="3.5" fill="#fff" opacity=".9"/>
-          <circle cx="16" cy="20" r="1.5" fill="#059669"/>
-          <line x1="16" y1="15" x2="16" y2="17" stroke="#fff" stroke-width="1.5" opacity=".8"/>
-          <line x1="16" y1="23" x2="16" y2="25" stroke="#fff" stroke-width="1.5" opacity=".8"/>
-          <line x1="11" y1="20" x2="13" y2="20" stroke="#fff" stroke-width="1.5" opacity=".8"/>
-          <line x1="19" y1="20" x2="21" y2="20" stroke="#fff" stroke-width="1.5" opacity=".8"/>
+          <path d="M26.5 5.5a5.5 5.5 0 0 0-7.07 7.07L6.5 25.5a1.5 1.5 0 0 0 0 2.12 1.5 1.5 0 0 0 2.12 0L21.5 14.7a5.5 5.5 0 0 0 7.07-7.07l-3.18 3.18-2.12-2.12 3.18-3.18z" fill="#10b981"/>
         </svg>`,
       }
       const key = vault.toLowerCase().replace(/[^a-z]/g, '')
