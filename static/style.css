@@ -175,6 +175,13 @@ a:hover { text-decoration: underline; }
 }
 .btn-icon:hover { background: var(--bg3); color: var(--text); }
 .btn-icon.active { background: color-mix(in srgb, var(--accent) 15%, transparent); color: var(--accent); }
+.bl-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.2);
+  z-index: 199;
+  cursor: pointer;
+}
 .btn-backlinks { position: relative; }
 .bl-badge {
   position: absolute;
@@ -488,20 +495,25 @@ a.wikilink-missing {
 .cm-editor { height: 100%; }
 .cm-scroller { overflow: auto; }
 
-/* ── Backlinks panel ─────────────────────────── */
+/* ── Backlinks panel — right-side overlay drawer ─ */
 #backlinks {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
   width: var(--backlinks-w);
-  min-width: var(--backlinks-w);
   background: var(--bg2);
   border-left: 1px solid var(--border);
+  box-shadow: -4px 0 16px rgba(0,0,0,0.12);
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  transition: width var(--transition), min-width var(--transition), transform var(--transition);
+  z-index: 200;
+  transform: translateX(0);
+  transition: transform 0.2s ease;
 }
 #backlinks.closed {
-  width: 0;
-  min-width: 0;
+  transform: translateX(110%);
 }
 
 .backlinks-header {
