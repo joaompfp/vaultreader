@@ -1,2 +1,3 @@
 vaultreader
 *.tmp-vaultreader
+.worktrees/
