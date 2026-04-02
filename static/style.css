@@ -1025,6 +1025,11 @@ mark {
 .ctx-danger { color: #ef4444 !important; }
 .ctx-danger:hover { background: rgba(239,68,68,.12) !important; }
 
+/* ── Mode toggle (preview ↔ edit) ────────────── */
+.btn-mode-toggle { color: var(--text3); }
+.btn-mode-toggle:hover { color: var(--text); }
+.btn-mode-toggle.editing { color: var(--accent); }
+
 /* ── New item button + dropdown ──────────────── */
 .btn-newnote { color: var(--accent); }
 .btn-copylink.copied { color: #22c55e; }
