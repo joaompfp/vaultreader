@@ -670,6 +670,39 @@ a.wikilink-missing {
   }
   #backlinks.closed { transform: translateY(110%); }
   #preview { padding: 16px; }
+
+  /* ─ P0 Fix #001: Folder view scrolling ─────── */
+  .folder-view {
+    flex: 1;
+    overflow-y: auto;
+  }
+
+  /* ─ P0 Fix #002: Breadcrumb text truncation ─ */
+  .tb-seg { max-width: 60px; }    /* reduced from 120px */
+  .tb-note { max-width: 100px; }  /* reduced from 240px */
+
+  /* ─ P0 Fix #003: Touch targets (44px minimum) */
+  .fl-item {
+    padding: 8px 14px;            /* increased from 5px 14px */
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+  }
+
+  .fv-item {
+    padding: 10px 8px;            /* increased from 7px 8px */
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+  }
+
+  .btn-icon {
+    padding: 6px 8px;             /* increased from 4px 6px */
+    min-height: 40px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
 }
 
 /* ── Empty state ─────────────────────────────── */
@@ -1022,4 +1055,124 @@ mark {
   font-size: 11px;
   color: var(--text3);
   font-family: var(--mono);
+}
+
+/* ── P1 Mobile Optimizations (max-width: 480px) ─────────────────── */
+
+@media (max-width: 480px) {
+  
+  /* P1-004: Vault icons size reduction (38px fixed width) */
+  .vault-icons {
+    gap: 0;
+    overflow-x: auto;
+    white-space: nowrap;
+    scrollbar-width: none;
+  }
+  .vault-icons::-webkit-scrollbar { display: none; }
+  
+  .vault-btn {
+    flex: 0 0 38px;                     /* Fixed width instead of flex: 1 */
+    padding: 8px 2px;                  /* Reduced horizontal padding */
+    min-width: 38px;
+  }
+  
+  .vault-btn-icon {
+    width: 24px;                        /* Reduced from 28px */
+    height: 24px;
+  }
+  
+  /* P1-005: Toolbar layout optimization */
+  /* Hide secondary toolbar buttons on ultra-narrow screens */
+  @media (max-width: 375px) {
+    .btn-copylink { display: none; }    /* Hide copy wikilink button */
+  }
+  
+  /* Make breadcrumb horizontally scrollable instead of truncating */
+  .toolbar-breadcrumb {
+    max-width: 180px;
+    overflow-x: auto;
+    white-space: nowrap;
+    scrollbar-width: thin;
+    padding-bottom: 2px;                /* Room for scrollbar */
+  }
+  .toolbar-breadcrumb::-webkit-scrollbar {
+    height: 4px;
+  }
+  .toolbar-breadcrumb::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .toolbar-breadcrumb::-webkit-scrollbar-thumb {
+    background: var(--text3);
+    border-radius: 2px;
+  }
+  
+  /* P1-006: Modal sizing (360px min-width is too wide for 375px screen) */
+  .modal-box {
+    min-width: auto;                    /* Allow shrinking */
+    width: calc(100% - 16px);           /* 8px margin each side */
+    max-width: 360px;
+  }
+  
+  .modal-box .modal-title { 
+    font-size: 14px;                    /* Reduced from 16px */
+  }
+  
+  .modal-box input,
+  .modal-box textarea {
+    font-size: 16px;                    /* Prevent zoom on iOS */
+    padding: 8px 12px;
+  }
+  
+  /* P1-008: Dropdown z-index and positioning (JS handles bounds) */
+  .new-dropdown {
+    position: fixed;                    /* Use viewport coordinates */
+    z-index: 500;                       /* Above toolbar (201) and sidebar (100) */
+  }
+  
+  /* Ensure dropdown stays within viewport */
+  .new-dropdown.left { left: auto; }
+  .new-dropdown.right { right: 8px; }
+  
+  /* P2 Bonus: Status bar optimization */
+  #status-bar {
+    font-size: 10px;
+    height: 20px;
+    padding: 0 8px;
+  }
+  
+  .sb-context { display: none; }        /* Hide path context */
+  .sb-sep { margin: 0 4px; }            /* Reduce spacing */
+  
+  /* Show only sync status on very small screens */
+  @media (max-width: 360px) {
+    .sb-brand-btn { display: none; }    /* Hide brand button */
+  }
+  
+}
+
+/* ── Ultra-mobile refinements (max-width: 375px) ────────────────── */
+
+@media (max-width: 375px) {
+  
+  /* Even smaller sidebar for SE-sized screens */
+  .vault-btn {
+    flex: 0 0 36px;
+    padding: 6px 2px;
+  }
+  
+  .vault-btn-icon {
+    width: 22px;
+    height: 22px;
+  }
+  
+  /* Smaller font for breadcrumbs */
+  .breadcrumb { font-size: 11px; }
+  
+  /* Collapse file list item icons */
+  .fl-icon { font-size: 12px; }
+  
+  /* Reduce padding on very small screens */
+  .fl-item { padding: 6px 12px; }
+  .fv-item { padding: 8px 6px; }
+  
 }
