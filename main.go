@@ -31,8 +31,9 @@ import (
 var staticFiles embed.FS
 
 var (
-	vaultsDir = flag.String("vaults", "/vaults", "path to vaults directory")
-	port      = flag.String("port", "8080", "port to listen on")
+	vaultsDir   = flag.String("vaults", "/vaults", "path to vaults directory")
+	port        = flag.String("port", "8080", "port to listen on")
+	appdataDir  = flag.String("appdata", "/appdata", "path to appdata directory (vault icons, customisations)")
 )
 
 // ─── Data structures ──────────────────────────────────────────────────────────
@@ -548,9 +549,41 @@ func errResponse(w http.ResponseWriter, code int, msg string) {
 }
 
 type server struct {
-	vaultsDir string
-	idx       *NoteIndex
-	static    http.Handler
+	vaultsDir  string
+	appdataDir string
+	idx        *NoteIndex
+	static     http.Handler
+}
+
+// handleVaultIcon serves a custom icon from appdata/icons/<vault>.(png|svg|jpg|webp)
+// Falls back to a transparent 1x1 PNG if no custom icon exists.
+func (s *server) handleVaultIcon(w http.ResponseWriter, r *http.Request) {
+	vault := r.URL.Query().Get("vault")
+	if vault == "" || strings.Contains(vault, "..") || strings.Contains(vault, "/") {
+		http.NotFound(w, r)
+		return
+	}
+	iconsDir := filepath.Join(s.appdataDir, "icons")
+	for _, ext := range []string{".png", ".svg", ".jpg", ".webp"} {
+		p := filepath.Join(iconsDir, vault+ext)
+		if _, err := os.Stat(p); err == nil {
+			switch ext {
+			case ".svg":
+				w.Header().Set("Content-Type", "image/svg+xml")
+			case ".jpg":
+				w.Header().Set("Content-Type", "image/jpeg")
+			case ".webp":
+				w.Header().Set("Content-Type", "image/webp")
+			default:
+				w.Header().Set("Content-Type", "image/png")
+			}
+			w.Header().Set("Cache-Control", "max-age=3600")
+			http.ServeFile(w, r, p)
+			return
+		}
+	}
+	// No icon found — return 204 so frontend knows to use fallback
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *server) vaultPath(name string) (string, bool) {
@@ -1169,9 +1202,13 @@ func main() {
 	idx.buildAll(*vaultsDir)
 	log.Printf("index built in %v", time.Since(t0))
 
+	// Ensure appdata/icons exists
+	_ = os.MkdirAll(filepath.Join(*appdataDir, "icons"), 0755)
+
 	srv := &server{
-		vaultsDir: *vaultsDir,
-		idx:       idx,
+		vaultsDir:  *vaultsDir,
+		appdataDir: *appdataDir,
+		idx:        idx,
 	}
 
 	// Static files sub-FS
@@ -1198,6 +1235,7 @@ func main() {
 	mux.HandleFunc("/api/resolve", srv.handleResolve)
 	mux.HandleFunc("/api/stats", srv.handleStats)
 	mux.HandleFunc("/api/sync-status", srv.handleSyncStatus)
+	mux.HandleFunc("/api/vault-icon", srv.handleVaultIcon)
 
 	addr := ":" + *port
 	log.Printf("listening on %s", addr)

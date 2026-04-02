@@ -1,0 +1,36 @@
+# VaultReader — example Docker Compose
+# Copy this to docker-compose.yml and adjust paths/ports for your setup.
+
+services:
+  vaultreader:
+    image: ghcr.io/vaultreader/vaultreader:latest   # or build locally
+    # build:
+    #   context: .
+    #   dockerfile: Dockerfile
+    container_name: vaultreader
+    ports:
+      - "8080:8080"           # adjust host port as needed
+    volumes:
+      - /path/to/your/vaults:/vaults:rw    # mount your Obsidian vaults
+      - /path/to/appdata:/appdata:rw       # persists vault icons + customisations
+    restart: unless-stopped
+    environment:
+      # Optional: Syncthing integration (omit if not using Syncthing)
+      # SYNCTHING_API_KEY: "your-syncthing-api-key"
+      # SYNCTHING_API_URL: "http://syncthing:8384"
+      pass: "true"  # placeholder so env block is valid
+
+    # ── Traefik reverse proxy (optional) ──────────────────────────────────────
+    # Remove everything below if you're not using Traefik.
+    # networks:
+    #   - proxy
+    # labels:
+    #   - "traefik.enable=true"
+    #   - "traefik.http.routers.vaultreader.rule=Host(`notes.yourdomain.com`)"
+    #   - "traefik.http.routers.vaultreader.entrypoints=websecure"
+    #   - "traefik.http.routers.vaultreader.tls.certresolver=letsencrypt"
+    #   - "traefik.http.services.vaultreader.loadbalancer.server.port=8080"
+
+# networks:
+#   proxy:
+#     external: true

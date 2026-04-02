@@ -1057,6 +1057,48 @@ mark {
   font-family: var(--mono);
 }
 
+/* ── Toolbar mobile fixes (max-width: 700px) ─────────────────────── */
+@media (max-width: 700px) {
+  /* Toolbar: tighter, note title only — no full path */
+  #toolbar {
+    padding: 6px 10px;
+    gap: 5px;
+    min-height: 42px;
+    flex-wrap: nowrap;
+  }
+
+  /* Title area gets flex: 1 but truncates aggressively */
+  .toolbar-title {
+    min-width: 0;
+    flex: 1;
+    font-size: 12px;
+  }
+
+  /* Hide intermediate path segments — show only vault + note title */
+  .tb-sep,
+  .tb-seg { display: none; }
+
+  /* Keep vault name and note title, both very short */
+  .tb-vault { font-size: 11px; padding: 2px 3px; max-width: 50px; }
+  .tb-note  { font-size: 12px; max-width: 120px; }
+
+  /* btn-group: shrink Preview/Edit labels */
+  .btn-group { flex-shrink: 0; }
+  .btn-group .btn {
+    padding: 4px 8px;
+    font-size: 11px;
+    font-weight: 500;
+  }
+
+  /* Hide copy-link button on mobile to save space */
+  .btn-copylink { display: none; }
+
+  /* Backlinks button: tighter */
+  .btn-backlinks { padding: 4px 5px; }
+  .btn-newnote   { padding: 4px 5px; }
+  .btn-icon { min-height: 36px; padding: 4px 5px; }
+}
+
 /* ── P1 Mobile Optimizations (max-width: 480px) ─────────────────── */
 
 @media (max-width: 480px) {

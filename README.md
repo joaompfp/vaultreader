@@ -1,88 +1,75 @@
 # VaultReader
 
-A lightweight Obsidian vault web reader/editor written in Go.
+A lightweight, self-hosted web reader and editor for [Obsidian](https://obsidian.md) vaults. Runs as a single static binary inside a tiny Docker container (~8MB).
+
+![Go](https://img.shields.io/badge/Go-1.23-blue) ![Docker](https://img.shields.io/badge/Docker-scratch-lightgrey) ![License](https://img.shields.io/badge/license-MIT-green)
 
 ## Features
 
-- 📂 **Multi-vault** — browse any number of Obsidian vaults from a single UI
-- ✏️ **In-browser editor** — CodeMirror 6 with Markdown syntax highlighting, undo/redo, line wrap
-- 🔗 **Wikilinks** — `[[Note Name]]` and `[[Note Name|Alias]]` rendered as clickable links with backlink tracking
-- ↩️ **Backlinks panel** — see every note that links to the current one
-- 🔍 **Search** — Ctrl+K full-text search across all notes in the vault
-- 🏷️ **Frontmatter** — collapsible YAML frontmatter viewer per note
-- 💾 **Auto-save** — debounced 1.5 s after last keystroke, atomic write (no data loss)
-- 🌙 **Dark mode** — follows `prefers-color-scheme`
-- 📱 **Responsive** — sidebar drawer on mobile
+- Browse multiple Obsidian vaults side by side
+- Read notes with rendered Markdown and wikilinks
+- Edit notes inline (CodeMirror 6)
+- Full-text search across vaults
+- Backlinks panel
+- Create, delete, rename notes and folders (soft-delete to `.trash/`)
+- Syncthing sync status indicator
+- Dark mode toggle
+- Mobile-friendly responsive layout
+- Custom vault icons via `appdata/icons/`
 
-## Architecture
-
-```
-vaultreader/
-├── main.go              # Go HTTP server (~400 lines)
-├── go.mod / go.sum
-├── static/
-│   ├── index.html       # Alpine.js SPA + CodeMirror 6 from CDN
-│   └── style.css        # 3-panel flex layout, light+dark
-├── Dockerfile           # multi-stage, scratch final image
-└── docker-compose.yml   # Traefik labels for notes.joao.date
-```
-
-## API
-
-| Method | Endpoint               | Description                         |
-|--------|------------------------|-------------------------------------|
-| GET    | `/api/vaults`          | List vault names                    |
-| GET    | `/api/tree?vault=X`    | File tree JSON                      |
-| GET    | `/api/note?vault=X&path=Y` | Note: raw, HTML, frontmatter, backlinks |
-| PUT    | `/api/note?vault=X&path=Y` | Save raw markdown                   |
-| GET    | `/api/search?q=X&vault=X`  | Full-text search results            |
-| GET    | `/api/resolve?name=X&vault=X` | Resolve wikilink name → path     |
-
-## Running locally
+## Quick start
 
 ```bash
-# With Go installed
-go mod tidy
-go run . -vaults /path/to/your/vaults -port 8080
-
-# With Docker
-docker compose up --build
+docker run -p 8080:8080 \
+  -v /path/to/your/vaults:/vaults:rw \
+  ghcr.io/vaultreader/vaultreader:latest
 ```
 
-The server expects vaults as **subdirectories** inside the `--vaults` path:
+Then open http://localhost:8080.
 
-```
-/vaults/
-  Personal/
-    index.md
-    Projects/
-      ...
-  Work/
-    ...
-```
+## Docker Compose
 
-## Docker deployment (f3nix / Traefik)
+Copy `docker-compose.example.yml` to `docker-compose.yml`, adjust the volume paths, and run:
 
 ```bash
-docker compose pull   # or build
 docker compose up -d
 ```
 
-The compose file assumes:
-- Traefik reverse proxy with `t2_proxy` network
-- Cloudflare DNS cert resolver
-- Authelia + Tailscale middleware chain
-- Vaults at `/home/joao/vaults` on the host
-
 ## Configuration
 
-| Flag       | Default    | Description              |
-|------------|------------|--------------------------|
-| `--vaults` | `/vaults`  | Path to vaults directory |
-| `--port`   | `8080`     | Port to listen on        |
+| Flag / Env | Default | Description |
+|---|---|---|
+| `-vaults` | `/vaults` | Path to your vaults directory |
+| `-appdata` | `/appdata` | Path to appdata directory (icons, customisations) |
+| `-port` | `8080` | HTTP port to listen on |
+| `SYNCTHING_API_KEY` | — | Syncthing API key for sync status |
+| `SYNCTHING_API_URL` | — | Syncthing API URL (e.g. `https://syncthing:8384`) |
 
-## Tech stack
+## Vault icons
 
-- **Backend**: Go 1.21, `net/http` stdlib, [goldmark](https://github.com/yuin/goldmark) (Markdown), [yaml.v3](https://gopkg.in/yaml.v3)
-- **Frontend**: [Alpine.js 3](https://alpinejs.dev/) (reactive UI), [CodeMirror 6](https://codemirror.net/) (editor), vanilla CSS
-- **Image**: ~14 MB (`scratch` base)
+Drop an image file into `appdata/icons/` named after your vault (e.g. `work.png`, `personal.svg`). VaultReader serves it automatically — no restart needed.
+
+Supported formats: PNG, SVG, JPG, WebP.
+
+If no icon exists for a vault, a generic folder icon is shown.
+
+## Building from source
+
+```bash
+go build -o vaultreader .
+./vaultreader -vaults /path/to/vaults -port 8080
+```
+
+Or with Docker:
+
+```bash
+docker build -t vaultreader .
+```
+
+## Vault structure
+
+VaultReader reads any directory structure. Each subdirectory of the vaults mount is treated as a separate vault. Notes are `.md` files; everything else is ignored.
+
+## License
+
+MIT

@@ -1177,29 +1177,37 @@ function vaultApp() {
     },
 
     // ── vault icons ───────────────────────────────
+    // Icons are loaded dynamically from /api/vault-icon?vault=<name>
+    // Drop a PNG/SVG named after your vault into appdata/icons/ to customise.
+    _iconCache: {},
+    _iconPending: {},
+
     vaultIcon(vault) {
-      const icons = {
-        // pessoal — Gemini logo (SOS style)
-        pessoal: `<img src="/icons/pessoal.png" style="width:100%;height:100%;object-fit:contain" alt="Monte Cara">`,
-
-        // work — Gemini logo (SOS style)
-        work: `<img src="/icons/work.png" style="width:100%;height:100%;object-fit:contain" alt="JLL">`,
-
-        // PCP — use real logo
-        pcp: `<img src="/pcp.svg" style="width:100%;height:100%;object-fit:contain;filter:brightness(0) saturate(100%) invert(15%) sepia(90%) saturate(2500%) hue-rotate(340deg) brightness(85%)" alt="PCP">`,
-
-        // SOS Racismo — hand logo in crimson #9c1c1f
-        sosracismo: `<img src="/sos-hand.svg" style="width:100%;height:100%;object-fit:contain;filter:brightness(0) saturate(100%) invert(13%) sepia(85%) saturate(2000%) hue-rotate(340deg) brightness(90%)" alt="SOS">`,
-
-        // projects — Gemini logo (SOS style)
-        projects: `<img src="/icons/projects.png" style="width:100%;height:100%;object-fit:contain" alt="projects">`,
+      const key = vault.toLowerCase().replace(/[^a-z0-9_-]/g, '')
+      if (this._iconCache[key] !== undefined) return this._iconCache[key]
+      // Return fallback immediately, fetch in background
+      if (!this._iconPending[key]) {
+        this._iconPending[key] = true
+        fetch(`/api/vault-icon?vault=${encodeURIComponent(key)}`)
+          .then(r => {
+            if (r.status === 204) {
+              // No custom icon — keep fallback
+              this._iconCache[key] = null
+            } else if (r.ok) {
+              r.blob().then(blob => {
+                const url = URL.createObjectURL(blob)
+                this._iconCache[key] = `<img src="${url}" style="width:100%;height:100%;object-fit:contain" alt="${key}">`
+                // Force Alpine to re-render vault buttons
+                this.vaults = [...this.vaults]
+              })
+            }
+          })
+          .catch(() => { this._iconCache[key] = null })
       }
-      const key = vault.toLowerCase().replace(/[^a-z]/g, '')
-      return icons[key] ||
-        `<svg viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <rect x="3" y="5" width="20" height="4" rx="1.5" fill="#94a3b8"/>
-          <rect x="3" y="12" width="26" height="16" rx="3" fill="#64748b"/>
-        </svg>`
+      // Generic vault icon fallback
+      return `<svg viewBox="0 0 32 32" xmlns="http://www.w3.org/2000/svg">
+        <path d="M4 10.5 C4 9.1 5.1 8 6.5 8 L13.2 8 L15.2 10.5 L25.5 10.5 C26.9 10.5 28 11.6 28 13 L28 23.5 C28 24.9 26.9 26 25.5 26 L6.5 26 C5.1 26 4 24.9 4 23.5 Z" fill="var(--accent)" opacity="0.85"/>
+      </svg>`
     },
   }
 }
