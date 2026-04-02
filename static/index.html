@@ -248,9 +248,9 @@
                 <div class="fv-header">
                   <span class="fv-title" x-text="activeVault"></span>
                   <div class="fv-sort-btns">
-                    <button class="fv-sort-btn" :class="{active: folderSort==='name'}" @click="folderSort='name'">Name</button>
-                    <button class="fv-sort-btn" :class="{active: folderSort==='date'}" @click="folderSort='date'">Date</button>
-                    <button class="fv-sort-btn" :class="{active: folderSort==='size'}" @click="folderSort='size'">Size</button>
+                    <button class="fv-sort-btn" :class="{active: folderSort==='name'}" @click="folderSort==='name' ? folderSortDir*=-1 : (folderSort='name', folderSortDir=1)" x-text="'Name' + (folderSort==='name' ? (folderSortDir===1 ? ' ↑' : ' ↓') : '')"></button>
+                    <button class="fv-sort-btn" :class="{active: folderSort==='date'}" @click="folderSort==='date' ? folderSortDir*=-1 : (folderSort='date', folderSortDir=1)" x-text="'Date' + (folderSort==='date' ? (folderSortDir===1 ? ' ↓' : ' ↑') : '')"></button>
+                    <button class="fv-sort-btn" :class="{active: folderSort==='size'}" @click="folderSort==='size' ? folderSortDir*=-1 : (folderSort='size', folderSortDir=1)" x-text="'Size' + (folderSort==='size' ? (folderSortDir===1 ? ' ↓' : ' ↑') : '')"></button>
                   </div>
                 </div>
                 <div class="fv-list">
@@ -552,6 +552,7 @@ function vaultApp() {
     syncMessage: '',
     // folder view
     folderSort: 'name',
+    folderSortDir: 1,
     // copy link
     copyLinkDone: false,
     // modal dialog
@@ -735,9 +736,10 @@ function vaultApp() {
       const dirs = [...this.currentDirs()]
       const files = [...this.currentFiles()]
       const cmp = (a, b) => {
-        if (this.folderSort === 'date') return (b.mtime || 0) - (a.mtime || 0)
-        if (this.folderSort === 'size') return (b.size || 0) - (a.size || 0)
-        return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })
+        const d = this.folderSortDir
+        if (this.folderSort === 'date') return d * ((b.mtime || 0) - (a.mtime || 0))
+        if (this.folderSort === 'size') return d * ((b.size || 0) - (a.size || 0))
+        return d * a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })
       }
       dirs.sort(cmp)
       files.sort(cmp)

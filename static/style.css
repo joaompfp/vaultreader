@@ -479,7 +479,7 @@ a:hover { text-decoration: underline; }
 #preview a.wikilink { color: var(--link-wiki); }
 #preview hr { border: none; border-top: 1px solid var(--border); margin: 1.5rem 0; }
 #preview .table-wrap { overflow-x: auto; margin: 0 0 1rem; }
-#preview table { border-collapse: collapse; width: 100%; margin: 0; font-size: var(--text-sm); }
+#preview table { border-collapse: collapse; width: 100%; margin: 0; font-size: var(--text-sm); display: block; overflow-x: auto; max-width: 100%; }
 #preview th, #preview td { border: 1px solid var(--border); padding: 0.4rem 0.75rem; text-align: left; }
 #preview th { background: var(--bg2); font-weight: 600; }
 #preview img { max-width: 100%; height: auto; border-radius: var(--radius); }
@@ -1003,6 +1003,21 @@ mark {
   font-weight: 600;
 }
 .btn-primary:hover { opacity: .88; background: var(--accent); }
+.btn-danger {
+  background: #dc2626;
+  color: #fff;
+  border-color: transparent;
+  font-weight: 600;
+}
+.btn-danger:hover { background: #b91c1c; opacity: 1; }
+
+/* ── Modal body text ─────────────────────────── */
+.modal-body {
+  font-size: 13px;
+  color: var(--text2);
+  margin-bottom: 4px;
+  line-height: 1.5;
+}
 
 /* ── Context Menu ────────────────────────────── */
 #ctx-menu {
