@@ -277,7 +277,7 @@ a:hover { text-decoration: underline; }
   color: var(--text);
   font-weight: 500;
 }
-.fl-icon { font-size: 13px; flex-shrink: 0; }
+.fl-icon { font-size: 13px; flex-shrink: 0; display: flex; align-items: center; color: var(--text3); }
 .fl-name {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -285,8 +285,9 @@ a:hover { text-decoration: underline; }
 }
 .fl-up { color: var(--text3); font-style: italic; }
 .fl-dir { color: var(--text); font-weight: 500; }
-.fl-dir .fl-icon { color: #f0a500; }
+.fl-dir .fl-icon { color: var(--accent); }
 .fl-file .fl-icon { color: var(--text3); }
+.fl-icon-dir { color: var(--accent); }
 
 /* ── Legacy tree (keep for compat) ───────────── */
 .tree-scroll { flex: 1; overflow-y: auto; }
@@ -473,11 +474,12 @@ a:hover { text-decoration: underline; }
 #preview code { font-family: var(--mono); font-size: 0.88em; background: var(--bg3); padding: 0.15em 0.4em; border-radius: 3px; }
 #preview pre { background: var(--bg2); border: 1px solid var(--border); border-radius: 6px; padding: 1rem; overflow-x: auto; margin: 0 0 1rem; }
 #preview pre code { background: none; padding: 0; font-size: 0.85em; }
-#preview blockquote { border-left: 3px solid var(--border); padding-left: 1rem; color: var(--text2); margin: 0 0 0.875rem; }
+#preview blockquote { border-left: 3px solid var(--accent-dim); padding: 0.25rem 0 0.25rem 1rem; color: var(--text2); margin: 0 0 0.875rem; background: color-mix(in srgb, var(--accent) 5%, transparent); border-radius: 0 4px 4px 0; }
 #preview a { color: var(--link); }
 #preview a.wikilink { color: var(--link-wiki); }
 #preview hr { border: none; border-top: 1px solid var(--border); margin: 1.5rem 0; }
-#preview table { border-collapse: collapse; width: 100%; margin: 0 0 1rem; font-size: var(--text-sm); }
+#preview .table-wrap { overflow-x: auto; margin: 0 0 1rem; }
+#preview table { border-collapse: collapse; width: 100%; margin: 0; font-size: var(--text-sm); }
 #preview th, #preview td { border: 1px solid var(--border); padding: 0.4rem 0.75rem; text-align: left; }
 #preview th { background: var(--bg2); font-weight: 600; }
 #preview img { max-width: 100%; height: auto; border-radius: var(--radius); }
@@ -800,8 +802,10 @@ mark {
   min-width: 0;
 }
 .fv-item:hover { background: var(--bg3); }
-.fv-icon { font-size: 10px; color: var(--text3); flex-shrink: 0; width: 14px; }
+.fv-icon { font-size: 10px; color: var(--text3); flex-shrink: 0; width: 14px; display: flex; align-items: center; }
 .fv-item-dir .fv-icon { color: var(--accent); }
+.fv-icon-dir { color: var(--accent); }
+.fv-icon-file { color: var(--text3); }
 .fv-name {
   flex: 1;
   font-size: 14px;

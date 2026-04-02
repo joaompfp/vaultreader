@@ -766,9 +766,81 @@ func (s *server) handleFolder(w http.ResponseWriter, r *http.Request) {
 		s.handleCreateFolder(w, r)
 	case http.MethodDelete:
 		s.handleDeleteFolder(w, r)
+	case http.MethodPatch:
+		s.handleRenameFolder(w, r)
 	default:
 		errResponse(w, 405, "method not allowed")
 	}
+}
+
+func (s *server) handleRenameFolder(w http.ResponseWriter, r *http.Request) {
+	vault := r.URL.Query().Get("vault")
+	from := r.URL.Query().Get("from")
+	to := r.URL.Query().Get("to")
+
+	vp, ok := s.vaultPath(vault)
+	if !ok {
+		errResponse(w, 400, "invalid vault")
+		return
+	}
+	if from == "" || to == "" {
+		errResponse(w, 400, "from and to required")
+		return
+	}
+
+	fullFrom, ok := s.safePath(vp, from)
+	if !ok {
+		errResponse(w, 400, "invalid from path")
+		return
+	}
+	fullTo, ok := s.safePath(vp, to)
+	if !ok {
+		errResponse(w, 400, "invalid to path")
+		return
+	}
+
+	info, err := os.Stat(fullFrom)
+	if os.IsNotExist(err) {
+		errResponse(w, 404, "folder not found")
+		return
+	}
+	if !info.IsDir() {
+		errResponse(w, 400, "path is not a folder")
+		return
+	}
+	if _, err := os.Stat(fullTo); err == nil {
+		errResponse(w, 409, "destination already exists")
+		return
+	}
+
+	if err := os.MkdirAll(filepath.Dir(fullTo), 0755); err != nil {
+		errResponse(w, 500, err.Error())
+		return
+	}
+	if err := os.Rename(fullFrom, fullTo); err != nil {
+		errResponse(w, 500, err.Error())
+		return
+	}
+
+	// update index: rekey all notes under renamed folder
+	s.idx.mu.Lock()
+	updates := map[string]string{} // oldPath -> newPath
+	for key, ref := range s.idx.allNotes {
+		if ref.Vault == vault && strings.HasPrefix(ref.Path, from+"/") {
+			newPath := to + ref.Path[len(from):]
+			updates[key] = newPath
+		}
+	}
+	for oldKey, newPath := range updates {
+		ref := s.idx.allNotes[oldKey]
+		delete(s.idx.allNotes, oldKey)
+		ref.Path = newPath
+		newKey := vault + ":" + newPath
+		s.idx.allNotes[newKey] = ref
+	}
+	s.idx.mu.Unlock()
+
+	jsonResponse(w, map[string]string{"status": "renamed", "newPath": to})
 }
 
 func (s *server) handleCreateFolder(w http.ResponseWriter, r *http.Request) {
