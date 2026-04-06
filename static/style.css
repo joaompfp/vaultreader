@@ -1266,7 +1266,7 @@ mark {
   display: flex; align-items: flex-start; justify-content: flex-end;
 }
 .admin-box {
-  background: var(--surface1);
+  background: var(--bg);
   border-left: 1px solid var(--border);
   width: 340px; max-width: 95vw;
   height: 100vh;
@@ -1279,24 +1279,24 @@ mark {
   display: flex; align-items: center; justify-content: space-between;
   margin-bottom: 4px;
 }
-.admin-title { font-weight: 700; font-size: 15px; color: var(--text1); }
+.admin-title { font-weight: 700; font-size: 15px; color: var(--text); }
 .admin-section-title { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: var(--text3); margin-top: 4px; }
 .admin-hint { font-size: 12px; color: var(--text3); margin: 0; line-height: 1.5; }
-.admin-hint code { background: var(--surface2); border-radius: 3px; padding: 1px 4px; font-size: 11px; }
+.admin-hint code { background: var(--bg2); border-radius: 3px; padding: 1px 4px; font-size: 11px; }
 .admin-rw-list { display: flex; flex-direction: column; gap: 4px; }
 .admin-rw-item {
   display: flex; align-items: center; justify-content: space-between;
-  background: var(--surface2); border-radius: 6px; padding: 7px 10px;
-  font-size: 13px; font-family: monospace; color: var(--text1);
+  background: var(--bg2); border-radius: 6px; padding: 7px 10px;
+  font-size: 13px; font-family: monospace; color: var(--text);
 }
 .admin-rw-path { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .admin-rw-remove { background: none; border: none; cursor: pointer; color: var(--text3); font-size: 12px; padding: 2px 4px; border-radius: 4px; }
-.admin-rw-remove:hover { color: var(--danger,#e55); background: var(--surface3,#f002); }
+.admin-rw-remove:hover { color: var(--danger,#e55); background: var(--bg3); }
 .admin-rw-empty { font-size: 12px; color: var(--text3); font-style: italic; padding: 4px 0; }
 .admin-add-row { display: flex; gap: 6px; }
 .admin-add-input {
-  flex: 1; background: var(--surface2); border: 1px solid var(--border);
-  border-radius: 6px; padding: 7px 10px; font-size: 13px; color: var(--text1);
+  flex: 1; background: var(--bg2); border: 1px solid var(--border);
+  border-radius: 6px; padding: 7px 10px; font-size: 13px; color: var(--text);
   font-family: monospace; outline: none;
 }
 .admin-add-input:focus { border-color: var(--accent); }
@@ -1315,7 +1315,7 @@ mark {
   display: flex; align-items: center; justify-content: center;
 }
 .move-picker-box {
-  background: var(--surface1);
+  background: var(--bg, #ffffff);
   border: 1px solid var(--border);
   border-radius: 12px;
   width: 380px; max-width: 95vw;
@@ -1330,7 +1330,7 @@ mark {
   border-bottom: 1px solid var(--border);
   font-size: 13px; color: var(--text2);
 }
-.move-picker-header strong { color: var(--text1); }
+.move-picker-header strong { color: var(--text); }
 .move-picker-header em { color: var(--accent); font-style: normal; font-weight: 600; }
 .move-picker-title { flex: 1; }
 
@@ -1339,14 +1339,14 @@ mark {
   padding: 8px 16px;
   font-size: 12px;
   border-bottom: 1px solid var(--border);
-  background: var(--surface2);
+  background: var(--bg2);
 }
 .mpb-seg {
   background: none; border: none; cursor: pointer;
   color: var(--accent); font-size: 12px; padding: 2px 4px;
   border-radius: 4px; font-weight: 500;
 }
-.mpb-seg:hover { background: var(--surface3, rgba(0,0,0,.07)); }
+.mpb-seg:hover { background: var(--bg3); }
 .mpb-sep { color: var(--text3); margin: 0 1px; }
 
 .move-picker-list {
@@ -1358,10 +1358,10 @@ mark {
   display: flex; align-items: center; gap: 8px;
   width: 100%; padding: 9px 16px;
   background: none; border: none; cursor: pointer;
-  font-size: 13px; color: var(--text1); text-align: left;
+  font-size: 13px; color: var(--text); text-align: left;
   transition: background .1s;
 }
-.mp-item:hover { background: var(--surface2); }
+.mp-item:hover { background: var(--bg2); }
 .mp-item-up { color: var(--text3); font-style: italic; }
 .mp-item-dir svg:first-child { color: var(--accent); flex-shrink: 0; }
 .mp-item-dir span { flex: 1; }
@@ -1370,14 +1370,14 @@ mark {
 
 .move-picker-dest {
   padding: 10px 16px;
-  background: var(--surface2);
+  background: var(--bg2);
   border-top: 1px solid var(--border);
   font-size: 12px;
   display: flex; align-items: center; gap: 8px;
 }
 .mp-dest-label { color: var(--text3); white-space: nowrap; }
 .mp-dest-path {
-  color: var(--text1); font-family: monospace; font-size: 12px;
+  color: var(--text); font-family: monospace; font-size: 12px;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 .mp-dest-path strong { color: var(--accent); }
