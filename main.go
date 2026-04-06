@@ -562,6 +562,7 @@ type server struct {
 	static     http.Handler
 	cfgMu      sync.RWMutex
 	cfg        AdminConfig
+	shares     *ShareStore
 }
 
 func (s *server) configPath() string {

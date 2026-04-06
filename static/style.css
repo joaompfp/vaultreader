@@ -1387,3 +1387,69 @@ mark {
   padding: 12px 16px;
   border-top: 1px solid var(--border);
 }
+
+
+/* ─── Share Modal ──────────────────────────────────────────── */
+#share-modal-overlay {
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,.5);
+  z-index: 500;
+  display: flex; align-items: center; justify-content: center;
+}
+.share-modal-box {
+  background: var(--bg); border: 1px solid var(--border);
+  border-radius: 12px; width: 400px; max-width: 95vw;
+  box-shadow: 0 8px 40px rgba(0,0,0,.3);
+  overflow: hidden;
+}
+.share-modal-header {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 14px 16px 10px; border-bottom: 1px solid var(--border);
+  font-size: 13px; color: var(--text2);
+}
+.share-modal-title { flex: 1; font-weight: 500; }
+.share-modal-title em { color: var(--accent); font-style: normal; font-weight: 600; }
+.share-modal-form, .share-modal-result { padding: 16px; display: flex; flex-direction: column; gap: 14px; }
+.share-form-row { display: flex; flex-direction: column; gap: 5px; }
+.share-form-toggle-row { flex-direction: row; align-items: center; justify-content: space-between; }
+.share-label { font-size: 12px; font-weight: 600; color: var(--text2); }
+.share-hint { font-weight: 400; color: var(--text3); }
+.share-input, .share-select {
+  background: var(--bg2); border: 1px solid var(--border);
+  border-radius: 6px; padding: 7px 10px; font-size: 13px; color: var(--text);
+  outline: none; width: 100%;
+}
+.share-input:focus, .share-select:focus { border-color: var(--accent); }
+.share-modal-actions { display: flex; gap: 8px; justify-content: flex-end; padding-top: 4px; }
+.btn.copied { background: #16a34a !important; color: #fff !important; }
+
+.share-result-label { font-size: 13px; font-weight: 600; color: var(--text1); }
+.share-result-link {
+  background: var(--bg2); border: 1px solid var(--border); border-radius: 6px;
+  padding: 8px 10px; font-family: monospace; font-size: 12px; color: var(--accent);
+  word-break: break-all; line-height: 1.5;
+}
+
+/* ─── Active shares in admin ───────────────────────────────── */
+.share-active-item {
+  display: flex; align-items: flex-start; justify-content: space-between;
+  gap: 8px; padding: 8px 0; border-bottom: 1px solid var(--border);
+}
+.share-active-item:last-child { border-bottom: none; }
+.share-active-meta { flex: 1; display: flex; flex-direction: column; gap: 3px; }
+.share-active-path { font-family: monospace; font-size: 12px; color: var(--text); word-break: break-all; }
+.share-active-label { font-size: 11px; color: var(--text3); font-style: italic; }
+.share-active-badges { display: flex; gap: 4px; flex-wrap: wrap; }
+.share-tiny-badge {
+  font-size: 10px; font-weight: 600; padding: 1px 6px; border-radius: 8px; color: #fff;
+}
+.share-tiny-badge.ro { background: #666; }
+.share-tiny-badge.editable { background: var(--accent); }
+.share-tiny-badge.expires { background: #2563eb; font-weight: 400; }
+.share-active-actions { display: flex; gap: 4px; flex-shrink: 0; }
+.share-copy-btn, .share-revoke-btn {
+  background: none; border: none; cursor: pointer; padding: 4px 6px;
+  border-radius: 4px; color: var(--text3); font-size: 12px;
+}
+.share-copy-btn:hover { color: var(--accent); background: var(--bg2); }
+.share-revoke-btn:hover { color: #e55; background: var(--bg2); }

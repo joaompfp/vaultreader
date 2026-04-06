@@ -494,6 +494,73 @@
   </div>
 
 
+  <!-- ─── Share Modal ──────────────────────────── -->
+  <div id="share-modal-overlay"
+       x-show="shareModal.open"
+       x-transition.opacity
+       @click.self="shareModal.open = false"
+       @keydown.escape.window="shareModal.open = false"
+       style="display:none">
+    <div class="share-modal-box" @click.stop>
+      <div class="share-modal-header">
+        <span class="share-modal-title">
+          Share note: <em x-text="shareModal.path.split('/').pop().replace(/\.md$/, '')"></em>
+        </span>
+        <button class="btn-icon" @click="shareModal.open = false" title="Close">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+
+      <template x-if="!shareModal.result">
+        <div class="share-modal-form">
+          <div class="share-form-row">
+            <label class="share-label">Label <span class="share-hint">(optional)</span></label>
+            <input class="share-input" type="text" placeholder="e.g. For Joana" x-model="shareModal.label" autocomplete="off">
+          </div>
+          <div class="share-form-row">
+            <label class="share-label">Expires</label>
+            <select class="share-select" x-model="shareModal.ttl">
+              <option value="0">Never</option>
+              <option value="3600">1 hour</option>
+              <option value="86400">24 hours</option>
+              <option value="604800">7 days</option>
+              <option value="2592000">30 days</option>
+            </select>
+          </div>
+          <div class="share-form-row share-form-toggle-row">
+            <label class="share-label">Allow editing</label>
+            <button class="settings-toggle" :class="{on: shareModal.writable}" @click="shareModal.writable = !shareModal.writable">
+              <span class="settings-toggle-knob"></span>
+            </button>
+          </div>
+          <div class="share-modal-actions">
+            <button class="btn" @click="shareModal.open = false">Cancel</button>
+            <button class="btn btn-primary" @click="createShare()">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/><line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/><line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/></svg>
+              Create link
+            </button>
+          </div>
+        </div>
+      </template>
+
+      <template x-if="shareModal.result">
+        <div class="share-modal-result">
+          <div class="share-result-label">Share link created!</div>
+          <div class="share-result-link" x-text="shareModal.result"></div>
+          <div class="share-modal-actions">
+            <button class="btn" @click="shareModal.result = null; shareModal.open = false">Done</button>
+            <button class="btn btn-primary" :class="{ copied: shareModal.copying }" @click="copyShareLink()">
+              <svg x-show="!shareModal.copying" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+              <svg x-show="shareModal.copying" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="20 6 9 17 4 12"/></svg>
+              <span x-text="shareModal.copying ? 'Copied!' : 'Copy link'"></span>
+            </button>
+          </div>
+        </div>
+      </template>
+    </div>
+  </div>
+
+
   <!-- ─── Admin Panel ──────────────────────────── -->
   <div id="admin-panel" x-show="adminOpen" @click.self="adminOpen=false"
        x-transition:enter="transition ease-out duration-150"
@@ -543,6 +610,32 @@
               x-text="adminRestarting ? 'Restarting…' : 'Restart container'">
       </button>
       <p class="admin-hint">Docker will bring it back up automatically. Page will reload after 4s.</p>
+
+      <div class="admin-divider"></div>
+      <div class="admin-section-title">Active Share Links</div>
+      <div x-init="loadActiveShares()">
+        <template x-if="activeShares.length === 0">
+          <div class="admin-rw-empty">No active share links.</div>
+        </template>
+        <template x-for="s in activeShares" :key="s.token">
+          <div class="share-active-item">
+            <div class="share-active-meta">
+              <span class="share-active-path" x-text="s.vault + '/' + s.path.replace(/\.md$/, '')"></span>
+              <span class="share-active-badges">
+                <span class="share-tiny-badge" :class="s.writable ? 'editable' : 'ro'" x-text="s.writable ? 'edit' : 'ro'"></span>
+                <span class="share-tiny-badge expires" x-text="shareExpiry(s)"></span>
+              </span>
+              <span x-show="s.label" class="share-active-label" x-text="s.label"></span>
+            </div>
+            <div class="share-active-actions">
+              <button class="share-copy-btn" @click="navigator.clipboard.writeText(window.location.origin+'/share/'+s.token)" title="Copy link">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+              </button>
+              <button class="share-revoke-btn" @click="revokeShare(s.token)" title="Revoke">✕</button>
+            </div>
+          </div>
+        </template>
+      </div>
     </div>
   </div>
 
@@ -700,6 +793,9 @@ function vaultApp() {
     adminConfig: { rw_paths: [] },
     adminNewPath: '',
     adminRestarting: false,
+    // shares
+    shareModal: { open: false, vault: '', path: '', writable: false, ttl: 0, label: '', result: null, copying: false },
+    activeShares: [],
     // move picker modal
     movePicker: {
       open: false,
@@ -1396,6 +1492,7 @@ function vaultApp() {
         items.push({ label: 'Open', action: () => this.openNote(this.activeVault, item.path) })
         items.push({ label: 'Rename', action: () => this.promptRenameNote(item.path) })
         items.push({ label: 'Move to…', action: () => this.promptMoveItem(item.path, false) })
+        items.push({ label: 'Share…', action: () => this.openShareModal(item.path) })
         items.push({ label: 'Delete', danger: true, action: () => this.deleteNote(item.path) })
       } else {
         items.push({ label: 'Open folder', action: () => this.enterDir(this.activeVault, item.path) })
@@ -1419,6 +1516,57 @@ function vaultApp() {
       this.darkMode = !this.darkMode
       document.documentElement.setAttribute('data-theme', this.darkMode ? 'dark' : 'light')
       localStorage.setItem('vr-dark', this.darkMode ? '1' : '0')
+    },
+
+    // ── shares ────────────────────────────────────
+    openShareModal(path) {
+      this.shareModal = {
+        open: true, vault: this.activeVault, path,
+        writable: false, ttl: 0, label: '', result: null, copying: false
+      }
+    },
+
+    async createShare() {
+      const { vault, path, writable, ttl, label } = this.shareModal
+      try {
+        const r = await fetch('/api/shares/create', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ vault, path, writable, ttl: parseInt(ttl) || 0, label })
+        })
+        if (!r.ok) { alert('Failed to create share'); return }
+        const data = await r.json()
+        this.shareModal.result = window.location.origin + '/share/' + data.token
+      } catch(e) { alert('Network error'); console.error(e) }
+    },
+
+    async copyShareLink() {
+      if (!this.shareModal.result) return
+      await navigator.clipboard.writeText(this.shareModal.result)
+      this.shareModal.copying = true
+      setTimeout(() => { this.shareModal.copying = false }, 2000)
+    },
+
+    async loadActiveShares() {
+      try {
+        const r = await fetch('/api/shares')
+        if (r.ok) this.activeShares = await r.json()
+      } catch(e) { console.error('shares fetch:', e) }
+    },
+
+    async revokeShare(token) {
+      if (!confirm('Revoke this share link? It will stop working immediately.')) return
+      try {
+        await fetch('/api/shares/revoke?token=' + encodeURIComponent(token), { method: 'DELETE' })
+        await this.loadActiveShares()
+      } catch(e) { console.error('revoke:', e) }
+    },
+
+    shareExpiry(entry) {
+      if (!entry.expires_at) return 'Never'
+      const d = new Date(entry.expires_at * 1000)
+      return d.toLocaleDateString(undefined, { day:'numeric', month:'short', year:'numeric' }) +
+             ' ' + d.toLocaleTimeString(undefined, { hour:'2-digit', minute:'2-digit' })
     },
 
     // ── vault icons ───────────────────────────────
