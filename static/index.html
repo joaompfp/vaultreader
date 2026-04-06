@@ -422,6 +422,78 @@
     </div>
   </div>
 
+  <!-- ─── Move Picker Modal ──────────────────────── -->
+  <div id="move-picker-overlay"
+       x-show="movePicker.open"
+       x-transition.opacity
+       @click.self="movePicker.open = false"
+       @keydown.escape.window="movePicker.open = false"
+       style="display:none">
+    <div class="move-picker-box" @click.stop>
+      <div class="move-picker-header">
+        <span class="move-picker-title">
+          Move <strong x-text="movePicker.isDir ? 'folder' : 'note'"></strong>:
+          <em x-text="movePicker.fromPath.split('/').pop().replace(/\.md$/, '')"></em>
+        </span>
+        <button class="btn-icon" @click="movePicker.open = false" title="Cancel">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+
+      <!-- Breadcrumb -->
+      <div class="move-picker-breadcrumb">
+        <button class="mpb-seg" @click="movePicker.pickerCwd = ''" x-text="movePicker.vault"></button>
+        <template x-for="(seg, i) in pickerBreadcrumbs()" :key="i">
+          <span>
+            <span class="mpb-sep">/</span>
+            <button class="mpb-seg"
+                    @click="movePicker.pickerCwd = pickerBreadcrumbs().slice(0, i+1).join('/')"
+                    x-text="seg"></button>
+          </span>
+        </template>
+      </div>
+
+      <!-- Folder list -->
+      <div class="move-picker-list">
+        <!-- Up button -->
+        <template x-if="movePicker.pickerCwd !== ''">
+          <button class="mp-item mp-item-up" @click="pickerGoUp()">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M15 18l-6-6 6-6"/></svg>
+            <span>..</span>
+          </button>
+        </template>
+
+        <!-- Subfolders -->
+        <template x-for="dir in pickerCurrentDirs()" :key="dir.path">
+          <button class="mp-item mp-item-dir" @click="pickerEnter(dir.path)">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+            <span x-text="dir.name"></span>
+            <svg class="mp-chevron" width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M9 18l6-6-6-6"/></svg>
+          </button>
+        </template>
+
+        <template x-if="pickerCurrentDirs().length === 0">
+          <div class="mp-empty">No subfolders here</div>
+        </template>
+      </div>
+
+      <!-- Destination label -->
+      <div class="move-picker-dest">
+        <span class="mp-dest-label">Move to:</span>
+        <span class="mp-dest-path">
+          <span x-text="movePicker.vault"></span>/<span x-show="movePicker.pickerCwd" x-text="movePicker.pickerCwd + '/'"></span><strong x-text="movePicker.fromPath.split('/').pop().replace(/\.md$/, '')"></strong>
+        </span>
+      </div>
+
+      <!-- Actions -->
+      <div class="move-picker-actions">
+        <button class="btn" @click="movePicker.open = false">Cancel</button>
+        <button class="btn btn-primary" @click="pickerConfirmMove()">Move here</button>
+      </div>
+    </div>
+  </div>
+
+
   <!-- ─── Admin Panel ──────────────────────────── -->
   <div id="admin-panel" x-show="adminOpen" @click.self="adminOpen=false"
        x-transition:enter="transition ease-out duration-150"
@@ -628,6 +700,16 @@ function vaultApp() {
     adminConfig: { rw_paths: [] },
     adminNewPath: '',
     adminRestarting: false,
+    // move picker modal
+    movePicker: {
+      open: false,
+      fromPath: '',
+      isDir: false,
+      vault: '',
+      pickerVault: '',
+      pickerCwd: '',
+      pickerNodes: [],
+    },
     darkMode: window.matchMedia('(prefers-color-scheme: dark)').matches,
     newMenuX: 0,
     newMenuY: 0,
@@ -1424,40 +1506,98 @@ function vaultApp() {
       })
     },
 
-    // ── move item (file or folder) ─────────────────
-    promptMoveItem(fromPath, isDir) {
-      const label = isDir ? 'folder' : 'note'
-      const name = fromPath.split('/').pop().replace(/\.md$/, '')
-      // suggest current parent dir as default destination prefix
-      const parts = fromPath.split('/')
-      parts.pop()
-      const parentDir = parts.join('/')
-      this.openModal(
-        `Move ${label}: ${name}`,
-        parentDir ? parentDir + '/' : '',
-        `New path (e.g. folder/subfolder${isDir ? '' : '/name'})`,
-        'Move',
-        async (toPath) => {
-          if (!toPath || toPath === fromPath) return
-          try {
-            const url = `/api/move?vault=${encodeURIComponent(this.activeVault)}&from=${encodeURIComponent(fromPath)}&to=${encodeURIComponent(toPath)}`
-            const res = await fetch(url, { method: 'POST' })
-            if (res.status === 409) { this.modal.error = 'Destination already exists.'; return }
-            if (!res.ok) { this.modal.error = 'Move failed.'; return }
-            this.modal.open = false
-            // refresh tree
-            await this.loadTree(this.activeVault)
-            // if we moved the open note, navigate away
-            if (!isDir && fromPath === this.activePath) {
-              const data = await res.json()
-              await this.openNote(this.activeVault, data.newPath)
-            } else if (isDir && this.activePath.startsWith(fromPath + '/')) {
-              this.activePath = ''
-              this.enterDir(this.activeVault, '')
-            }
-          } catch(e) { this.modal.error = 'Network error.'; console.error('move:', e) }
+    // ── move item (file or folder) — tree picker ──
+    async promptMoveItem(fromPath, isDir) {
+      // load vault tree for the picker
+      const nodes = []
+      try {
+        const res = await fetch('/api/tree?vault=' + encodeURIComponent(this.activeVault))
+        if (res.ok) nodes.push(...(await res.json()))
+      } catch(e) {}
+      this.movePicker = {
+        open: true,
+        fromPath,
+        isDir,
+        vault: this.activeVault,
+        pickerVault: this.activeVault,
+        pickerCwd: '',
+        pickerNodes: nodes,
+      }
+    },
+
+    pickerFlatDirs() {
+      // flatten tree to get all dirs visible at current pickerCwd level
+      const flatten = (nodes, prefix) => {
+        const out = []
+        for (const n of nodes) {
+          if (!n.isDir) continue
+          const p = prefix ? prefix + '/' + n.name : n.name
+          // skip .trash
+          if (n.name === '.trash' || n.name.startsWith('.')) continue
+          // skip the item being moved (can't move into itself)
+          if (this.movePicker.fromPath === p || p.startsWith(this.movePicker.fromPath + '/')) continue
+          out.push({ name: n.name, path: p, children: n.children || [] })
+          if (n.children) out.push(...flatten(n.children, p))
         }
-      )
+        return out
+      }
+      return flatten(this.movePicker.pickerNodes, '')
+    },
+
+    // dirs at the current picker level
+    pickerCurrentDirs() {
+      const cwd = this.movePicker.pickerCwd
+      return this.pickerFlatDirs().filter(d => {
+        const prefix = cwd ? cwd + '/' : ''
+        if (!d.path.startsWith(prefix)) return false
+        const rest = d.path.slice(prefix.length)
+        return !rest.includes('/')
+      }).sort((a,b) => a.name.localeCompare(b.name))
+    },
+
+    pickerBreadcrumbs() {
+      if (!this.movePicker.pickerCwd) return []
+      return this.movePicker.pickerCwd.split('/')
+    },
+
+    pickerGoUp() {
+      const parts = this.movePicker.pickerCwd.split('/')
+      parts.pop()
+      this.movePicker.pickerCwd = parts.join('/')
+    },
+
+    pickerEnter(dirPath) {
+      this.movePicker.pickerCwd = dirPath
+    },
+
+    async pickerConfirmMove() {
+      const { fromPath, isDir, vault, pickerCwd } = this.movePicker
+      // destination: pickerCwd + basename of the item being moved
+      const basename = fromPath.split('/').pop()
+      const toPath = pickerCwd ? pickerCwd + '/' + basename : basename
+
+      if (toPath === fromPath) {
+        this.movePicker.open = false
+        return
+      }
+      try {
+        const url = '/api/move?vault=' + encodeURIComponent(vault) +
+                    '&from=' + encodeURIComponent(fromPath) +
+                    '&to=' + encodeURIComponent(toPath)
+        const res = await fetch(url, { method: 'POST' })
+        if (res.status === 409) { alert('A file/folder with that name already exists at the destination.'); return }
+        if (!res.ok) { alert('Move failed.'); return }
+        this.movePicker.open = false
+        // refresh
+        await this.enterDir(vault, this.cwd)
+        // if we moved the open note, open at new path
+        if (!isDir && fromPath === this.activePath) {
+          const data = await res.json()
+          await this.openNote(vault, data.newPath)
+        } else if (isDir && this.activePath.startsWith(fromPath + '/')) {
+          this.activePath = ''; this.enterDir(vault, '')
+        }
+      } catch(e) { alert('Network error.'); console.error('move:', e) }
     },
 
   }
