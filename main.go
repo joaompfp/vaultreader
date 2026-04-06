@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"compress/gzip"
+	"crypto/rand"
 	"crypto/tls"
 	"embed"
 	"encoding/json"
@@ -643,6 +644,166 @@ func (s *server) handleAdminRestart(w http.ResponseWriter, r *http.Request) {
 		os.Exit(0) // Docker restart policy brings it back up
 	}()
 }
+
+// ─── Share system ─────────────────────────────────────────────────────────────
+
+type ShareEntry struct {
+	Token     string `json:"token"`
+	Vault     string `json:"vault"`
+	Path      string `json:"path"`
+	Writable  bool   `json:"writable"`
+	ExpiresAt int64  `json:"expires_at,omitempty"`
+	CreatedAt int64  `json:"created_at"`
+	Label     string `json:"label,omitempty"`
+}
+
+type ShareStore struct {
+	mu      sync.RWMutex
+	entries map[string]*ShareEntry
+	path    string
+}
+
+func newShareStore(appdataDir string) *ShareStore {
+	ss := &ShareStore{entries: make(map[string]*ShareEntry), path: filepath.Join(appdataDir, "shares.json")}
+	ss.load()
+	return ss
+}
+
+func (ss *ShareStore) load() {
+	data, err := os.ReadFile(ss.path)
+	if err != nil { return }
+	var entries []*ShareEntry
+	if err := json.Unmarshal(data, &entries); err != nil { return }
+	ss.mu.Lock(); defer ss.mu.Unlock()
+	for _, e := range entries { ss.entries[e.Token] = e }
+}
+
+func (ss *ShareStore) save() error {
+	ss.mu.RLock()
+	entries := make([]*ShareEntry, 0, len(ss.entries))
+	for _, e := range ss.entries { entries = append(entries, e) }
+	ss.mu.RUnlock()
+	data, err := json.MarshalIndent(entries, "", "  ")
+	if err != nil { return err }
+	return os.WriteFile(ss.path, data, 0644)
+}
+
+func (ss *ShareStore) create(vault, path string, writable bool, ttl int64, label string) *ShareEntry {
+	b := make([]byte, 12); _, _ = rand.Read(b)
+	e := &ShareEntry{Token: fmt.Sprintf("%x", b), Vault: vault, Path: path,
+		Writable: writable, CreatedAt: time.Now().Unix(), Label: label}
+	if ttl > 0 { e.ExpiresAt = time.Now().Unix() + ttl }
+	ss.mu.Lock(); ss.entries[e.Token] = e; ss.mu.Unlock()
+	_ = ss.save(); return e
+}
+
+func (ss *ShareStore) get(token string) (*ShareEntry, bool) {
+	ss.mu.RLock(); e, ok := ss.entries[token]; ss.mu.RUnlock()
+	if !ok { return nil, false }
+	if e.ExpiresAt > 0 && time.Now().Unix() > e.ExpiresAt { return nil, false }
+	return e, true
+}
+
+func (ss *ShareStore) revoke(token string) {
+	ss.mu.Lock(); delete(ss.entries, token); ss.mu.Unlock(); _ = ss.save()
+}
+
+func (ss *ShareStore) list() []*ShareEntry {
+	ss.mu.RLock(); defer ss.mu.RUnlock()
+	now := time.Now().Unix(); out := make([]*ShareEntry, 0)
+	for _, e := range ss.entries { if e.ExpiresAt == 0 || now <= e.ExpiresAt { out = append(out, e) } }
+	sort.Slice(out, func(i, j int) bool { return out[i].CreatedAt > out[j].CreatedAt })
+	return out
+}
+
+func (s *server) handleShareCreate(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost { errResponse(w, 405, "method not allowed"); return }
+	var req struct {
+		Vault    string `json:"vault"`
+		Path     string `json:"path"`
+		Writable bool   `json:"writable"`
+		TTL      int64  `json:"ttl"`
+		Label    string `json:"label"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil { errResponse(w, 400, "bad json"); return }
+	if req.Vault == "" || req.Path == "" { errResponse(w, 400, "vault and path required"); return }
+	jsonResponse(w, s.shares.create(req.Vault, req.Path, req.Writable, req.TTL, req.Label))
+}
+
+func (s *server) handleShareList(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet { errResponse(w, 405, "method not allowed"); return }
+	jsonResponse(w, s.shares.list())
+}
+
+func (s *server) handleShareRevoke(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodDelete { errResponse(w, 405, "method not allowed"); return }
+	token := r.URL.Query().Get("token")
+	if token == "" { errResponse(w, 400, "token required"); return }
+	s.shares.revoke(token); jsonResponse(w, map[string]string{"status": "revoked"})
+}
+
+func (s *server) handleShareView(w http.ResponseWriter, r *http.Request) {
+	token := strings.TrimPrefix(r.URL.Path, "/share/")
+	if token == "" { http.NotFound(w, r); return }
+	e, ok := s.shares.get(token)
+	if !ok { http.Error(w, "Share link not found or expired.", http.StatusNotFound); return }
+
+	if r.Method == http.MethodPut {
+		if !e.Writable { errResponse(w, 403, "read-only share"); return }
+		vp, ok := s.vaultPath(e.Vault)
+		if !ok { errResponse(w, 400, "vault unavailable"); return }
+		var body struct{ Raw string `json:"raw"` }
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if err := saveNote(vp, e.Path, body.Raw); err != nil { errResponse(w, 500, err.Error()); return }
+		s.idx.updateNote(e.Vault, e.Path, body.Raw)
+		jsonResponse(w, map[string]string{"status": "saved"}); return
+	}
+
+	vp, ok := s.vaultPath(e.Vault)
+	if !ok { http.Error(w, "Vault not available.", http.StatusNotFound); return }
+	full, ok2 := s.safePath(vp, e.Path)
+	if !ok2 { http.Error(w, "Invalid path.", http.StatusNotFound); return }
+	data, err := os.ReadFile(full)
+	if err != nil { http.Error(w, "Note not found.", http.StatusNotFound); return }
+
+	raw := string(data)
+	title := extractTitle(raw, e.Path)
+	var buf bytes.Buffer; _ = md.Convert([]byte(raw), &buf)
+
+	expiresStr := "Never"
+	if e.ExpiresAt > 0 { expiresStr = time.Unix(e.ExpiresAt, 0).Format("2 Jan 2006 15:04") }
+	modeStr, modeCls := "Read-only", " ro"
+	if e.Writable { modeStr, modeCls = "Editable", "" }
+
+	page := fmt.Sprintf(`<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>%s</title><style>
+:root{--ac:#b91c1c;--t:#1a1a1a;--t2:#555;--t3:#888;--bd:#e0e0e0;--bg:#fff;--bg2:#f5f5f5}
+@media(prefers-color-scheme:dark){:root{--t:#cdd6f4;--t2:#a6adc8;--t3:#6c7086;--bd:#45475a;--bg:#1e1e2e;--bg2:#181825}}
+*{box-sizing:border-box;margin:0;padding:0}body{font-family:system-ui,sans-serif;font-size:16px;line-height:1.7;color:var(--t);background:var(--bg)}
+.bar{display:flex;align-items:center;gap:10px;padding:9px 20px;border-bottom:1px solid var(--bd);font-size:12px;color:var(--t3)}
+.bar strong{color:var(--ac);font-size:13px;font-weight:600}
+.badge{padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600;color:#fff;background:var(--ac)}.badge.ro{background:#666}
+.content{max-width:740px;margin:0 auto;padding:36px 20px 80px}
+h1,h2,h3{margin:1.3em 0 .4em;line-height:1.3}h1{font-size:2em}h2{font-size:1.5em}h3{font-size:1.2em}
+p{margin:.7em 0}a{color:var(--ac)}code{background:var(--bg2);border-radius:4px;padding:2px 5px;font-size:.88em;font-family:monospace}
+pre{background:var(--bg2);border-radius:8px;padding:14px;overflow-x:auto;margin:1em 0}pre code{background:none;padding:0}
+blockquote{border-left:3px solid var(--ac);padding-left:14px;color:var(--t2);margin:1em 0}
+ul,ol{padding-left:1.4em;margin:.5em 0}li{margin:.2em 0}
+table{border-collapse:collapse;width:100%%;margin:1em 0}th,td{border:1px solid var(--bd);padding:7px 11px}th{background:var(--bg2)}
+img{max-width:100%%}hr{border:none;border-top:1px solid var(--bd);margin:1.5em 0}
+.foot{text-align:center;padding:20px;font-size:12px;color:var(--t3);border-top:1px solid var(--bd)}.foot a{color:var(--t3);text-decoration:none}
+</style></head><body>
+<div class="bar"><strong>%s</strong><span class="badge%s">%s</span><span>Expires: %s</span>
+<span style="flex:1"></span><a href="https://notes.joao.date" style="color:var(--t3);font-size:11px">VaultReader</a></div>
+<div class="content">%s</div>
+<div class="foot">Shared via <a href="https://notes.joao.date">VaultReader</a></div>
+</body></html>`, title, title, modeCls, modeStr, expiresStr, buf.String())
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Write([]byte(page))
+}
+
 
 // handleVaultIcon serves a custom icon from appdata/icons/<vault>.(png|svg|jpg|webp)
 // Falls back to a transparent 1x1 PNG if no custom icon exists.
@@ -1375,6 +1536,7 @@ func main() {
 		vaultsDir:  *vaultsDir,
 		appdataDir: *appdataDir,
 		idx:        idx,
+		shares:     newShareStore(*appdataDir),
 	}
 	srv.loadConfig()
 
@@ -1404,6 +1566,10 @@ func main() {
 	mux.HandleFunc("/api/sync-status", srv.handleSyncStatus)
 	mux.HandleFunc("/api/vault-icon", srv.handleVaultIcon)
 	mux.HandleFunc("/api/admin/config", srv.handleAdminConfig)
+	mux.HandleFunc("/api/shares", srv.handleShareList)
+	mux.HandleFunc("/api/shares/create", srv.handleShareCreate)
+	mux.HandleFunc("/api/shares/revoke", srv.handleShareRevoke)
+	mux.HandleFunc("/share/", srv.handleShareView)
 	mux.HandleFunc("/api/admin/restart", srv.handleAdminRestart)
 
 	addr := ":" + *port
