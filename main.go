@@ -769,7 +769,9 @@ func (s *server) handleShareView(w http.ResponseWriter, r *http.Request) {
 
 	raw := string(data)
 	title := extractTitle(raw, e.Path)
-	var buf bytes.Buffer; _ = md.Convert([]byte(raw), &buf)
+	// Strip YAML frontmatter (--- ... ---) before rendering
+	_, body := parseFrontmatter(raw)
+	var buf bytes.Buffer; _ = md.Convert([]byte(body), &buf)
 
 	expiresStr := "Never"
 	if e.ExpiresAt > 0 { expiresStr = time.Unix(e.ExpiresAt, 0).Format("2 Jan 2006 15:04") }

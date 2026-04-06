@@ -628,7 +628,7 @@
               <span x-show="s.label" class="share-active-label" x-text="s.label"></span>
             </div>
             <div class="share-active-actions">
-              <button class="share-copy-btn" @click="navigator.clipboard.writeText(window.location.origin+'/share/'+s.token)" title="Copy link">
+              <button class="share-copy-btn" @click="navigator.clipboard.writeText('https://joao.date/notas/'+s.token)" title="Copy link">
                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
               </button>
               <button class="share-revoke-btn" @click="revokeShare(s.token)" title="Revoke">✕</button>
@@ -1536,7 +1536,7 @@ function vaultApp() {
         })
         if (!r.ok) { alert('Failed to create share'); return }
         const data = await r.json()
-        this.shareModal.result = window.location.origin + '/share/' + data.token
+        this.shareModal.result = 'https://joao.date/notas/' + data.token
       } catch(e) { alert('Network error'); console.error(e) }
     },
 
