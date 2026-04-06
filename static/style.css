@@ -757,7 +757,8 @@ mark {
 /* ── Folder view (main pane) ─────────────────── */
 .folder-view {
   padding: 20px 24px;
-  max-width: 800px;
+  width: 100%;
+  max-width: 900px;
   margin: 0 auto;
 }
 .fv-section { margin-bottom: 28px; }
@@ -822,7 +823,18 @@ mark {
   white-space: nowrap;
 }
 .fv-vault { color: var(--accent); opacity: .7; }
-.fv-empty { padding: 16px 8px; font-size: 13px; color: var(--text3); font-style: italic; }
+.fv-empty { padding: 24px 16px; font-size: 13px; color: var(--text3); font-style: italic; display: flex; align-items: center; gap: 12px; }
+.fv-empty-cta {
+  font-size: 12px;
+  color: var(--accent);
+  background: none;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  padding: 4px 10px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.fv-empty-cta:hover { background: color-mix(in srgb, var(--accent) 10%, transparent); }
 
 /* ── Status bar ──────────────────────────────── */
 #status-bar {
@@ -1120,7 +1132,9 @@ mark {
   /* Backlinks button: tighter */
   .btn-backlinks { padding: 4px 5px; }
   .btn-newnote   { padding: 4px 5px; }
-  .btn-icon { min-height: 36px; padding: 4px 5px; }
+  .btn-icon { min-height: 44px; padding: 10px 8px; }
+  #toolbar button { min-height: 44px; }
+  .btn-backlinks, .btn-newnote, .btn-search, .btn-copylink, .btn-mode-toggle { min-height: 44px; padding: 10px 8px; }
 }
 
 /* ── P1 Mobile Optimizations (max-width: 480px) ─────────────────── */
@@ -1242,3 +1256,52 @@ mark {
   .fv-item { padding: 8px 6px; }
   
 }
+
+
+/* ─── Admin Panel ──────────────────────────────────────── */
+#admin-panel {
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,.45);
+  z-index: 300;
+  display: flex; align-items: flex-start; justify-content: flex-end;
+}
+.admin-box {
+  background: var(--surface1);
+  border-left: 1px solid var(--border);
+  width: 340px; max-width: 95vw;
+  height: 100vh;
+  overflow-y: auto;
+  padding: 20px;
+  display: flex; flex-direction: column; gap: 12px;
+  box-shadow: -4px 0 24px rgba(0,0,0,.25);
+}
+.admin-header {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-bottom: 4px;
+}
+.admin-title { font-weight: 700; font-size: 15px; color: var(--text1); }
+.admin-section-title { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; color: var(--text3); margin-top: 4px; }
+.admin-hint { font-size: 12px; color: var(--text3); margin: 0; line-height: 1.5; }
+.admin-hint code { background: var(--surface2); border-radius: 3px; padding: 1px 4px; font-size: 11px; }
+.admin-rw-list { display: flex; flex-direction: column; gap: 4px; }
+.admin-rw-item {
+  display: flex; align-items: center; justify-content: space-between;
+  background: var(--surface2); border-radius: 6px; padding: 7px 10px;
+  font-size: 13px; font-family: monospace; color: var(--text1);
+}
+.admin-rw-path { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.admin-rw-remove { background: none; border: none; cursor: pointer; color: var(--text3); font-size: 12px; padding: 2px 4px; border-radius: 4px; }
+.admin-rw-remove:hover { color: var(--danger,#e55); background: var(--surface3,#f002); }
+.admin-rw-empty { font-size: 12px; color: var(--text3); font-style: italic; padding: 4px 0; }
+.admin-add-row { display: flex; gap: 6px; }
+.admin-add-input {
+  flex: 1; background: var(--surface2); border: 1px solid var(--border);
+  border-radius: 6px; padding: 7px 10px; font-size: 13px; color: var(--text1);
+  font-family: monospace; outline: none;
+}
+.admin-add-input:focus { border-color: var(--accent); }
+.admin-add-btn { flex-shrink: 0; }
+.admin-divider { border: none; border-top: 1px solid var(--border); margin: 4px 0; }
+.admin-restart-btn { width: 100%; justify-content: center; }
+.btn-danger { background: #c0392b !important; color: #fff !important; }
+.btn-danger:hover { background: #e74c3c !important; }

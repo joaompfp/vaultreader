@@ -172,8 +172,15 @@
         </button>
       </template>
 
-      <button class="btn-icon btn-backlinks" :class="{ active: backlinksOpen }" @click="backlinksOpen = !backlinksOpen" title="Backlinks (incoming links)">
+      <button class="btn-icon" @click="openAdmin()" title="Admin (RW paths, restart)" :class="{ active: adminOpen }">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="12" cy="12" r="3"/>
+          <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+        </svg>
+      </button>
+
+      <button class="btn-icon btn-backlinks" :class="{ active: backlinksOpen }" @click="backlinksOpen = !backlinksOpen" title="Backlinks (incoming links)">
+        <svg width="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
           <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
         </svg>
@@ -415,6 +422,59 @@
     </div>
   </div>
 
+  <!-- ─── Admin Panel ──────────────────────────── -->
+  <div id="admin-panel" x-show="adminOpen" @click.self="adminOpen=false"
+       x-transition:enter="transition ease-out duration-150"
+       x-transition:enter-start="opacity-0"
+       x-transition:enter-end="opacity-100"
+       x-transition:leave="transition ease-in duration-100"
+       x-transition:leave-start="opacity-100"
+       x-transition:leave-end="opacity-0"
+       style="display:none">
+    <div class="admin-box" @click.stop>
+      <div class="admin-header">
+        <span class="admin-title">⚙ Admin</span>
+        <button class="btn-icon" @click="adminOpen=false" title="Close">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+
+      <div class="admin-section-title">Read-Write Paths</div>
+      <p class="admin-hint">Paths listed here allow editing. Format: <code>vault/folder</code> or just <code>vault</code> for the whole vault.</p>
+
+      <div class="admin-rw-list">
+        <template x-for="(p, i) in adminConfig.rw_paths" :key="i">
+          <div class="admin-rw-item">
+            <span class="admin-rw-path" x-text="p"></span>
+            <button class="admin-rw-remove" @click="adminRemovePath(i)" title="Remove">✕</button>
+          </div>
+        </template>
+        <template x-if="adminConfig.rw_paths.length === 0">
+          <div class="admin-rw-empty">No RW paths — all vaults are read-only.</div>
+        </template>
+      </div>
+
+      <div class="admin-add-row">
+        <input class="admin-add-input" type="text" placeholder="e.g. pessoal/agents/hermes/skills"
+               x-model="adminNewPath"
+               @keydown.enter="adminAddPath()"
+               autocomplete="off" spellcheck="false">
+        <button class="btn btn-primary admin-add-btn" @click="adminAddPath()">Add</button>
+      </div>
+
+      <div class="admin-divider"></div>
+
+      <div class="admin-section-title">Container</div>
+      <button class="btn btn-danger admin-restart-btn"
+              :disabled="adminRestarting"
+              @click="adminRestart()"
+              x-text="adminRestarting ? 'Restarting…' : 'Restart container'">
+      </button>
+      <p class="admin-hint">Docker will bring it back up automatically. Page will reload after 4s.</p>
+    </div>
+  </div>
+
+
   <!-- ─── Context Menu ──────────────────────────── -->
   <div id="ctx-menu"
        x-show="ctxMenu.open"
@@ -563,6 +623,11 @@ function vaultApp() {
     newMenuOpen: false,
     // settings
     settingsOpen: false,
+    // admin panel
+    adminOpen: false,
+    adminConfig: { rw_paths: [] },
+    adminNewPath: '',
+    adminRestarting: false,
     darkMode: window.matchMedia('(prefers-color-scheme: dark)').matches,
     newMenuX: 0,
     newMenuY: 0,
@@ -1247,12 +1312,14 @@ function vaultApp() {
       if (!item.isDir) {
         items.push({ label: 'Open', action: () => this.openNote(this.activeVault, item.path) })
         items.push({ label: 'Rename', action: () => this.promptRenameNote(item.path) })
+        items.push({ label: 'Move to…', action: () => this.promptMoveItem(item.path, false) })
         items.push({ label: 'Delete', danger: true, action: () => this.deleteNote(item.path) })
       } else {
         items.push({ label: 'Open folder', action: () => this.enterDir(this.activeVault, item.path) })
         items.push({ label: 'New note here', action: () => { this.cwd = item.path; this.promptCreateNote() } })
         items.push({ label: 'New folder here', action: () => this.promptCreateFolder(item.path) })
         items.push({ label: 'Rename folder', action: () => this.promptRenameFolder(item.path) })
+        items.push({ label: 'Move to…', action: () => this.promptMoveItem(item.path, true) })
         items.push({ label: 'Delete folder', danger: true, action: () => this.deleteFolder(item.path) })
       }
       // position near cursor but keep inside viewport
@@ -1304,6 +1371,95 @@ function vaultApp() {
         <path d="M4 10.5 C4 9.1 5.1 8 6.5 8 L13.2 8 L15.2 10.5 L25.5 10.5 C26.9 10.5 28 11.6 28 13 L28 23.5 C28 24.9 26.9 26 25.5 26 L6.5 26 C5.1 26 4 24.9 4 23.5 Z" fill="var(--accent)" opacity="0.85"/>
       </svg>`
     },
+
+    // ── admin ──────────────────────────────────────
+    async openAdmin() {
+      this.adminOpen = !this.adminOpen
+      if (this.adminOpen) {
+        try {
+          const r = await fetch('/api/admin/config')
+          if (r.ok) this.adminConfig = await r.json()
+        } catch(e) { console.error('admin config fetch:', e) }
+      }
+    },
+
+    adminAddPath() {
+      const p = this.adminNewPath.trim()
+      if (!p) return
+      if (!this.adminConfig.rw_paths.includes(p)) {
+        this.adminConfig.rw_paths = [...this.adminConfig.rw_paths, p]
+        this.adminSave()
+      }
+      this.adminNewPath = ''
+    },
+
+    adminRemovePath(i) {
+      this.adminConfig.rw_paths = this.adminConfig.rw_paths.filter((_, idx) => idx !== i)
+      this.adminSave()
+    },
+
+    async adminSave() {
+      try {
+        await fetch('/api/admin/config', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(this.adminConfig)
+        })
+      } catch(e) { console.error('admin save:', e) }
+    },
+
+    async adminRestart() {
+      if (!confirm('Restart the container? The page will reload in a few seconds.')) return
+      this.adminRestarting = true
+      try { await fetch('/api/admin/restart', { method: 'POST' }) } catch(e) {}
+      setTimeout(() => location.reload(), 4000)
+    },
+
+    // isWritable: true if current vault+path is under an RW path
+    isWritable(vault, path) {
+      const full = vault + '/' + (path || '')
+      return this.adminConfig.rw_paths.some(rw => {
+        rw = rw.replace(/\/$/, '')
+        return rw === vault || full.startsWith(rw + '/') || full === rw
+      })
+    },
+
+    // ── move item (file or folder) ─────────────────
+    promptMoveItem(fromPath, isDir) {
+      const label = isDir ? 'folder' : 'note'
+      const name = fromPath.split('/').pop().replace(/\.md$/, '')
+      // suggest current parent dir as default destination prefix
+      const parts = fromPath.split('/')
+      parts.pop()
+      const parentDir = parts.join('/')
+      this.openModal(
+        `Move ${label}: ${name}`,
+        parentDir ? parentDir + '/' : '',
+        `New path (e.g. folder/subfolder${isDir ? '' : '/name'})`,
+        'Move',
+        async (toPath) => {
+          if (!toPath || toPath === fromPath) return
+          try {
+            const url = `/api/move?vault=${encodeURIComponent(this.activeVault)}&from=${encodeURIComponent(fromPath)}&to=${encodeURIComponent(toPath)}`
+            const res = await fetch(url, { method: 'POST' })
+            if (res.status === 409) { this.modal.error = 'Destination already exists.'; return }
+            if (!res.ok) { this.modal.error = 'Move failed.'; return }
+            this.modal.open = false
+            // refresh tree
+            await this.loadTree(this.activeVault)
+            // if we moved the open note, navigate away
+            if (!isDir && fromPath === this.activePath) {
+              const data = await res.json()
+              await this.openNote(this.activeVault, data.newPath)
+            } else if (isDir && this.activePath.startsWith(fromPath + '/')) {
+              this.activePath = ''
+              this.enterDir(this.activeVault, '')
+            }
+          } catch(e) { this.modal.error = 'Network error.'; console.error('move:', e) }
+        }
+      )
+    },
+
   }
 }
 </script>

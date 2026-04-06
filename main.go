@@ -548,11 +548,100 @@ func errResponse(w http.ResponseWriter, code int, msg string) {
 	_ = json.NewEncoder(w).Encode(map[string]string{"error": msg})
 }
 
+// ─── Admin config ─────────────────────────────────────────────────────────────
+
+type AdminConfig struct {
+	RWPaths []string `json:"rw_paths"` // vault-relative paths that allow writes, e.g. "pessoal/agents/hermes/skills"
+}
+
 type server struct {
 	vaultsDir  string
 	appdataDir string
 	idx        *NoteIndex
 	static     http.Handler
+	cfgMu      sync.RWMutex
+	cfg        AdminConfig
+}
+
+func (s *server) configPath() string {
+	return filepath.Join(s.appdataDir, "config.json")
+}
+
+func (s *server) loadConfig() {
+	data, err := os.ReadFile(s.configPath())
+	if err != nil {
+		return // no config yet → empty (all writes blocked by default)
+	}
+	s.cfgMu.Lock()
+	defer s.cfgMu.Unlock()
+	_ = json.Unmarshal(data, &s.cfg)
+}
+
+func (s *server) saveConfig() error {
+	s.cfgMu.RLock()
+	data, err := json.MarshalIndent(s.cfg, "", "  ")
+	s.cfgMu.RUnlock()
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(s.configPath(), data, 0644)
+}
+
+// isWritable returns true if vault+path is under one of the configured RW paths.
+// vault is e.g. "pessoal", path is vault-relative e.g. "agents/hermes/skills/foo.md"
+func (s *server) isWritable(vault, path string) bool {
+	s.cfgMu.RLock()
+	defer s.cfgMu.RUnlock()
+	full := vault + "/" + path
+	for _, rw := range s.cfg.RWPaths {
+		rw = strings.TrimSuffix(rw, "/")
+		if rw == vault || // whole vault
+			strings.HasPrefix(full, rw+"/") || // file under rw dir
+			full == rw { // exact match
+			return true
+		}
+	}
+	return false
+}
+
+// ─── Admin handlers ───────────────────────────────────────────────────────────
+
+func (s *server) handleAdminConfig(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		s.cfgMu.RLock()
+		cfg := s.cfg
+		s.cfgMu.RUnlock()
+		jsonResponse(w, cfg)
+	case http.MethodPost:
+		var incoming AdminConfig
+		if err := json.NewDecoder(r.Body).Decode(&incoming); err != nil {
+			errResponse(w, 400, "invalid json")
+			return
+		}
+		s.cfgMu.Lock()
+		s.cfg = incoming
+		s.cfgMu.Unlock()
+		if err := s.saveConfig(); err != nil {
+			errResponse(w, 500, "failed to save config: "+err.Error())
+			return
+		}
+		jsonResponse(w, s.cfg)
+	default:
+		errResponse(w, 405, "method not allowed")
+	}
+}
+
+func (s *server) handleAdminRestart(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		errResponse(w, 405, "method not allowed")
+		return
+	}
+	jsonResponse(w, map[string]string{"status": "restarting"})
+	go func() {
+		time.Sleep(200 * time.Millisecond)
+		os.Exit(0) // Docker restart policy brings it back up
+	}()
 }
 
 // handleVaultIcon serves a custom icon from appdata/icons/<vault>.(png|svg|jpg|webp)
@@ -949,9 +1038,14 @@ func (s *server) handleMove(w http.ResponseWriter, r *http.Request) {
 		errResponse(w, 400, "from and to required")
 		return
 	}
-	// ensure .md extension on target
-	if !strings.HasSuffix(to, ".md") {
-		to = to + ".md"
+	// Only enforce .md extension for files (not directories)
+	fullFromCheck, okCheck := s.safePath(vp, from)
+	if okCheck {
+		if info, err := os.Stat(fullFromCheck); err == nil && !info.IsDir() {
+			if !strings.HasSuffix(to, ".md") {
+				to = to + ".md"
+			}
+		}
 	}
 
 	fullFrom, ok := s.safePath(vp, from)
@@ -1282,6 +1376,7 @@ func main() {
 		appdataDir: *appdataDir,
 		idx:        idx,
 	}
+	srv.loadConfig()
 
 	// Static files sub-FS
 	subFS, err := fs.Sub(staticFiles, "static")
@@ -1308,6 +1403,8 @@ func main() {
 	mux.HandleFunc("/api/stats", srv.handleStats)
 	mux.HandleFunc("/api/sync-status", srv.handleSyncStatus)
 	mux.HandleFunc("/api/vault-icon", srv.handleVaultIcon)
+	mux.HandleFunc("/api/admin/config", srv.handleAdminConfig)
+	mux.HandleFunc("/api/admin/restart", srv.handleAdminRestart)
 
 	addr := ":" + *port
 	log.Printf("listening on %s", addr)
