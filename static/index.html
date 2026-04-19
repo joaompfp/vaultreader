@@ -1131,7 +1131,7 @@ function vaultApp() {
           div.textContent = code
           pre.replaceWith(div)
         })
-        await mermaid.init(undefined, '#preview .mermaid')
+        await mermaid.init('.mermaid')
       } catch(e) { console.error('mermaid:', e) }
     },
 
