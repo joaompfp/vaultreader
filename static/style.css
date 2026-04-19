@@ -484,12 +484,48 @@ a:hover { text-decoration: underline; }
   margin: 1em 0;
   text-align: center;
   overflow-x: auto;
+  display: flex;
+  justify-content: center;
 }
 #preview .mermaid svg {
   max-width: 100%;
   height: auto;
 }
-
+/* Mermaid SVG element styling */
+#preview .mermaid svg {
+  font-family: var(--font);
+}
+#preview .mermaid svg .node rect,
+#preview .mermaid svg .node circle,
+#preview .mermaid svg .node polygon,
+#preview .mermaid svg .node ellipse {
+  rx: 6;
+  ry: 6;
+}
+#preview .mermaid svg .edgePath .path {
+  stroke: var(--text3);
+  stroke-width: 1.5px;
+}
+#preview .mermaid svg .cluster rect {
+  rx: 8;
+  fill: var(--bg3);
+  stroke: var(--border);
+  stroke-dasharray: 4 2;
+}
+#preview .mermaid svg text {
+  fill: var(--text);
+  font-size: 13px;
+}
+#preview .mermaid svg .label {
+  color: var(--text);
+}
+#preview .mermaid svg .edgeLabel {
+  background-color: var(--bg);
+  color: var(--text2);
+  font-size: 12px;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
 #preview blockquote { border-left: 3px solid var(--accent-dim); padding: 0.25rem 0 0.25rem 1rem; color: var(--text2); margin: 0 0 0.875rem; background: color-mix(in srgb, var(--accent) 5%, transparent); border-radius: 0 4px 4px 0; }
 #preview a { color: var(--link); }
 #preview a.wikilink { color: var(--link-wiki); }
