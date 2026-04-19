@@ -772,7 +772,7 @@ function vaultApp() {
     noteFrontmatter: {},
     backlinks: [],
     mode: 'preview',
-    sidebarOpen: window.innerWidth > 700,
+    sidebarOpen: true,
     backlinksOpen: false,
     frontmatterOpen: false,
     searchQuery: '',
@@ -888,6 +888,20 @@ function vaultApp() {
         this.darkMode = saved === '1'
         document.documentElement.setAttribute('data-theme', this.darkMode ? 'dark' : 'light')
       }
+
+      // restore sidebar state from localStorage
+      const sidebarSaved = localStorage.getItem('vr-sidebar')
+      if (sidebarSaved !== null) {
+        this.sidebarOpen = sidebarSaved === '1'
+      } else {
+        // default: open on desktop, closed on mobile
+        this.sidebarOpen = window.innerWidth > 700
+      }
+
+      // persist sidebarOpen on every change (any toggle source)
+      this.$watch('sidebarOpen', v => {
+        localStorage.setItem('vr-sidebar', v ? '1' : '0')
+      })
 
       try {
         const res = await fetch('/api/vaults')
