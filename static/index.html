@@ -6,6 +6,7 @@
   <title>VaultReader</title>
   <link rel="icon" href="/obsidian.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/style.css">
+  <script src="/mermaid.min.js"></script>
   <script defer src="/alpine.min.js"></script>
 </head>
 <body>
@@ -1075,6 +1076,7 @@ function vaultApp() {
         this.noteFrontmatter = data.frontmatter || {}
         this.backlinks = data.backlinks || []
         this.isDirty = false
+        this.$nextTick(() => this.rerenderMermaid())
         this.saveStatus = ''
         if (window.__cmAPI) window.__cmAPI.destroy()
         this._recordRecent(vault, path, this.noteTitle())
@@ -1110,7 +1112,27 @@ function vaultApp() {
         this.noteHtml = data.html || ''
         this.noteFrontmatter = data.frontmatter || {}
         this.backlinks = data.backlinks || []
+        this.$nextTick(() => this.rerenderMermaid())
       } catch(e) { /* ignore */ }
+    },
+
+    async rerenderMermaid() {
+      if (typeof mermaid === 'undefined') return
+      const els = Array.from(document.querySelectorAll('#preview pre code.language-mermaid'))
+      if (!els.length) return
+      try {
+        await mermaid.initialize({ startOnLoad: false })
+        els.forEach(el => {
+          const code = el.textContent || ''
+          const pre = el.closest('pre')
+          if (!pre) return
+          const div = document.createElement('div')
+          div.className = 'mermaid'
+          div.textContent = code
+          pre.replaceWith(div)
+        })
+        await mermaid.init(undefined, '#preview .mermaid')
+      } catch(e) { console.error('mermaid:', e) }
     },
 
     // ── auto-save ─────────────────────────────────
