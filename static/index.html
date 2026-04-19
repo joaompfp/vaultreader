@@ -901,6 +901,10 @@ function vaultApp() {
       // load status bar stats
       this.refreshStats()
       setInterval(() => this.refreshSyncStatus(), 10000)
+
+      // ── hash-based routing: restore open note on page load ──
+      window.addEventListener('hashchange', () => this._routeHash())
+      this._routeHash()
     },
 
     async refreshStats() {
@@ -1058,8 +1062,60 @@ function vaultApp() {
       this.enterDir(this.activeVault, parent)
     },
 
+    // ── hash routing: restore note from URL on load ──
+    async _routeHash() {
+      const hash = window.location.hash.replace('#', '')
+      if (!hash) return
+      const parts = hash.split('/')
+      const vault = parts[0]
+      const path = parts.slice(1).map(p => decodeURIComponent(p)).join('/')
+      if (!path) return
+      // skip if already showing this exact note
+      if (vault === this.activeVault && path === this.activePath) return
+
+      const noteFolder = path.split('/').slice(0, -1).join('/')
+
+      // Load vault tree first so sidebar has data before rendering
+      if (!this.vaults.includes(vault)) {
+        await this.enterDir(vault, '')
+      } else if (this.activeVault !== vault) {
+        await this.enterDir(vault, '')
+      }
+      // If same vault, tree may already be loaded — only re-enter if needed
+
+      // Set state after tree is loaded so sidebar renders correctly
+      this.activeVault = vault
+      this.activePath = path
+      this.cwd = noteFolder
+      this.frontmatterOpen = false
+      this.mode = 'preview'
+      this.searchOpen = false
+
+      // Fetch and render the note
+      try {
+        const res = await fetch('/api/note?vault=' + encodeURIComponent(vault) + '&path=' + encodeURIComponent(path))
+        if (res.status === 404) {
+          this.noteHtml = '<div class="note-missing"><p>This note no longer exists.</p></div>'
+          this.noteRaw = ''
+          this.noteFrontmatter = {}
+          this.backlinks = []
+          return
+        }
+        const data = await res.json()
+        this.noteRaw = data.raw || ''
+        this.noteHtml = data.html || ''
+        this.noteFrontmatter = data.frontmatter || {}
+        this.backlinks = data.backlinks || []
+        this.isDirty = false
+        this.$nextTick(() => this.rerenderMermaid())
+        this._recordRecent(vault, path, this.noteTitle())
+      } catch(e) { console.error('_routeHash:', e) }
+    },
+
     // ── open note ─────────────────────────────────
     async openNote(vault, path) {
+      // persist to URL hash so page reload restores this note
+      window.location.hash = vault + '/' + encodeURIComponent(path)
       this.activeVault = vault
       this.activePath = path
       this.frontmatterOpen = false
@@ -1142,10 +1198,14 @@ function vaultApp() {
           if (!pre) return
           const div = document.createElement('div')
           div.className = 'mermaid'
-          div.textContent = code
           pre.replaceWith(div)
+          // Use mermaid.render() per div — works reliably across v9 and v10
+          mermaid.render('md-' + Date.now() + Math.random().toString(36).slice(2), code).then(({ svg }) => {
+            div.innerHTML = svg
+          }).catch(e => {
+            div.innerHTML = '<pre class="mermaid-error">' + e.message + '</pre>'
+          })
         })
-        await mermaid.init('.mermaid')
       } catch(e) { console.error('mermaid:', e) }
     },
 
