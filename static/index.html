@@ -916,9 +916,32 @@ function vaultApp() {
       this.refreshStats()
       setInterval(() => this.refreshSyncStatus(), 10000)
 
-      // ── hash-based routing: restore open note on page load ──
+      // ── URL routing: restore open note on page load ──
+      // /n/<vault>/<path> is canonical; #vault/path is legacy fallback.
+      window.addEventListener('popstate', async (e) => {
+        const st = e.state
+        if (st && st.vault && st.path) {
+          // popped to a note URL — load without re-pushing to history
+          if (this.activeVault !== st.vault || this.activePath !== st.path) {
+            await this._routePath()
+          }
+        } else if (window.location.pathname === '/' || window.location.pathname === '/index.html') {
+          // popped back to root — clear note view
+          this.activeVault = this.vaults[0] || ''
+          this.activePath = ''
+          this.noteHtml = ''
+          this.noteRaw = ''
+          this.noteFrontmatter = {}
+          this.backlinks = []
+        } else {
+          await this._routePath()
+        }
+      })
       window.addEventListener('hashchange', () => this._routeHash())
-      this._routeHash()
+      // Prefer pathname routing; fall back to hash for legacy bookmarks
+      // (which will be migrated to clean URLs the next time openNote runs).
+      const matched = await this._routePath()
+      if (!matched) this._routeHash()
     },
 
     async refreshStats() {
@@ -1076,7 +1099,42 @@ function vaultApp() {
       this.enterDir(this.activeVault, parent)
     },
 
-    // ── hash routing: restore note from URL on load ──
+    // ── URL building ──
+    // Build the canonical URL for a note. Each path segment is URL-encoded
+    // separately so spaces, parens, etc. are preserved without breaking the
+    // route. Server route is /n/<vault>/<path-with-extension>.
+    _noteURL(vault, path) {
+      const segs = [encodeURIComponent(vault)]
+      for (const p of path.split('/')) {
+        if (p === '') continue
+        segs.push(encodeURIComponent(p))
+      }
+      return '/n/' + segs.join('/')
+    },
+
+    // ── pathname routing: parse /n/<vault>/<path> and load that note ──
+    // Returns true if a note URL was matched and loaded.
+    async _routePath() {
+      const pn = window.location.pathname
+      if (!pn.startsWith('/n/')) return false
+      const rest = pn.slice('/n/'.length)
+      if (!rest) return false
+      const segs = rest.split('/').map(s => decodeURIComponent(s))
+      const vault = segs[0]
+      const path = segs.slice(1).join('/')
+      if (!vault || !path) return false
+      // skip if already showing this exact note
+      if (vault === this.activeVault && path === this.activePath) return true
+      // Ensure the vault tree is loaded before openNote sets cwd, so the
+      // sidebar can render the folder path correctly.
+      if (!this.vaults.includes(vault) || this.activeVault !== vault) {
+        await this.enterDir(vault, '')
+      }
+      await this.openNote(vault, path)
+      return true
+    },
+
+    // ── hash routing (legacy): restore note from URL hash on load ──
     async _routeHash() {
       const hash = window.location.hash.replace('#', '')
       if (!hash) return
@@ -1128,8 +1186,17 @@ function vaultApp() {
 
     // ── open note ─────────────────────────────────
     async openNote(vault, path) {
-      // persist to URL hash so page reload restores this note
-      window.location.hash = vault + '/' + encodeURIComponent(path)
+      // Push a real URL so reload, back/forward, bookmarks, and right-click
+      // "open in new tab" all work. Skip pushing if we're already on this
+      // exact URL (e.g. when invoked from popstate).
+      const targetURL = this._noteURL(vault, path)
+      if (window.location.pathname !== targetURL) {
+        window.history.pushState({ vault, path }, '', targetURL)
+      }
+      // legacy: clear any leftover hash from older bookmarks
+      if (window.location.hash) {
+        window.history.replaceState({ vault, path }, '', targetURL)
+      }
       this.activeVault = vault
       this.activePath = path
       this.frontmatterOpen = false
@@ -1258,6 +1325,9 @@ function vaultApp() {
     async handlePreviewClick(e) {
       const a = e.target.closest('a.wikilink')
       if (!a) return
+      // Let the browser handle "open in new tab" intents natively (the link
+      // now has a real /n/<vault>/<path> href so this just works).
+      if (e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey || e.altKey) return
       e.preventDefault()
       const vault = a.dataset.vault || this.activeVault
       const path = a.dataset.path

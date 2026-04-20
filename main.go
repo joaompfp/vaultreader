@@ -435,7 +435,8 @@ func htmlEscape(s string) string {
 
 func urlEscape(s string) string { return url.QueryEscape(s) }
 
-func renderWikilinks(htmlStr string, currentVault string, idx *NoteIndex) string {
+func renderWikilinks(htmlStr string, currentVault, currentNotePath string, idx *NoteIndex, vaultsDir string) string {
+	noteDir := filepath.Dir(currentNotePath)
 	return wikilinkRe.ReplaceAllStringFunc(htmlStr, func(match string) string {
 		sub := wikilinkRe.FindStringSubmatch(match)
 		if sub == nil {
@@ -447,12 +448,82 @@ func renderWikilinks(htmlStr string, currentVault string, idx *NoteIndex) string
 			alias = name
 		}
 
-		v, p, ok := idx.resolve(name, currentVault)
-		if !ok {
-			return fmt.Sprintf(`<a class="wikilink wikilink-missing" data-name="%s">%s</a>`, name, alias)
+		// Strip #heading and ^block-id suffixes from the lookup target
+		// (we keep them in the alias for display purposes via the original).
+		lookup := name
+		if hash := strings.IndexAny(lookup, "#^"); hash >= 0 {
+			lookup = lookup[:hash]
 		}
-		return fmt.Sprintf(`<a href="#" class="wikilink" data-vault="%s" data-path="%s">%s</a>`, v, p, alias)
+
+		v, p, ok := resolveWikilinkTarget(lookup, currentVault, noteDir, idx, vaultsDir)
+		if !ok {
+			return fmt.Sprintf(`<a href="#" class="wikilink wikilink-missing" data-name="%s">%s</a>`,
+				htmlEscape(name), htmlEscape(alias))
+		}
+		// Real href so right-click "open in new tab", bookmarking, and
+		// browser back/forward all work natively. The data-* attributes
+		// stay so the SPA click handler can update state without re-parsing.
+		return fmt.Sprintf(`<a href="%s" class="wikilink" data-vault="%s" data-path="%s">%s</a>`,
+			noteHref(v, p), htmlEscape(v), htmlEscape(p), htmlEscape(alias))
 	})
+}
+
+// noteHref builds a clean URL for a note: /n/<vault>/<encoded path segments>.
+// The path keeps its `.md` extension to stay unambiguous (matches filebrowser
+// pattern). Each segment is URL-encoded individually so spaces, parens, etc.
+// survive without breaking the route.
+func noteHref(vault, path string) string {
+	var segs []string
+	segs = append(segs, url.PathEscape(vault))
+	for _, p := range strings.Split(path, "/") {
+		if p == "" {
+			continue
+		}
+		segs = append(segs, url.PathEscape(p))
+	}
+	return "/n/" + strings.Join(segs, "/")
+}
+
+// resolveWikilinkTarget mirrors resolveEmbed's resolution order but is
+// tailored to `.md` notes (auto-appending the extension when absent):
+//  1. Path-shaped target → relative to note dir, then to vault root.
+//  2. Bare name → existing index lookup by basename.
+func resolveWikilinkTarget(target, currentVault, noteDir string, idx *NoteIndex, vaultsDir string) (string, string, bool) {
+	withMd := func(p string) string {
+		if strings.EqualFold(filepath.Ext(p), ".md") {
+			return p
+		}
+		return p + ".md"
+	}
+
+	if strings.ContainsAny(target, "/\\") {
+		// Try relative to current note's directory.
+		candidate := filepath.Clean(filepath.Join(noteDir, withMd(target)))
+		if !strings.HasPrefix(candidate, "..") {
+			full := filepath.Join(vaultsDir, currentVault, candidate)
+			if info, err := os.Stat(full); err == nil && !info.IsDir() {
+				return currentVault, candidate, true
+			}
+		}
+		// Try relative to vault root.
+		candidate2 := filepath.Clean(withMd(target))
+		if !strings.HasPrefix(candidate2, "..") && !strings.HasPrefix(candidate2, "/") {
+			full := filepath.Join(vaultsDir, currentVault, candidate2)
+			if info, err := os.Stat(full); err == nil && !info.IsDir() {
+				return currentVault, candidate2, true
+			}
+		}
+		// Path-shaped but didn't resolve directly — fall through to
+		// basename lookup (handles `[[folder/foo]]` where `foo` is unique
+		// in the index but lives somewhere else than `folder/foo`).
+		base := filepath.Base(target)
+		if v, p, ok := idx.resolve(base, currentVault); ok {
+			return v, p, true
+		}
+		return "", "", false
+	}
+	// Bare name → ask the index.
+	return idx.resolve(target, currentVault)
 }
 
 // ─── Frontmatter ─────────────────────────────────────────────────────────────
@@ -1427,7 +1498,7 @@ func (s *server) handleGetNote(w http.ResponseWriter, r *http.Request) {
 
 	body = expandEmbeds(body, vault, path, s.idx, s.vaultsDir)
 	rendered := renderMarkdown(body)
-	rendered = renderWikilinks(rendered, vault, s.idx)
+	rendered = renderWikilinks(rendered, vault, path, s.idx, s.vaultsDir)
 
 	backlinks := s.idx.getBacklinks(vault, path)
 	if backlinks == nil {
@@ -1713,6 +1784,11 @@ func main() {
 	mux.HandleFunc("/api/sync-status", srv.handleSyncStatus)
 	mux.HandleFunc("/api/vault-icon", srv.handleVaultIcon)
 	mux.HandleFunc("/api/file", srv.handleFile)
+	// Clean note URLs: /n/<vault>/<path-with-extension>. The shell is the
+	// SPA — the frontend reads location.pathname on load and fetches the
+	// note via /api/note. Real URLs make right-click→new-tab, bookmarks,
+	// browser back/forward, and link sharing work natively.
+	mux.HandleFunc("/n/", srv.handleIndex)
 	mux.HandleFunc("/api/admin/config", srv.handleAdminConfig)
 	mux.HandleFunc("/api/shares", srv.handleShareList)
 	mux.HandleFunc("/api/shares/create", srv.handleShareCreate)
