@@ -12,7 +12,9 @@ import (
 	"io"
 	"io/fs"
 	"log"
+	"mime"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -95,7 +97,9 @@ func vaultKey(vault, path string) string {
 
 var (
 	wikilinkRe = regexp.MustCompile(`\[\[([^\]|]+?)(?:\|([^\]]+?))?\]\]`)
+	embedRe    = regexp.MustCompile(`!\[\[([^\]|]+?)(?:\|([^\]]+?))?\]\]`)
 	headingRe  = regexp.MustCompile(`(?m)^#+\s+(.+)$`)
+	imageExtRe = regexp.MustCompile(`(?i)\.(png|jpe?g|gif|svg|webp|bmp|avif)$`)
 )
 
 var md goldmark.Markdown
@@ -324,6 +328,112 @@ func renderMarkdown(raw string) string {
 	}
 	return buf.String()
 }
+
+// expandEmbeds rewrites Obsidian embed syntax `![[target]]` into standard
+// markdown so goldmark renders it natively. Image targets become
+// `![alt](/api/file?vault=X&path=Y)` (which goldmark turns into <img>).
+// Non-image targets degrade to a plain wikilink, leaving the existing
+// wikilinkRe pass to handle them.
+//
+// Targets may be:
+//   - relative to the current note's directory (e.g. `../../_source/foo.png`)
+//   - absolute within a vault (no leading `/` in Obsidian — bare names
+//     are matched against the note index by basename)
+func expandEmbeds(raw string, currentVault, currentNotePath string, idx *NoteIndex, vaultsDir string) string {
+	noteDir := filepath.Dir(currentNotePath)
+	return embedRe.ReplaceAllStringFunc(raw, func(match string) string {
+		sub := embedRe.FindStringSubmatch(match)
+		if sub == nil {
+			return match
+		}
+		target := sub[1]
+		alias := sub[2]
+		if alias == "" {
+			alias = filepath.Base(target)
+		}
+
+		// Strip any #heading or |alias suffix already handled by the regex group.
+		// (alias above is sub[2]; #heading is part of sub[1] here — we ignore it
+		//  for embeds since we only resolve to a file).
+		cleanTarget := target
+		if hash := strings.Index(cleanTarget, "#"); hash >= 0 {
+			cleanTarget = cleanTarget[:hash]
+		}
+
+		isImage := imageExtRe.MatchString(cleanTarget)
+
+		// Resolve target → (vault, path).
+		v, p, ok := resolveEmbed(cleanTarget, currentVault, noteDir, idx, vaultsDir)
+		if !ok {
+			// Leave it as a wikilink for renderWikilinks to mark as missing.
+			if isImage {
+				return fmt.Sprintf(`<span class="embed-missing" title="%s">[image missing: %s]</span>`,
+					htmlEscape(cleanTarget), htmlEscape(filepath.Base(cleanTarget)))
+			}
+			return "[[" + sub[1] + "]]" // strip the !, let wikilink pass handle it
+		}
+
+		if isImage {
+			url := fmt.Sprintf("/api/file?vault=%s&path=%s",
+				urlEscape(v), urlEscape(p))
+			return fmt.Sprintf("![%s](%s)", alias, url)
+		}
+		// Non-image embed (md transclusion, pdf, audio): render as link for now.
+		return fmt.Sprintf("[%s](#vault=%s&path=%s)", alias, urlEscape(v), urlEscape(p))
+	})
+}
+
+// resolveEmbed locates the embed target on disk. Order:
+//  1. If target contains a path separator, treat as relative to the note's
+//     directory (Obsidian's "shortest path when possible" — explicit paths win).
+//  2. Otherwise, look up by basename in the note index (current vault first).
+//  3. As a last resort, try the target verbatim against the current vault root.
+func resolveEmbed(target, currentVault, noteDir string, idx *NoteIndex, vaultsDir string) (string, string, bool) {
+	if strings.ContainsAny(target, "/\\") {
+		joined := filepath.Clean(filepath.Join(noteDir, target))
+		// Reject paths that escape the vault root.
+		if strings.HasPrefix(joined, "..") {
+			return "", "", false
+		}
+		full := filepath.Join(vaultsDir, currentVault, joined)
+		if info, err := os.Stat(full); err == nil && !info.IsDir() {
+			return currentVault, joined, true
+		}
+		return "", "", false
+	}
+	// Bare name → ask the index.
+	if v, p, ok := idx.resolve(target, currentVault); ok {
+		return v, p, true
+	}
+	// Index only tracks .md notes; for image basenames it'll miss. Try walking
+	// the current vault for a matching file (cheap once, results not cached).
+	root := filepath.Join(vaultsDir, currentVault)
+	var found string
+	_ = filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return nil
+		}
+		if filepath.Base(p) == target {
+			found = p
+			return filepath.SkipAll
+		}
+		return nil
+	})
+	if found != "" {
+		rel, err := filepath.Rel(root, found)
+		if err == nil {
+			return currentVault, rel, true
+		}
+	}
+	return "", "", false
+}
+
+func htmlEscape(s string) string {
+	r := strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;", `"`, "&quot;")
+	return r.Replace(s)
+}
+
+func urlEscape(s string) string { return url.QueryEscape(s) }
 
 func renderWikilinks(htmlStr string, currentVault string, idx *NoteIndex) string {
 	return wikilinkRe.ReplaceAllStringFunc(htmlStr, func(match string) string {
@@ -808,6 +918,39 @@ img{max-width:100%%}hr{border:none;border-top:1px solid var(--bd);margin:1.5em 0
 }
 
 
+// handleFile serves an arbitrary file from inside a vault. Used by image
+// embeds (`![[...]]` rewritten to `/api/file?vault=X&path=Y`) but also
+// available for downloading any tracked attachment.
+func (s *server) handleFile(w http.ResponseWriter, r *http.Request) {
+	vault := r.URL.Query().Get("vault")
+	path := r.URL.Query().Get("path")
+	if vault == "" || path == "" {
+		http.Error(w, "missing vault or path", http.StatusBadRequest)
+		return
+	}
+	vp, ok := s.vaultPath(vault)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	full, ok := s.safePath(vp, path)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	info, err := os.Stat(full)
+	if err != nil || info.IsDir() {
+		http.NotFound(w, r)
+		return
+	}
+	ext := strings.ToLower(filepath.Ext(full))
+	if ct := mime.TypeByExtension(ext); ct != "" {
+		w.Header().Set("Content-Type", ct)
+	}
+	w.Header().Set("Cache-Control", "max-age=3600")
+	http.ServeFile(w, r, full)
+}
+
 // handleVaultIcon serves a custom icon from appdata/icons/<vault>.(png|svg|jpg|webp)
 // Falls back to a transparent 1x1 PNG if no custom icon exists.
 func (s *server) handleVaultIcon(w http.ResponseWriter, r *http.Request) {
@@ -1282,6 +1425,7 @@ func (s *server) handleGetNote(w http.ResponseWriter, r *http.Request) {
 		fm = map[string]any{}
 	}
 
+	body = expandEmbeds(body, vault, path, s.idx, s.vaultsDir)
 	rendered := renderMarkdown(body)
 	rendered = renderWikilinks(rendered, vault, s.idx)
 
@@ -1568,6 +1712,7 @@ func main() {
 	mux.HandleFunc("/api/stats", srv.handleStats)
 	mux.HandleFunc("/api/sync-status", srv.handleSyncStatus)
 	mux.HandleFunc("/api/vault-icon", srv.handleVaultIcon)
+	mux.HandleFunc("/api/file", srv.handleFile)
 	mux.HandleFunc("/api/admin/config", srv.handleAdminConfig)
 	mux.HandleFunc("/api/shares", srv.handleShareList)
 	mux.HandleFunc("/api/shares/create", srv.handleShareCreate)
