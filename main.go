@@ -23,6 +23,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -1808,6 +1809,131 @@ func (s *server) handleSyncStatus(w http.ResponseWriter, r *http.Request) {
 
 // ─── Static files ─────────────────────────────────────────────────────────────
 
+
+// handleTrashList returns items in .trash/ for a vault.
+func (s *server) handleTrashList(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	vault := r.URL.Query().Get("vault")
+	if vault == "" {
+		http.Error(w, "missing vault", http.StatusBadRequest)
+		return
+	}
+	vp, ok := s.vaultPath(vault)
+	if !ok {
+		http.Error(w, "vault not found", http.StatusNotFound)
+		return
+	}
+	trashDir := filepath.Join(vp, ".trash")
+	items := []map[string]string{}
+	entries, err := os.ReadDir(trashDir)
+	if err == nil {
+		for _, e := range entries {
+			if e.IsDir() {
+				items = append(items, map[string]string{"name": e.Name() + "/", "path": ".trash/" + e.Name(), "isDir": "true"})
+			} else {
+				// Strip timestamp suffix `_<number>` for display name
+				name := e.Name()
+				if idx := strings.LastIndex(name, "_"); idx > 0 {
+					if _, err := strconv.ParseInt(name[idx+1:], 10, 64); err == nil {
+					name = name[:idx]
+					}
+				}
+				// Replace __ back to /
+				display := strings.ReplaceAll(name, "__", "/")
+				items = append(items, map[string]string{"name": display, "path": ".trash/" + e.Name(), "isDir": "false"})
+			}
+		}
+	}
+	w.Header().Set("Content-Type", "application/json")
+	enc := json.NewEncoder(w)
+	enc.SetEscapeHTML(false)
+	enc.Encode(map[string]interface{}{"items": items})
+}
+
+// handleTrashRestore moves a .trash/ item back to its original location.
+func (s *server) handleTrashRestore(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	vault := r.URL.Query().Get("vault")
+	path := r.URL.Query().Get("path")
+	if vault == "" || path == "" {
+		http.Error(w, "missing params", http.StatusBadRequest)
+		return
+	}
+	// path is relative to vault root, e.g. ".trash/filename.md"
+	vp, ok := s.vaultPath(vault)
+	if !ok {
+		http.Error(w, "vault not found", http.StatusNotFound)
+		return
+	}
+	trashFull := filepath.Join(vp, strings.ReplaceAll(path, "/", string(os.PathSeparator)))
+	// Compute original path: strip ".trash/" prefix, strip timestamp suffix, replace __ with /
+	base := filepath.Base(trashFull)
+	if idx := strings.LastIndex(base, "_"); idx > 0 {
+		if _, err := strconv.ParseInt(base[idx+1:], 10, 64); err == nil {
+			base = base[:idx]
+		}
+	}
+	originalBase := strings.ReplaceAll(base, "__", "/")
+	// Put it back at vault root (simplest restore — could preserve original dir from "__" separator)
+	dest := filepath.Join(vp, originalBase)
+	if err := os.MkdirAll(filepath.Dir(dest), 0755); err != nil {
+		http.Error(w, "mkdir failed", http.StatusInternalServerError)
+		return
+	}
+	if err := os.Rename(trashFull, dest); err != nil {
+		http.Error(w, "rename failed", http.StatusInternalServerError)
+		return
+	}
+	// Reindex if it was a note
+	if strings.HasSuffix(dest, ".md") {
+		rel, _ := filepath.Rel(vp, dest)
+		data, _ := os.ReadFile(dest)
+		s.idx.updateNote(vault, rel, string(data))
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// handleTrashEmpty permanently deletes .trash/ items.
+func (s *server) handleTrashEmpty(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodDelete {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	vault := r.URL.Query().Get("vault")
+	if vault == "" {
+		http.Error(w, "missing vault", http.StatusBadRequest)
+		return
+	}
+	vp, ok := s.vaultPath(vault)
+	if !ok {
+		http.Error(w, "vault not found", http.StatusNotFound)
+		return
+	}
+	trashDir := filepath.Join(vp, ".trash")
+	path := r.URL.Query().Get("path")
+	if path != "" {
+		// Delete single item
+		full := filepath.Join(vp, strings.ReplaceAll(path, "/", string(os.PathSeparator)))
+		// safety check
+		if !strings.HasPrefix(full, trashDir) {
+			http.Error(w, "invalid path", http.StatusBadRequest)
+			return
+		}
+		os.RemoveAll(full)
+	} else {
+		// Empty entire trash
+		os.RemoveAll(trashDir)
+		os.MkdirAll(trashDir, 0755)
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (s *server) handleIndex(w http.ResponseWriter, r *http.Request) {
 	data, err := fs.ReadFile(staticFiles, "static/index.html")
 	if err != nil {
@@ -1887,6 +2013,9 @@ func main() {
 	mux.HandleFunc("/api/shares/revoke", srv.handleShareRevoke)
 	mux.HandleFunc("/share/", srv.handleShareView)
 	mux.HandleFunc("/api/admin/restart", srv.handleAdminRestart)
+	mux.HandleFunc("/api/trash", srv.handleTrashList)
+	mux.HandleFunc("/api/trash/restore", srv.handleTrashRestore)
+	mux.HandleFunc("/api/trash/empty", srv.handleTrashEmpty)
 
 	addr := ":" + *port
 	httpServer := &http.Server{

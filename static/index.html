@@ -270,9 +270,9 @@
                 <div class="fv-header">
                   <span class="fv-title" x-text="activeVault"></span>
                   <div class="fv-sort-btns">
-                    <button class="fv-sort-btn" :class="{active: folderSort==='name'}" @click="folderSort==='name' ? folderSortDir*=-1 : (folderSort='name', folderSortDir=1)" x-text="'Name' + (folderSort==='name' ? (folderSortDir===1 ? ' ↑' : ' ↓') : '')"></button>
-                    <button class="fv-sort-btn" :class="{active: folderSort==='date'}" @click="folderSort==='date' ? folderSortDir*=-1 : (folderSort='date', folderSortDir=1)" x-text="'Date' + (folderSort==='date' ? (folderSortDir===1 ? ' ↓' : ' ↑') : '')"></button>
-                    <button class="fv-sort-btn" :class="{active: folderSort==='size'}" @click="folderSort==='size' ? folderSortDir*=-1 : (folderSort='size', folderSortDir=1)" x-text="'Size' + (folderSort==='size' ? (folderSortDir===1 ? ' ↓' : ' ↑') : '')"></button>
+                    <button class="fv-sort-btn" :class="{active: getFolderSort()==='name'}" @click="getFolderSort()==='name' ? folderSortDir*=-1 : (setFolderSort('name'), folderSortDir=1)" x-text="'Name' + (getFolderSort()==='name' ? (folderSortDir===1 ? ' ↑' : ' ↓') : '')"></button>
+                    <button class="fv-sort-btn" :class="{active: getFolderSort()==='date'}" @click="getFolderSort()==='date' ? folderSortDir*=-1 : (setFolderSort('date'), folderSortDir=1)" x-text="'Date' + (getFolderSort()==='date' ? (folderSortDir===1 ? ' ↓' : ' ↑') : '')"></button>
+                    <button class="fv-sort-btn" :class="{active: getFolderSort()==='size'}" @click="getFolderSort()==='size' ? folderSortDir*=-1 : (setFolderSort('size'), folderSortDir=1)" x-text="'Size' + (getFolderSort()==='size' ? (folderSortDir===1 ? ' ↓' : ' ↑') : '')"></button>
                   </div>
                 </div>
                 <div class="fv-list">
@@ -297,9 +297,9 @@
               <div class="fv-header">
                 <span class="fv-title" x-text="cwd.split('/').pop()"></span>
                 <div class="fv-sort-btns">
-                  <button class="fv-sort-btn" :class="{active: folderSort==='name'}" @click="folderSort='name'">Name</button>
-                  <button class="fv-sort-btn" :class="{active: folderSort==='date'}" @click="folderSort='date'">Date</button>
-                  <button class="fv-sort-btn" :class="{active: folderSort==='size'}" @click="folderSort='size'">Size</button>
+                  <button class="fv-sort-btn" :class="{active: getFolderSort()==='name'}" @click="setFolderSort('name')">Name</button>
+                  <button class="fv-sort-btn" :class="{active: getFolderSort()==='date'}" @click="setFolderSort('date')">Date</button>
+                  <button class="fv-sort-btn" :class="{active: getFolderSort()==='size'}" @click="setFolderSort('size')">Size</button>
                 </div>
               </div>
               <div class="fv-list">
@@ -690,6 +690,10 @@
           <span class="settings-toggle-knob"></span>
         </button>
       </div>
+      <div class="settings-row" @click="settingsOpen=false; openTrash()" style="cursor:pointer">
+        <span class="settings-label">Open Trash</span>
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+      </div>
       <div class="settings-version">v1.7.0</div>
     </div>
   </div>
@@ -709,6 +713,62 @@
     </span>
   </div>
 
+
+  <!-- ─── Keyboard Shortcuts overlay ───────────── -->
+  <div id="shortcuts-overlay" x-show="shortcutsOpen" @click.self="shortcutsOpen=false"
+       @keydown.escape.window="shortcutsOpen = false">
+    <div class="shortcuts-box" @click.stop>
+      <div class="shortcuts-header">
+        <span class="shortcuts-title">Keyboard shortcuts</span>
+        <button class="btn-icon" @click="shortcutsOpen=false" title="Close">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+      <div class="shortcuts-list">
+        <div class="shortcut-row"><span class="sc-keys">Ctrl + K</span><span class="sc-desc">Open search</span></div>
+        <div class="shortcut-row"><span class="sc-keys">/</span><span class="sc-desc">Quick search</span></div>
+        <div class="shortcut-row"><span class="sc-keys">Ctrl + N</span><span class="sc-desc">New note</span></div>
+        <div class="shortcut-row"><span class="sc-keys">Ctrl + Shift + C</span><span class="sc-desc">Copy wikilink</span></div>
+        <div class="shortcut-row"><span class="sc-keys">E</span><span class="sc-desc">Toggle Preview / Edit</span></div>
+        <div class="shortcut-row"><span class="sc-keys">?</span><span class="sc-desc">This help</span></div>
+        <div class="shortcut-row"><span class="sc-keys">Esc</span><span class="sc-desc">Close modals / menus</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── Trash overlay ────────────────────────── -->
+  <div id="trash-overlay" x-show="trashOpen" @click.self="trashOpen=false"
+       @keydown.escape.window="trashOpen = false">
+    <div class="trash-box" @click.stop>
+      <div class="trash-header">
+        <span class="trash-title">Trash</span>
+        <button class="btn-icon" @click="trashOpen=false" title="Close">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+      <div class="trash-body">
+        <template x-if="trashItems.length === 0">
+          <p class="trash-empty">Trash is empty.</p>
+        </template>
+        <template x-if="trashItems.length > 0">
+          <div class="trash-list">
+            <template x-for="item in trashItems" :key="item.path">
+              <div class="trash-item">
+                <span class="trash-name" x-text="item.name"></span>
+                <div class="trash-actions">
+                  <button class="btn" @click="restoreTrashItem(item.path)">Restore</button>
+                  <button class="btn btn-danger" @click="permanentlyDeleteTrashItem(item.path)">Delete</button>
+                </div>
+              </div>
+            </template>
+          </div>
+        </template>
+      </div>
+      <div class="trash-footer" x-show="trashItems.length > 0">
+        <button class="btn btn-danger" @click="emptyTrash()">Empty trash</button>
+      </div>
+    </div>
+  </div>
 </div><!-- #app -->
 
 <!-- ─── CodeMirror 6 (local IIFE bundle) ─────── -->
@@ -790,9 +850,13 @@ function vaultApp() {
     syncAvailable: false,
     syncState: 'unknown',
     syncMessage: '',
-    // folder view
-    folderSort: 'name',
+    // folder view (per-vault)
     folderSortDir: 1,
+    _sortKey() { return 'vr-sort' },
+    _loadSort() { try { return JSON.parse(localStorage.getItem(this._sortKey()) || '{}') } catch { return {} } },
+    _saveSort(map) { localStorage.setItem(this._sortKey(), JSON.stringify(map)) },
+    getFolderSort() { const m = this._loadSort(); return m[this.activeVault] || 'name' },
+    setFolderSort(v) { const m = this._loadSort(); m[this.activeVault] = v; this._saveSort(m) },
     // copy link
     copyLinkDone: false,
     // modal dialog
@@ -811,6 +875,9 @@ function vaultApp() {
     // shares
     shareModal: { open: false, vault: '', path: '', writable: false, ttl: 0, label: '', result: null, copying: false },
     activeShares: [],
+    // trash
+    trashOpen: false,
+    trashItems: [],
     // move picker modal
     movePicker: {
       open: false,
@@ -821,6 +888,7 @@ function vaultApp() {
       pickerCwd: '',
       pickerNodes: [],
     },
+    shortcutsOpen: false,
     darkMode: window.matchMedia('(prefers-color-scheme: dark)').matches,
     newMenuX: 0,
     newMenuY: 0,
@@ -861,6 +929,13 @@ function vaultApp() {
           if (tag !== 'INPUT' && tag !== 'TEXTAREA' && !document.activeElement?.closest('.cm-editor')) {
             e.preventDefault()
             this.searchOpen = true
+          }
+        }
+        if (e.key === '?' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+          const tag = document.activeElement?.tagName
+          if (tag !== 'INPUT' && tag !== 'TEXTAREA' && !document.activeElement?.closest('.cm-editor')) {
+            e.preventDefault()
+            this.shortcutsOpen = true
           }
         }
       })
@@ -1050,8 +1125,8 @@ function vaultApp() {
       const files = [...this.currentFiles()]
       const cmp = (a, b) => {
         const d = this.folderSortDir
-        if (this.folderSort === 'date') return d * ((b.mtime || 0) - (a.mtime || 0))
-        if (this.folderSort === 'size') return d * ((b.size || 0) - (a.size || 0))
+        if (this.getFolderSort() === 'date') return d * ((b.mtime || 0) - (a.mtime || 0))
+        if (this.getFolderSort() === 'size') return d * ((b.size || 0) - (a.size || 0))
         return d * a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })
       }
       dirs.sort(cmp)
@@ -1074,7 +1149,7 @@ function vaultApp() {
         if (fc > 0) parts.push(fc + (fc === 1 ? ' note' : ' notes'))
         return parts.join(', ') || 'empty'
       }
-      if (this.folderSort === 'size' && item.size > 0) {
+      if (this.getFolderSort() === 'size' && item.size > 0) {
         return item.size < 1024 ? item.size + ' B'
           : item.size < 1024*1024 ? Math.round(item.size/1024) + ' KB'
           : (item.size/1024/1024).toFixed(1) + ' MB'
@@ -1594,6 +1669,7 @@ function vaultApp() {
             if (res.status === 409) { this.modal.error = 'A note with that name already exists.'; return }
             if (!res.ok) { this.modal.error = 'Error renaming note.'; return }
             this.modal.open = false
+            this._recordRecent(this.activeVault, newPath, newName)
             await this.enterDir(this.activeVault, this.cwd)
             if (this.activePath === path) {
               await this.openNote(this.activeVault, newPath)
