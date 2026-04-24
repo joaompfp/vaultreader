@@ -1631,21 +1631,25 @@ function vaultApp() {
           try {
             const res = await fetch('/api/note?vault=' + encodeURIComponent(this.activeVault) +
               '&path=' + encodeURIComponent(path), { method: 'DELETE' })
-            if (!res.ok) { return }
-        if (this.activePath === path) {
-          this.activePath = ''
-          this.noteRaw = ''
-          this.noteHtml = ''
-          this.noteFrontmatter = {}
-          this.backlinks = []
-        }
+            if (!res.ok) {
+              const msg = await res.text().catch(() => 'Delete failed')
+              alert('Error: ' + msg)
+              return
+            }
+            if (this.activePath === path) {
+              this.activePath = ''
+              this.noteRaw = ''
+              this.noteHtml = ''
+              this.noteFrontmatter = {}
+              this.backlinks = []
+            }
             await this.enterDir(this.activeVault, this.cwd)
             // remove from recents
             const key = 'vr-recent-' + this.activeVault
             const recent = JSON.parse(localStorage.getItem(key) || '[]').filter(r => r.path !== path)
             localStorage.setItem(key, JSON.stringify(recent))
             this.recentFiles = recent
-          } catch(e) { console.error('deleteNote:', e) }
+          } catch(e) { console.error('deleteNote:', e); alert('Delete failed: ' + e.message) }
         }
       })
     },
@@ -1713,7 +1717,11 @@ function vaultApp() {
           try {
             const res = await fetch('/api/folder?vault=' + encodeURIComponent(this.activeVault) +
               '&path=' + encodeURIComponent(path), { method: 'DELETE' })
-            if (!res.ok) { return }
+            if (!res.ok) {
+              const msg = await res.text().catch(() => 'Delete failed')
+              alert('Error: ' + msg)
+              return
+            }
             if (this.cwd === path || this.cwd.startsWith(path + '/')) {
               const parent = path.includes('/') ? path.substring(0, path.lastIndexOf('/')) : ''
               await this.enterDir(this.activeVault, parent)
@@ -1723,7 +1731,7 @@ function vaultApp() {
             if (this.activePath && (this.activePath.startsWith(path + '/') || this.activePath === path)) {
               this.activePath = ''; this.noteRaw = ''; this.noteHtml = ''; this.noteFrontmatter = {}; this.backlinks = []
             }
-          } catch(e) { console.error('deleteFolder:', e) }
+          } catch(e) { console.error('deleteFolder:', e); alert('Delete failed: ' + e.message) }
         }
       })
     },
