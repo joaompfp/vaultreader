@@ -786,12 +786,15 @@ func (s *server) saveConfig() error {
 func (s *server) isWritable(vault, path string) bool {
 	s.cfgMu.RLock()
 	defer s.cfgMu.RUnlock()
-	full := vault + "/" + path
+	full := filepath.Join(vault, path)
 	for _, rw := range s.cfg.RWPaths {
 		rw = strings.TrimSuffix(rw, "/")
-		if rw == vault || // whole vault
-			strings.HasPrefix(full, rw+"/") || // file under rw dir
-			full == rw { // exact match
+		rwNorm, _ := filepath.EvalSymlinks(rw)
+		if rwNorm == "" { rwNorm = rw }
+		entry := filepath.Join(vault, rwNorm)
+		if entry == vault || // whole vault
+			strings.HasPrefix(full, entry+string(filepath.Separator)) || // file under rw dir
+			full == entry { // exact match
 			return true
 		}
 	}
@@ -863,6 +866,12 @@ func (s *server) handleAdminConfig(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// handleHealth returns a lightweight health check.
+func (s *server) handleHealth(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	w.Write([]byte(`{"status":"ok"}`))
+}
 func (s *server) handleAdminRestart(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		errResponse(w, 405, "method not allowed")
@@ -1946,6 +1955,40 @@ func (s *server) handleIndex(w http.ResponseWriter, r *http.Request) {
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
 
+// rateLimiter per-IP sliding window.
+type rateLimiter struct {
+	handler http.Handler
+	mu sync.Mutex
+	visitors map[string][]time.Time
+	limit int
+	window time.Duration
+}
+
+func newRateLimiter(h http.Handler, limit int, window time.Duration) *rateLimiter {
+	return &rateLimiter{handler: h, visitors: make(map[string][]time.Time), limit: limit, window: window}
+}
+
+func (rl *rateLimiter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	ip := r.RemoteAddr
+	if idx := strings.LastIndex(ip, ":"); idx != -1 { ip = ip[:idx] }
+	now := time.Now()
+	rl.mu.Lock()
+	cutoff := now.Add(-rl.window)
+	var valid []time.Time
+	for _, t := range rl.visitors[ip] {
+		if t.After(cutoff) { valid = append(valid, t) }
+	}
+	if len(valid) >= rl.limit {
+		rl.mu.Unlock()
+		w.Header().Set("Retry-After", fmt.Sprintf("%d", int(rl.window.Seconds())))
+		http.Error(w, "rate limit exceeded", http.StatusTooManyRequests)
+		return
+	}
+	rl.visitors[ip] = append(valid, now)
+	rl.mu.Unlock()
+	rl.handler.ServeHTTP(w, r)
+}
+
 func main() {
 	flag.Parse()
 
@@ -2013,6 +2056,7 @@ func main() {
 	mux.HandleFunc("/api/shares/revoke", srv.handleShareRevoke)
 	mux.HandleFunc("/share/", srv.handleShareView)
 	mux.HandleFunc("/api/admin/restart", srv.handleAdminRestart)
+	mux.HandleFunc("/health", srv.handleHealth)
 	mux.HandleFunc("/api/trash", srv.handleTrashList)
 	mux.HandleFunc("/api/trash/restore", srv.handleTrashRestore)
 	mux.HandleFunc("/api/trash/empty", srv.handleTrashEmpty)
@@ -2020,7 +2064,7 @@ func main() {
 	addr := ":" + *port
 	httpServer := &http.Server{
 		Addr:         addr,
-		Handler:      gzipMiddleware(mux),
+		Handler:      gzipMiddleware(newRateLimiter(mux, 120, time.Minute)),
 		ReadTimeout:  30 * time.Second,
 		WriteTimeout: 30 * time.Second,
 		IdleTimeout:  120 * time.Second,
