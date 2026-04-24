@@ -2,8 +2,10 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"compress/gzip"
 	"crypto/rand"
+	"crypto/subtle"
 	"crypto/tls"
 	"embed"
 	"encoding/json"
@@ -16,6 +18,8 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/signal"
+	"syscall"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -733,7 +737,8 @@ func errResponse(w http.ResponseWriter, code int, msg string) {
 // ─── Admin config ─────────────────────────────────────────────────────────────
 
 type AdminConfig struct {
-	RWPaths []string `json:"rw_paths"` // vault-relative paths that allow writes, e.g. "pessoal/agents/hermes/skills"
+	AdminToken string   `json:"admin_token,omitempty"` // secret token for admin endpoints; empty = admin disabled
+	RWPaths    []string `json:"rw_paths"`              // vault-relative paths that allow writes, e.g. "pessoal/agents/hermes/skills"
 }
 
 type server struct {
@@ -744,6 +749,7 @@ type server struct {
 	cfgMu      sync.RWMutex
 	cfg        AdminConfig
 	shares     *ShareStore
+	shutdown   chan struct{}
 }
 
 func (s *server) configPath() string {
@@ -767,7 +773,11 @@ func (s *server) saveConfig() error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(s.configPath(), data, 0644)
+	tmp := s.configPath() + ".tmp"
+	if err := os.WriteFile(tmp, data, 0600); err != nil {
+		return err
+	}
+	return os.Rename(tmp, s.configPath())
 }
 
 // isWritable returns true if vault+path is under one of the configured RW paths.
@@ -789,7 +799,27 @@ func (s *server) isWritable(vault, path string) bool {
 
 // ─── Admin handlers ───────────────────────────────────────────────────────────
 
+func (s *server) requireAdminToken(w http.ResponseWriter, r *http.Request) bool {
+	s.cfgMu.RLock()
+	token := s.cfg.AdminToken
+	s.cfgMu.RUnlock()
+	if token == "" {
+		errResponse(w, 403, "admin not configured")
+		return false
+	}
+	headerToken := r.Header.Get("X-Admin-Token")
+	if subtle.ConstantTimeCompare([]byte(headerToken), []byte(token)) != 1 {
+		log.Printf("admin: invalid token from %s", r.RemoteAddr)
+		errResponse(w, 403, "unauthorized")
+		return false
+	}
+	return true
+}
+
 func (s *server) handleAdminConfig(w http.ResponseWriter, r *http.Request) {
+	if !s.requireAdminToken(w, r) {
+		return
+	}
 	switch r.Method {
 	case http.MethodGet:
 		s.cfgMu.RLock()
@@ -797,16 +827,33 @@ func (s *server) handleAdminConfig(w http.ResponseWriter, r *http.Request) {
 		s.cfgMu.RUnlock()
 		jsonResponse(w, cfg)
 	case http.MethodPost:
+		// Limit body to 32KB
+		r.Body = http.MaxBytesReader(w, r.Body, 32<<10)
 		var incoming AdminConfig
-		if err := json.NewDecoder(r.Body).Decode(&incoming); err != nil {
+		dec := json.NewDecoder(r.Body)
+		dec.DisallowUnknownFields()
+		if err := dec.Decode(&incoming); err != nil {
 			errResponse(w, 400, "invalid json")
 			return
 		}
 		s.cfgMu.Lock()
-		s.cfg = incoming
+		// Merge: keep existing token unless explicitly set
+		if incoming.AdminToken != "" {
+			s.cfg.AdminToken = incoming.AdminToken
+		}
+		// Validate RWPaths — reject .. and absolute paths
+		for _, p := range incoming.RWPaths {
+			if strings.Contains(p, "..") || filepath.IsAbs(p) {
+				s.cfgMu.Unlock()
+				errResponse(w, 400, "invalid rw_path")
+				return
+			}
+		}
+		s.cfg.RWPaths = incoming.RWPaths
 		s.cfgMu.Unlock()
 		if err := s.saveConfig(); err != nil {
-			errResponse(w, 500, "failed to save config: "+err.Error())
+			log.Printf("saveConfig error: %v", err)
+			errResponse(w, 500, "failed to save config")
 			return
 		}
 		jsonResponse(w, s.cfg)
@@ -820,10 +867,13 @@ func (s *server) handleAdminRestart(w http.ResponseWriter, r *http.Request) {
 		errResponse(w, 405, "method not allowed")
 		return
 	}
+	if !s.requireAdminToken(w, r) {
+		return
+	}
 	jsonResponse(w, map[string]string{"status": "restarting"})
 	go func() {
 		time.Sleep(200 * time.Millisecond)
-		os.Exit(0) // Docker restart policy brings it back up
+		close(s.shutdown)
 	}()
 }
 
@@ -1054,10 +1104,14 @@ func (s *server) handleVaultIcon(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) vaultPath(name string) (string, bool) {
-	if name == "" || strings.Contains(name, "..") || strings.Contains(name, "/") {
+	if name == "" || strings.Contains(name, "/") || strings.Contains(name, "\\") {
 		return "", false
 	}
-	p := filepath.Join(s.vaultsDir, name)
+	cleanName := filepath.Clean(name)
+	if strings.Contains(cleanName, "..") || strings.HasPrefix(cleanName, ".") {
+		return "", false
+	}
+	p := filepath.Join(s.vaultsDir, cleanName)
 	info, err := os.Stat(p)
 	if err != nil || !info.IsDir() {
 		return "", false
@@ -1066,13 +1120,23 @@ func (s *server) vaultPath(name string) (string, bool) {
 }
 
 func (s *server) safePath(vaultP, notePath string) (string, bool) {
-	if strings.Contains(notePath, "..") {
+	// Reject empty paths and absolute paths (leading separator or drive letter).
+	if notePath == "" {
 		return "", false
 	}
-	full := filepath.Join(vaultP, notePath)
-	// ensure it's still under vaultP
-	rel, err := filepath.Rel(vaultP, full)
+	if strings.HasPrefix(notePath, "/") || strings.HasPrefix(notePath, "\\") {
+		return "", false
+	}
+	// Canonicalise before any resolution to eliminate .., ., duplicate slashes.
+	full := filepath.Clean(filepath.Join(vaultP, notePath))
+	vaultBase := filepath.Clean(vaultP)
+	// On Windows filepath.Clean("C:\foo") returns "C:\foo" while filepath.Clean("foo") stays relative.
+	// Ensure the resolved path is still inside the vault directory.
+	rel, err := filepath.Rel(vaultBase, full)
 	if err != nil || strings.HasPrefix(rel, "..") {
+		return "", false
+	}
+	if full != vaultBase && !strings.HasPrefix(full, vaultBase+string(filepath.Separator)) {
 		return "", false
 	}
 	return full, true
@@ -1162,6 +1226,10 @@ func (s *server) handleCreateNote(w http.ResponseWriter, r *http.Request) {
 		errResponse(w, 400, "invalid path")
 		return
 	}
+	if !s.isWritable(vault, path) {
+		errResponse(w, 403, "path is not writable")
+		return
+	}
 	// don't overwrite existing notes
 	if _, err := os.Stat(full); err == nil {
 		errResponse(w, 409, "note already exists")
@@ -1195,6 +1263,10 @@ func (s *server) handleDeleteNote(w http.ResponseWriter, r *http.Request) {
 	full, ok := s.safePath(vp, path)
 	if !ok {
 		errResponse(w, 400, "invalid path")
+		return
+	}
+	if !s.isWritable(vault, path) {
+		errResponse(w, 403, "path is not writable")
 		return
 	}
 	if _, err := os.Stat(full); os.IsNotExist(err) {
@@ -1328,6 +1400,10 @@ func (s *server) handleCreateFolder(w http.ResponseWriter, r *http.Request) {
 		errResponse(w, 400, "invalid path")
 		return
 	}
+	if !s.isWritable(vault, path) {
+		errResponse(w, 403, "path is not writable")
+		return
+	}
 	if _, err := os.Stat(full); err == nil {
 		errResponse(w, 409, "folder already exists")
 		return
@@ -1356,6 +1432,10 @@ func (s *server) handleDeleteFolder(w http.ResponseWriter, r *http.Request) {
 	full, ok := s.safePath(vp, path)
 	if !ok {
 		errResponse(w, 400, "invalid path")
+		return
+	}
+	if !s.isWritable(vault, path) {
+		errResponse(w, 403, "path is not writable")
 		return
 	}
 	info, err := os.Stat(full)
@@ -1431,9 +1511,17 @@ func (s *server) handleMove(w http.ResponseWriter, r *http.Request) {
 		errResponse(w, 400, "invalid from path")
 		return
 	}
+	if !s.isWritable(vault, from) {
+		errResponse(w, 403, "source path is not writable")
+		return
+	}
 	fullTo, ok := s.safePath(vp, to)
 	if !ok {
 		errResponse(w, 400, "invalid to path")
+		return
+	}
+	if !s.isWritable(vault, to) {
+		errResponse(w, 403, "destination path is not writable")
 		return
 	}
 	if _, err := os.Stat(fullFrom); os.IsNotExist(err) {
@@ -1526,6 +1614,10 @@ func (s *server) handlePutNote(w http.ResponseWriter, r *http.Request) {
 	_, ok = s.safePath(vp, path)
 	if !ok {
 		errResponse(w, 400, "invalid path")
+		return
+	}
+	if !s.isWritable(vault, path) {
+		errResponse(w, 403, "path is not writable")
 		return
 	}
 
@@ -1797,8 +1889,37 @@ func main() {
 	mux.HandleFunc("/api/admin/restart", srv.handleAdminRestart)
 
 	addr := ":" + *port
-	log.Printf("listening on %s", addr)
-	if err := http.ListenAndServe(addr, gzipMiddleware(mux)); err != nil {
-		log.Fatalf("server error: %v", err)
+	httpServer := &http.Server{
+		Addr:         addr,
+		Handler:      gzipMiddleware(mux),
+		ReadTimeout:  30 * time.Second,
+		WriteTimeout: 30 * time.Second,
+		IdleTimeout:  120 * time.Second,
 	}
+	srv.shutdown = make(chan struct{})
+
+	go func() {
+		log.Printf("listening on %s", addr)
+		if err := httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+			log.Fatalf("server error: %v", err)
+		}
+	}()
+
+	// Graceful shutdown
+	sigCtx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	select {
+	case <-sigCtx.Done():
+		log.Println("shutting down (signal)")
+	case <-srv.shutdown:
+		log.Println("shutting down (admin)")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := httpServer.Shutdown(ctx); err != nil {
+		log.Printf("shutdown error: %v", err)
+	}
+	log.Println("server stopped")
 }

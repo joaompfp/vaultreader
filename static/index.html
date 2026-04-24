@@ -856,8 +856,21 @@ function vaultApp() {
           this.newMenuOpen = false
           this.settingsOpen = false
         }
+        if (e.key === '/' && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
+          const tag = document.activeElement?.tagName
+          if (tag !== 'INPUT' && tag !== 'TEXTAREA' && !document.activeElement?.closest('.cm-editor')) {
+            e.preventDefault()
+            this.searchOpen = true
+          }
+        }
       })
       window.addEventListener('click', () => { this.ctxMenu.open = false })
+      window.addEventListener('beforeunload', (e) => {
+        if (this.isDirty) {
+          e.preventDefault()
+          e.returnValue = ''
+        }
+      })
       this.$watch('searchOpen', v => {
         if (v) {
           this.searchQuery = ''
@@ -1447,8 +1460,12 @@ function vaultApp() {
         t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
       ).filter(Boolean)
       if (!terms.length) return text
+      // Escape text content first so injected query terms cannot execute HTML.
+      const el = document.createElement('div')
+      el.textContent = text
+      const safe = el.innerHTML
       const re = new RegExp(`(${terms.join('|')})`, 'gi')
-      return text.replace(re, '<mark>$1</mark>')
+      return safe.replace(re, '<mark>$1</mark>')
     },
 
     // ── recent files ──────────────────────────────
