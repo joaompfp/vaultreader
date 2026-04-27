@@ -1,4 +1,4 @@
-module github.com/joaompfp/vaultreader
+module joao.date/vaultreader
 
 go 1.21
 

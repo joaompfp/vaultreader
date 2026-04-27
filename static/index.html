@@ -380,7 +380,7 @@
        x-show="searchOpen"
        x-transition.opacity
        @click.self="searchOpen = false"
-       @keydown.escape.window="searchOpen = false">
+       @keydown.escape.window="searchOpen = false" x-ref="searchOverlay">
     <div class="search-box">
       <div class="search-input-wrap">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0;color:var(--text3)">
@@ -416,6 +416,7 @@
   <div id="modal-overlay"
        x-show="modal.open"
        x-transition.opacity
+       x-ref="modalOverlay"
        @click.self="modal.open = false"
        @keydown.escape.window="modal.open = false"
        style="display:none">
@@ -441,6 +442,7 @@
   <div id="move-picker-overlay"
        x-show="movePicker.open"
        x-transition.opacity
+       x-ref="movePickerOverlay"
        @click.self="movePicker.open = false"
        @keydown.escape.window="movePicker.open = false"
        style="display:none">
@@ -515,7 +517,7 @@
        x-transition.opacity
        @click.self="shareModal.open = false"
        @keydown.escape.window="shareModal.open = false"
-       style="display:none">
+       style="display:none" x-ref="shareModalOverlay">
     <div class="share-modal-box" @click.stop>
       <div class="share-modal-header">
         <span class="share-modal-title">
@@ -584,7 +586,7 @@
        x-transition:leave="transition ease-in duration-100"
        x-transition:leave-start="opacity-100"
        x-transition:leave-end="opacity-0"
-       style="display:none">
+       style="display:none" x-ref="adminPanel">
     <div class="admin-box" @click.stop>
       <div class="admin-header">
         <span class="admin-title">⚙ Admin</span>
@@ -716,7 +718,7 @@
 
   <!-- ─── Keyboard Shortcuts overlay ───────────── -->
   <div id="shortcuts-overlay" x-show="shortcutsOpen" @click.self="shortcutsOpen=false"
-       @keydown.escape.window="shortcutsOpen = false">
+       @keydown.escape.window="shortcutsOpen = false" x-ref="shortcutsOverlay">
     <div class="shortcuts-box" @click.stop>
       <div class="shortcuts-header">
         <span class="shortcuts-title">Keyboard shortcuts</span>
@@ -738,7 +740,7 @@
 
   <!-- ─── Trash overlay ────────────────────────── -->
   <div id="trash-overlay" x-show="trashOpen" @click.self="trashOpen=false"
-       @keydown.escape.window="trashOpen = false">
+       @keydown.escape.window="trashOpen = false" x-ref="trashOverlay">
     <div class="trash-box" @click.stop>
       <div class="trash-header">
         <span class="trash-title">Trash</span>
@@ -820,6 +822,53 @@ window.__cmAPI = {
 <script>
 function vaultApp() {
   return {
+    // ── Focus trapping ─────────────────────────────
+    _lastFocused: null,
+    _activeTraps: {},  // refName -> { el, handler }
+    _FOCUSABLE: 'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
+
+    trapFocus(refName) {
+      // capture currently-focused element synchronously, before any modal
+      // autofocus or transition steals focus
+      if (Object.keys(this._activeTraps).length === 0) {
+        this._lastFocused = document.activeElement;
+      }
+      this.$nextTick(() => {
+        const el = this.$refs[refName];
+        if (!el || this._activeTraps[refName]) return;
+        const nodes = Array.from(el.querySelectorAll(this._FOCUSABLE));
+        if (nodes.length) this.$nextTick(() => nodes[0].focus());
+        const handler = (e) => {
+          if (e.key !== 'Tab') return;
+          const focusables = Array.from(el.querySelectorAll(this._FOCUSABLE));
+          if (focusables.length === 0) return;
+          const first = focusables[0], last = focusables[focusables.length - 1];
+          if (e.shiftKey && document.activeElement === first) {
+            e.preventDefault(); last.focus();
+          } else if (!e.shiftKey && document.activeElement === last) {
+            e.preventDefault(); first.focus();
+          }
+        };
+        this._activeTraps[refName] = { el, handler };
+        el.addEventListener('keydown', handler);
+      });
+    },
+
+    untrapFocus(refName) {
+      // If a refName is given, untrap just that one; otherwise untrap all.
+      const names = refName ? [refName] : Object.keys(this._activeTraps);
+      for (const name of names) {
+        const trap = this._activeTraps[name];
+        if (!trap) continue;
+        trap.el.removeEventListener('keydown', trap.handler);
+        delete this._activeTraps[name];
+      }
+      if (Object.keys(this._activeTraps).length === 0 && this._lastFocused?.focus) {
+        this._lastFocused.focus();
+        this._lastFocused = null;
+      }
+    },
+
     vaults: [],
     activeVault: '',
     // flat list of all nodes in current vault
@@ -952,8 +1001,17 @@ function vaultApp() {
           this.searchResults = []
           this.searchFocus = 0
           this.$nextTick(() => this.$refs.searchInput?.focus())
+          this.trapFocus('searchOverlay')
+        } else {
+          this.untrapFocus('searchOverlay')
         }
       })
+      this.$watch('modal.open',       v => { if (v) this.trapFocus('modalOverlay');       else this.untrapFocus('modalOverlay') })
+      this.$watch('movePicker.open',  v => { if (v) this.trapFocus('movePickerOverlay');  else this.untrapFocus('movePickerOverlay') })
+      this.$watch('shareModal.open',  v => { if (v) this.trapFocus('shareModalOverlay');  else this.untrapFocus('shareModalOverlay') })
+      this.$watch('adminOpen',        v => { if (v) this.trapFocus('adminPanel');         else this.untrapFocus('adminPanel') })
+      this.$watch('trashOpen',        v => { if (v) this.trapFocus('trashOverlay');       else this.untrapFocus('trashOverlay') })
+      this.$watch('shortcutsOpen',    v => { if (v) this.trapFocus('shortcutsOverlay');   else this.untrapFocus('shortcutsOverlay') })
       // one-time migration: move old global recents into per-vault buckets
       const legacyKey = 'vr-recent'
       const legacy = JSON.parse(localStorage.getItem(legacyKey) || '[]')
