@@ -782,19 +782,17 @@ func (s *server) saveConfig() error {
 }
 
 // isWritable returns true if vault+path is under one of the configured RW paths.
-// vault is e.g. "pessoal", path is vault-relative e.g. "agents/hermes/skills/foo.md"
+// rw_paths are vault-rooted, e.g. "pessoal" (whole vault) or "pessoal/agents/hermes/skills" (subfolder).
+// vault is e.g. "pessoal"; path is vault-relative e.g. "agents/hermes/skills/foo.md".
 func (s *server) isWritable(vault, path string) bool {
 	s.cfgMu.RLock()
 	defer s.cfgMu.RUnlock()
-	full := filepath.Join(vault, path)
+	full := vault + "/" + path
 	for _, rw := range s.cfg.RWPaths {
 		rw = strings.TrimSuffix(rw, "/")
-		rwNorm, _ := filepath.EvalSymlinks(rw)
-		if rwNorm == "" { rwNorm = rw }
-		entry := filepath.Join(vault, rwNorm)
-		if entry == vault || // whole vault
-			strings.HasPrefix(full, entry+string(filepath.Separator)) || // file under rw dir
-			full == entry { // exact match
+		if rw == vault || // whole vault writable
+			full == rw || // exact match
+			strings.HasPrefix(full, rw+"/") { // under rw dir
 			return true
 		}
 	}
