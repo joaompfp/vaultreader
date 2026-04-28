@@ -1969,6 +1969,17 @@ func newRateLimiter(h http.Handler, limit int, window time.Duration) *rateLimite
 func (rl *rateLimiter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	ip := r.RemoteAddr
 	if idx := strings.LastIndex(ip, ":"); idx != -1 { ip = ip[:idx] }
+	// Behind Traefik (only ingress path), honor forwarded client IP so the
+	// per-IP bucket is real-per-user, not a single shared bridge-IP bucket.
+	if xri := r.Header.Get("X-Real-IP"); xri != "" {
+		ip = xri
+	} else if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+		if comma := strings.Index(xff, ","); comma != -1 {
+			ip = strings.TrimSpace(xff[:comma])
+		} else {
+			ip = strings.TrimSpace(xff)
+		}
+	}
 	now := time.Now()
 	rl.mu.Lock()
 	cutoff := now.Add(-rl.window)
@@ -2062,7 +2073,7 @@ func main() {
 	addr := ":" + *port
 	httpServer := &http.Server{
 		Addr:         addr,
-		Handler:      gzipMiddleware(newRateLimiter(mux, 120, time.Minute)),
+		Handler:      gzipMiddleware(newRateLimiter(mux, 240, time.Minute)),
 		ReadTimeout:  30 * time.Second,
 		WriteTimeout: 30 * time.Second,
 		IdleTimeout:  120 * time.Second,
