@@ -1647,6 +1647,124 @@ func (s *server) handlePutNote(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// handleUpload accepts a multipart image upload tied to a note and writes
+// the file under <note-dir>/attachments/<note-base>-<unix>.<ext>. Body cap
+// 10MB. Same isWritable + safePath guards as handlePutNote.
+func (s *server) handleUpload(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		errResponse(w, 405, "POST only")
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, 10<<20) // 10MB cap
+	if err := r.ParseMultipartForm(10 << 20); err != nil {
+		errResponse(w, 400, "cannot parse form: "+err.Error())
+		return
+	}
+	vault := r.FormValue("vault")
+	notePath := r.FormValue("notePath")
+	vp, ok := s.vaultPath(vault)
+	if !ok {
+		errResponse(w, 400, "invalid vault")
+		return
+	}
+	if _, ok := s.safePath(vp, notePath); !ok {
+		errResponse(w, 400, "invalid notePath")
+		return
+	}
+	if !s.isWritable(vault, notePath) {
+		errResponse(w, 403, "path is not writable")
+		return
+	}
+	file, hdr, err := r.FormFile("file")
+	if err != nil {
+		errResponse(w, 400, "missing file")
+		return
+	}
+	defer file.Close()
+
+	ct := hdr.Header.Get("Content-Type")
+	if !strings.HasPrefix(ct, "image/") {
+		errResponse(w, 400, "file must be an image")
+		return
+	}
+	ext := ""
+	switch ct {
+	case "image/png":
+		ext = "png"
+	case "image/jpeg", "image/jpg":
+		ext = "jpg"
+	case "image/gif":
+		ext = "gif"
+	case "image/webp":
+		ext = "webp"
+	case "image/svg+xml":
+		ext = "svg"
+	default:
+		errResponse(w, 400, "unsupported image type: "+ct)
+		return
+	}
+
+	// Compute target dir: <note-dir>/attachments
+	noteDir := filepath.Dir(notePath)
+	if noteDir == "." {
+		noteDir = ""
+	}
+	relAttachDir := filepath.Join(noteDir, "attachments")
+	fullAttachDir, ok := s.safePath(vp, relAttachDir)
+	if !ok {
+		errResponse(w, 400, "invalid attachment dir")
+		return
+	}
+	if err := os.MkdirAll(fullAttachDir, 0755); err != nil {
+		errResponse(w, 500, "cannot create attachments dir: "+err.Error())
+		return
+	}
+
+	noteBase := strings.TrimSuffix(filepath.Base(notePath), ".md")
+	// Sanitize: strip anything that isn't [a-zA-Z0-9_-]
+	noteBase = sanitizeFilename(noteBase)
+	if noteBase == "" {
+		noteBase = "image"
+	}
+	filename := fmt.Sprintf("%s-%d.%s", noteBase, time.Now().Unix(), ext)
+	relFilePath := filepath.Join(relAttachDir, filename)
+	fullFilePath, ok := s.safePath(vp, relFilePath)
+	if !ok {
+		errResponse(w, 400, "invalid file path")
+		return
+	}
+
+	out, err := os.Create(fullFilePath)
+	if err != nil {
+		errResponse(w, 500, "cannot create file: "+err.Error())
+		return
+	}
+	defer out.Close()
+	if _, err := io.Copy(out, file); err != nil {
+		errResponse(w, 500, "cannot write file: "+err.Error())
+		return
+	}
+
+	// Return path *relative to the note's directory* so the client can embed
+	// it as ![[attachments/foo.png]] regardless of where the note lives.
+	jsonResponse(w, map[string]string{
+		"path": filepath.Join("attachments", filename),
+	})
+}
+
+// sanitizeFilename keeps [a-zA-Z0-9_-], replaces anything else with '-'.
+func sanitizeFilename(s string) string {
+	var b strings.Builder
+	for _, r := range s {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_' || r == '-' {
+			b.WriteRune(r)
+		} else if r == ' ' {
+			b.WriteRune('-')
+		}
+	}
+	return b.String()
+}
+
 func (s *server) handleSearch(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query().Get("q")
 	vault := r.URL.Query().Get("vault")
@@ -2046,6 +2164,7 @@ func main() {
 	mux.HandleFunc("/api/vaults", srv.handleVaults)
 	mux.HandleFunc("/api/tree", srv.handleTree)
 	mux.HandleFunc("/api/note", srv.handleNote)
+	mux.HandleFunc("/api/upload", srv.handleUpload)
 	mux.HandleFunc("/api/move", srv.handleMove)
 	mux.HandleFunc("/api/folder", srv.handleFolder)
 	mux.HandleFunc("/api/search", srv.handleSearch)

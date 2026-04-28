@@ -343,6 +343,52 @@
       <div id="editor-wrap"
            x-show="activePath && mode === 'edit'"
            style="display:none">
+
+        <!-- ─── Editor toolbar ─────────────────── -->
+        <div id="editor-toolbar" @click.outside="mermaidMenuOpen = false">
+          <button class="et-btn" @click="tbWrap('**')" title="Bold (Ctrl+B)"><b>B</b></button>
+          <button class="et-btn" @click="tbWrap('*')" title="Italic (Ctrl+I)"><i>I</i></button>
+          <button class="et-btn" @click="tbWrap('~~')" title="Strikethrough"><s>S</s></button>
+          <span class="et-sep"></span>
+          <button class="et-btn" @click="tbHeading()" title="Heading — cycles H1/H2/H3/none"><b>H</b></button>
+          <button class="et-btn" @click="tbLinePrefix('- ')" title="Bullet list">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><circle cx="3.5" cy="6" r="1.5" fill="currentColor"/><circle cx="3.5" cy="12" r="1.5" fill="currentColor"/><circle cx="3.5" cy="18" r="1.5" fill="currentColor"/></svg>
+          </button>
+          <button class="et-btn" @click="tbLinePrefix('1. ')" title="Numbered list"><span style="font-size:11px;font-weight:600">1.</span></button>
+          <button class="et-btn" @click="tbLinePrefix('- [ ] ')" title="Task">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="2"/></svg>
+          </button>
+          <button class="et-btn" @click="tbLinePrefix('> ')" title="Quote">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M7 7h4v6c0 2.5-1.5 4-4 4v-2c1.5 0 2-.5 2-2H7V7zm6 0h4v6c0 2.5-1.5 4-4 4v-2c1.5 0 2-.5 2-2h-2V7z"/></svg>
+          </button>
+          <span class="et-sep"></span>
+          <button class="et-btn" @click="tbWrap('`')" title="Inline code (Ctrl+E)"><code style="font-size:11px">&lt;/&gt;</code></button>
+          <button class="et-btn" @click="tbCodeBlock()" title="Code block">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+          </button>
+          <button class="et-btn" @click="tbTable()" title="Table">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="9" y1="3" x2="9" y2="21"/><line x1="15" y1="3" x2="15" y2="21"/></svg>
+          </button>
+          <span class="et-sep"></span>
+          <button class="et-btn" @click="tbLink()" title="Link (Ctrl+K)">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+          </button>
+          <button class="et-btn" @click="tbWikilink()" title="Wikilink (Ctrl+L)"><span style="font-size:11px;font-weight:600">[[</span></button>
+          <span class="et-sep"></span>
+          <div style="position:relative">
+            <button class="et-btn" @click="mermaidMenuOpen = !mermaidMenuOpen" :class="{active: mermaidMenuOpen}" title="Mermaid diagram">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+            </button>
+            <div class="et-mermaid-menu" x-show="mermaidMenuOpen" @click="mermaidMenuOpen = false" style="display:none">
+              <button @click.stop="insertMermaid('flowchart')">Flowchart</button>
+              <button @click.stop="insertMermaid('sequence')">Sequence</button>
+              <button @click.stop="insertMermaid('gantt')">Gantt</button>
+              <button @click.stop="insertMermaid('pie')">Pie chart</button>
+              <button @click.stop="insertMermaid('block')">Block diagram</button>
+            </div>
+          </div>
+        </div>
+
         <div id="cm-editor"></div>
       </div>
 
@@ -664,6 +710,26 @@
   </div>
 
 
+  <!-- ─── Wikilink autocomplete popup ───────────── -->
+  <div id="wiki-popup"
+       x-show="wikiPop.open"
+       :style="'top:' + wikiPop.y + 'px;left:' + wikiPop.x + 'px'"
+       @click.outside="closeWikiPopup()"
+       style="display:none">
+    <template x-if="wikiPop.results.length === 0">
+      <div class="wp-empty">No matches</div>
+    </template>
+    <template x-for="(r, i) in wikiPop.results" :key="r.vault + ':' + r.path">
+      <div class="wp-item"
+           :class="{ focused: wikiPop.focus === i }"
+           @mousedown.prevent="selectWikiResult(i)"
+           @mouseenter="wikiPop.focus = i">
+        <div class="wp-title" x-text="r.title || r.path.replace(/\.md$/, '').split('/').pop()"></div>
+        <div class="wp-path" x-text="r.path.replace(/\.md$/, '')"></div>
+      </div>
+    </template>
+  </div>
+
   <!-- ─── Context Menu ──────────────────────────── -->
   <div id="ctx-menu"
        x-show="ctxMenu.open"
@@ -794,7 +860,7 @@ const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches
 window.__cmAPI = {
   view: null,
 
-  create(content, onChange) {
+  create(content, onChange, onPasteImage, onCursorChange) {
     if (this.view) { this.view.destroy(); this.view = null }
     const extensions = [
       history(),
@@ -804,6 +870,32 @@ window.__cmAPI = {
       EditorView.lineWrapping,
       EditorView.updateListener.of(update => {
         if (update.docChanged) onChange(update.state.doc.toString())
+        if ((update.docChanged || update.selectionSet) && onCursorChange) {
+          onCursorChange(update.view)
+        }
+      }),
+      EditorView.domEventHandlers({
+        paste: (e, view) => {
+          if (!onPasteImage) return false
+          const items = e.clipboardData?.items || []
+          for (const it of items) {
+            if (it.kind === 'file' && it.type.startsWith('image/')) {
+              const f = it.getAsFile()
+              if (f) { e.preventDefault(); onPasteImage(f, view); return true }
+            }
+          }
+          return false
+        },
+        drop: (e, view) => {
+          if (!onPasteImage) return false
+          const files = e.dataTransfer?.files || []
+          for (const f of files) {
+            if (f.type.startsWith('image/')) {
+              e.preventDefault(); onPasteImage(f, view); return true
+            }
+          }
+          return false
+        },
       }),
     ]
     if (prefersDark) extensions.push(oneDark)
@@ -821,6 +913,7 @@ window.__cmAPI = {
   },
 
   getContent() { return this.view ? this.view.state.doc.toString() : '' },
+  getView() { return this.view },
   destroy() { if (this.view) { this.view.destroy(); this.view = null } }
 }
 </script>
@@ -921,6 +1014,11 @@ function vaultApp() {
     ctxMenu: { open: false, x: 0, y: 0, items: [] },
     // new item dropdown
     newMenuOpen: false,
+    // editor toolbar — mermaid starter dropdown
+    mermaidMenuOpen: false,
+    // wikilink autocomplete popup
+    wikiPop: { open: false, x: 0, y: 0, query: '', results: [], focus: 0, fromPos: 0, toPos: 0 },
+    _wikiPopAbort: null,
     // settings
     settingsOpen: false,
     // admin panel
@@ -973,6 +1071,29 @@ function vaultApp() {
           if (tag !== 'INPUT' && tag !== 'TEXTAREA' && !document.activeElement?.closest('.cm-editor')) {
             e.preventDefault()
             this.setMode(this.mode === 'preview' ? 'edit' : 'preview')
+          }
+        }
+        // Toolbar shortcuts inside the editor (Ctrl/Cmd + B/I/E/K/L)
+        if ((e.ctrlKey || e.metaKey) && !e.altKey && document.activeElement?.closest('.cm-editor')) {
+          const k = e.key.toLowerCase()
+          if (k === 'b') { e.preventDefault(); this.tbWrap('**') }
+          else if (k === 'i') { e.preventDefault(); this.tbWrap('*') }
+          else if (k === 'e') { e.preventDefault(); this.tbWrap('`') }
+          else if (k === 'k') { e.preventDefault(); this.tbLink() }
+          else if (k === 'l') { e.preventDefault(); this.tbWikilink() }
+        }
+        // Wikilink autocomplete navigation (popup open + focus in editor)
+        if (this.wikiPop.open && document.activeElement?.closest('.cm-editor')) {
+          if (e.key === 'ArrowDown') {
+            e.preventDefault(); this.wikiPop.focus = Math.min(this.wikiPop.focus + 1, this.wikiPop.results.length - 1)
+          } else if (e.key === 'ArrowUp') {
+            e.preventDefault(); this.wikiPop.focus = Math.max(this.wikiPop.focus - 1, 0)
+          } else if (e.key === 'Enter') {
+            if (this.wikiPop.results.length > 0) {
+              e.preventDefault(); this.selectWikiResult(this.wikiPop.focus)
+            }
+          } else if (e.key === 'Escape') {
+            e.preventDefault(); this.closeWikiPopup()
           }
         }
         if (e.key === 'Escape') {
@@ -1402,11 +1523,16 @@ function vaultApp() {
       if (m === 'edit') {
         this.$nextTick(() => {
           if (window.__cmAPI) {
-            window.__cmAPI.create(this.noteRaw, (content) => {
-              this.noteRaw = content
-              this.isDirty = true
-              this.scheduleSave()
-            })
+            window.__cmAPI.create(
+              this.noteRaw,
+              (content) => {
+                this.noteRaw = content
+                this.isDirty = true
+                this.scheduleSave()
+              },
+              (file, view) => this.uploadImage(file, view),
+              (view) => this.maybeOpenWikiPopup(view),
+            )
           }
         })
       } else {
@@ -1901,6 +2027,256 @@ function vaultApp() {
     resetSidebarWidth() {
       document.documentElement.style.removeProperty('--sidebar-w')
       localStorage.removeItem('vr-sidebar-w')
+    },
+
+    // ── editor toolbar ────────────────────────────
+    _cm() { return window.__cmAPI?.getView() },
+    _cmFocus() { const v = this._cm(); if (v) v.focus() },
+    _cmDispatch(spec) {
+      const v = this._cm(); if (!v) return
+      v.dispatch(spec); v.focus()
+    },
+    // wrap selection (or empty cursor) in `marker`. Caret lands inside if no selection.
+    tbWrap(marker) {
+      const v = this._cm(); if (!v) return
+      const { from, to } = v.state.selection.main
+      const text = v.state.sliceDoc(from, to)
+      const insert = marker + text + marker
+      const newCursor = text ? from + insert.length : from + marker.length
+      this._cmDispatch({
+        changes: { from, to, insert },
+        selection: { anchor: newCursor }
+      })
+    },
+    tbHeading() {
+      const v = this._cm(); if (!v) return
+      const { from } = v.state.selection.main
+      const line = v.state.doc.lineAt(from)
+      const m = line.text.match(/^(#{0,3}) ?(.*)$/)
+      const level = m[1].length
+      const next = level >= 3 ? 0 : level + 1   // cycle 0→1→2→3→0
+      const prefix = next === 0 ? '' : '#'.repeat(next) + ' '
+      const insert = prefix + m[2]
+      this._cmDispatch({
+        changes: { from: line.from, to: line.to, insert },
+        selection: { anchor: line.from + insert.length }
+      })
+    },
+    // prefix every selected line (or current line) with `pfx`
+    tbLinePrefix(pfx) {
+      const v = this._cm(); if (!v) return
+      const { from, to } = v.state.selection.main
+      const startLine = v.state.doc.lineAt(from)
+      const endLine = v.state.doc.lineAt(to)
+      const changes = []
+      for (let n = startLine.number; n <= endLine.number; n++) {
+        const ln = v.state.doc.line(n)
+        if (ln.text.startsWith(pfx)) {
+          changes.push({ from: ln.from, to: ln.from + pfx.length, insert: '' })
+        } else {
+          changes.push({ from: ln.from, insert: pfx })
+        }
+      }
+      this._cmDispatch({ changes })
+    },
+    tbCodeBlock() {
+      const v = this._cm(); if (!v) return
+      const { from, to } = v.state.selection.main
+      const text = v.state.sliceDoc(from, to)
+      const line = v.state.doc.lineAt(from)
+      const atLineStart = from === line.from
+      const prefix = atLineStart ? '' : '\n'
+      const insert = prefix + '```\n' + text + '\n```\n'
+      // place cursor right after the opening ``` (so user types language)
+      const cursor = from + prefix.length + 3
+      this._cmDispatch({
+        changes: { from, to, insert },
+        selection: { anchor: cursor }
+      })
+    },
+    tbTable() {
+      const v = this._cm(); if (!v) return
+      const { from, to } = v.state.selection.main
+      const line = v.state.doc.lineAt(from)
+      const atLineStart = from === line.from
+      const prefix = atLineStart ? '' : '\n'
+      const tbl = '| Col 1 | Col 2 | Col 3 |\n| --- | --- | --- |\n|  |  |  |\n'
+      const insert = prefix + tbl
+      // cursor in first body cell
+      const cursor = from + prefix.length + tbl.indexOf('|  |') + 2
+      this._cmDispatch({
+        changes: { from, to, insert },
+        selection: { anchor: cursor }
+      })
+    },
+    tbLink() {
+      const v = this._cm(); if (!v) return
+      const { from, to } = v.state.selection.main
+      const text = v.state.sliceDoc(from, to) || 'text'
+      const insert = '[' + text + '](url)'
+      // select "url" so user can type over it
+      const urlStart = from + insert.length - 4
+      const urlEnd = from + insert.length - 1
+      this._cmDispatch({
+        changes: { from, to, insert },
+        selection: { anchor: urlStart, head: urlEnd }
+      })
+    },
+    tbWikilink() {
+      const v = this._cm(); if (!v) return
+      const { from, to } = v.state.selection.main
+      const text = v.state.sliceDoc(from, to)
+      const insert = '[[' + text + ']]'
+      const cursor = from + 2 + text.length  // before the closing ]]
+      this._cmDispatch({
+        changes: { from, to, insert },
+        selection: { anchor: cursor }
+      })
+      // future: trigger autocomplete here once the wikilink popup ships
+    },
+    insertMermaid(kind) {
+      const starters = {
+        flowchart:
+'flowchart TD\n  A[Start] --> B{Decision}\n  B -->|Yes| C[Process A]\n  B -->|No| D[Process B]\n  C --> E[End]\n  D --> E',
+        sequence:
+'sequenceDiagram\n  participant Alice\n  participant Bob\n  Alice->>Bob: Hello\n  Bob-->>Alice: Hi back\n  Note over Bob: Thinking…',
+        gantt:
+'gantt\n  dateFormat YYYY-MM-DD\n  section Phase 1\n  Task A :a1, 2026-05-01, 7d\n  Task B :after a1, 5d\n  section Phase 2\n  Release :crit, milestone, after a1, 1d',
+        pie:
+'pie title Distribution\n  "A" : 40\n  "B" : 35\n  "C" : 25',
+        block:
+'block\n  columns 3\n  A B C\n  D E F\n  A --> D\n  B --> E\n  C --> F',
+      }
+      const code = starters[kind]; if (!code) return
+      const v = this._cm(); if (!v) return
+      const { from, to } = v.state.selection.main
+      const line = v.state.doc.lineAt(from)
+      const atLineStart = from === line.from
+      const prefix = atLineStart ? '' : '\n'
+      const insert = prefix + '```mermaid\n' + code + '\n```\n'
+      const cursor = from + insert.length
+      this._cmDispatch({
+        changes: { from, to, insert },
+        selection: { anchor: cursor }
+      })
+      this.mermaidMenuOpen = false
+    },
+
+    // ── paste / drop image upload ─────────────────
+    async uploadImage(file, view) {
+      if (!this.activePath) return
+      // Insert placeholder so the user sees something happen immediately.
+      const placeholder = '![[uploading-' + Date.now() + ']]'
+      const { from, to } = view.state.selection.main
+      view.dispatch({
+        changes: { from, to, insert: placeholder },
+        selection: { anchor: from + placeholder.length },
+      })
+      try {
+        const fd = new FormData()
+        fd.append('vault', this.activeVault)
+        fd.append('notePath', this.activePath)
+        fd.append('file', file)
+        const res = await fetch('/api/upload', { method: 'POST', body: fd })
+        if (!res.ok) {
+          const txt = await res.text().catch(() => '')
+          throw new Error('HTTP ' + res.status + ' ' + txt)
+        }
+        const data = await res.json()
+        const embed = '![[' + data.path + ']]'
+        // Replace the placeholder text in the doc.
+        const doc = view.state.doc.toString()
+        const idx = doc.indexOf(placeholder)
+        if (idx === -1) return
+        view.dispatch({
+          changes: { from: idx, to: idx + placeholder.length, insert: embed },
+          selection: { anchor: idx + embed.length },
+        })
+      } catch (e) {
+        const doc = view.state.doc.toString()
+        const idx = doc.indexOf(placeholder)
+        if (idx !== -1) {
+          view.dispatch({
+            changes: { from: idx, to: idx + placeholder.length, insert: '' },
+          })
+        }
+        this.modal = {
+          open: true,
+          title: 'Upload failed',
+          body: String(e.message || e),
+          confirmOnly: true,
+          confirmLabel: 'OK',
+          onConfirm: null,
+        }
+      }
+    },
+
+    // ── wikilink autocomplete ─────────────────────
+    maybeOpenWikiPopup(view) {
+      const sel = view.state.selection.main
+      const cursor = sel.head
+      // Look backwards from cursor for `[[` without a closing `]` in between.
+      const lineStart = view.state.doc.lineAt(cursor).from
+      const before = view.state.sliceDoc(lineStart, cursor)
+      const lastOpen = before.lastIndexOf('[[')
+      if (lastOpen === -1) { this.closeWikiPopup(); return }
+      const between = before.slice(lastOpen + 2)
+      if (between.includes(']') || between.includes('\n')) { this.closeWikiPopup(); return }
+      // Skip if cursor is inside a fenced code block — count ``` lines above.
+      const docHead = view.state.sliceDoc(0, cursor)
+      const fences = (docHead.match(/^```/gm) || []).length
+      if (fences % 2 === 1) { this.closeWikiPopup(); return }
+
+      const fromPos = lineStart + lastOpen
+      const query = between
+      const coords = view.coordsAtPos(cursor)
+      if (!coords) return
+
+      this.wikiPop.fromPos = fromPos
+      this.wikiPop.toPos = cursor
+      this.wikiPop.query = query
+      // Position below cursor; CodeMirror coords are viewport-relative.
+      this.wikiPop.x = coords.left
+      this.wikiPop.y = coords.bottom + 4
+      this.wikiPop.open = true
+      this.wikiPop.focus = 0
+      this._wikiSearch(query)
+    },
+    closeWikiPopup() {
+      this.wikiPop.open = false
+      this.wikiPop.results = []
+      if (this._wikiPopAbort) { this._wikiPopAbort.abort(); this._wikiPopAbort = null }
+    },
+    async _wikiSearch(query) {
+      if (this._wikiPopAbort) this._wikiPopAbort.abort()
+      this._wikiPopAbort = new AbortController()
+      try {
+        const url = '/api/search?vault=' + encodeURIComponent(this.activeVault) +
+                    '&q=' + encodeURIComponent(query)
+        const res = await fetch(url, { signal: this._wikiPopAbort.signal })
+        if (!res.ok) return
+        const data = await res.json()
+        // Cap to 8 results
+        this.wikiPop.results = (data || []).slice(0, 8)
+        this.wikiPop.focus = 0
+      } catch (e) {
+        if (e.name !== 'AbortError') console.error('wiki search:', e)
+      }
+    },
+    selectWikiResult(i) {
+      const r = this.wikiPop.results[i]
+      if (!r) return
+      const view = this._cm()
+      if (!view) return
+      const linkPath = r.path.replace(/\.md$/, '')
+      // Replace [[partial → [[full]]
+      const insert = '[[' + linkPath + ']]'
+      view.dispatch({
+        changes: { from: this.wikiPop.fromPos, to: this.wikiPop.toPos, insert },
+        selection: { anchor: this.wikiPop.fromPos + insert.length },
+      })
+      this.closeWikiPopup()
+      view.focus()
     },
 
     // ── shares ────────────────────────────────────
