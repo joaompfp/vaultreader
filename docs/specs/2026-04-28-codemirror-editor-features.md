@@ -105,7 +105,7 @@ Each row shows: bold note basename (without `.md`), then dim path. Limit 8 resul
 ### Implementation
 
 - New Alpine method `_wikiCompleteCandidates(query)` — wraps the existing `/api/search` call. Reuses `searchResults` shape.
-- The bundled `static/codemirror.bundle.js` already includes `@codemirror/autocomplete` (`autocompletion` export confirmed). Use its standard `Completion` / `CompletionContext` interface: register a `CompletionSource` that activates only when the cursor is preceded by `[[` and isn't inside a code block (skip if the line starts with ` ``` ` or four+ leading spaces — simple heuristic, good enough for v1). The completion list returns label = basename, detail = path, apply = `vault-relative-path]]` (the source closes the brackets).
+- The bundled `static/codemirror.bundle.js` does NOT export `@codemirror/autocomplete` (only `EditorState`, `EditorView`, `defaultKeymap`, `history`, `historyKeymap`, `indentWithTab`, `keymap`, `lineNumbers`, `markdown`, `oneDark`, `syntaxHighlighting`, `defaultHighlightStyle`, `highlightActiveLine`, `drawSelection`). Rather than rebuild the bundle, hand-roll a small popup: a CodeMirror `updateListener` watches for cursor preceded by `[[` (no `]` between the brackets and cursor; skip if cursor is inside a fenced code block — simple heuristic: count ` ``` ` lines above). Popup is a `<div class="cm-wiki-popup">` positioned via `view.coordsAtPos(cursor)`. Up/down arrows + Enter handled in a CodeMirror keymap with `precedence.high`. Esc/`]`/click-outside dismiss.
 - The current editor builder is at `static/index.html` near line 800; the new extension is appended to the existing `extensions` array.
 
 ## Feature 3: Paste/drop image upload
