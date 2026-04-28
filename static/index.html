@@ -85,6 +85,13 @@
     </div>
   </div>
 
+  <!-- ─── Sidebar resize handle ──────────────────── -->
+  <div id="sidebar-resizer"
+       x-show="sidebarOpen"
+       @pointerdown="startSidebarResize($event)"
+       @dblclick="resetSidebarWidth()"
+       title="Drag to resize · double-click to reset"></div>
+
   <!-- ─── Main ────────────────────────────────── -->
   <div id="main">
     <!-- Toolbar -->
@@ -1049,6 +1056,14 @@ function vaultApp() {
         localStorage.setItem('vr-sidebar', v ? '1' : '0')
       })
 
+      // restore sidebar width (desktop only — mobile uses CSS default)
+      if (window.innerWidth > 700) {
+        const wSaved = parseInt(localStorage.getItem('vr-sidebar-w') || '', 10)
+        if (Number.isFinite(wSaved) && wSaved >= this._SIDEBAR_MIN && wSaved <= this._SIDEBAR_MAX) {
+          document.documentElement.style.setProperty('--sidebar-w', wSaved + 'px')
+        }
+      }
+
       try {
         const res = await fetch('/api/vaults')
         this.vaults = await res.json()
@@ -1855,6 +1870,37 @@ function vaultApp() {
       this.darkMode = !this.darkMode
       document.documentElement.setAttribute('data-theme', this.darkMode ? 'dark' : 'light')
       localStorage.setItem('vr-dark', this.darkMode ? '1' : '0')
+    },
+
+    // ── sidebar resize ────────────────────────────
+    _SIDEBAR_MIN: 180,
+    _SIDEBAR_MAX: 600,
+    _SIDEBAR_DEFAULT: 240,
+    startSidebarResize(ev) {
+      if (window.innerWidth <= 700) return
+      ev.preventDefault()
+      const handle = ev.currentTarget
+      handle.classList.add('dragging')
+      document.body.classList.add('sidebar-resizing')
+      const onMove = (e) => {
+        const w = Math.min(this._SIDEBAR_MAX, Math.max(this._SIDEBAR_MIN, e.clientX))
+        document.documentElement.style.setProperty('--sidebar-w', w + 'px')
+      }
+      const onUp = () => {
+        handle.classList.remove('dragging')
+        document.body.classList.remove('sidebar-resizing')
+        window.removeEventListener('pointermove', onMove)
+        window.removeEventListener('pointerup', onUp)
+        const cur = document.documentElement.style.getPropertyValue('--sidebar-w')
+        const px = parseInt(cur, 10)
+        if (Number.isFinite(px)) localStorage.setItem('vr-sidebar-w', String(px))
+      }
+      window.addEventListener('pointermove', onMove)
+      window.addEventListener('pointerup', onUp, { once: true })
+    },
+    resetSidebarWidth() {
+      document.documentElement.style.removeProperty('--sidebar-w')
+      localStorage.removeItem('vr-sidebar-w')
     },
 
     // ── shares ────────────────────────────────────
