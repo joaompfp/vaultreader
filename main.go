@@ -32,6 +32,7 @@ import (
 	"github.com/yuin/goldmark/extension"
 	"github.com/yuin/goldmark/parser"
 	"github.com/yuin/goldmark/renderer/html"
+	"golang.org/x/net/webdav"
 	"gopkg.in/yaml.v3"
 )
 
@@ -2454,6 +2455,33 @@ func (s *server) handleGraph(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// newWebDAVHandler returns a read-only WebDAV handler over the vaults dir.
+// Mounted at /webdav/. Only GET, HEAD, OPTIONS, PROPFIND are allowed; all
+// mutating verbs (PUT, DELETE, MKCOL, COPY, MOVE, LOCK) get 405.
+func (s *server) newWebDAVHandler() http.Handler {
+	dav := &webdav.Handler{
+		Prefix:     "/webdav",
+		FileSystem: webdav.Dir(s.vaultsDir),
+		LockSystem: webdav.NewMemLS(),
+		Logger: func(r *http.Request, err error) {
+			if err != nil {
+				log.Printf("webdav %s %s: %v", r.Method, r.URL.Path, err)
+			}
+		},
+	}
+	readOnlyMethods := map[string]bool{
+		"GET": true, "HEAD": true, "OPTIONS": true, "PROPFIND": true,
+	}
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !readOnlyMethods[r.Method] {
+			w.Header().Set("Allow", "GET, HEAD, OPTIONS, PROPFIND")
+			http.Error(w, "method not allowed (read-only WebDAV)", http.StatusMethodNotAllowed)
+			return
+		}
+		dav.ServeHTTP(w, r)
+	})
+}
+
 func (s *server) handleIndex(w http.ResponseWriter, r *http.Request) {
 	data, err := fs.ReadFile(staticFiles, "static/index.html")
 	if err != nil {
@@ -2586,6 +2614,7 @@ func main() {
 	mux.HandleFunc("/api/attachments", srv.handleAttachments)
 	mux.HandleFunc("/api/graph", srv.handleGraph)
 	mux.HandleFunc("/api/tags", srv.handleTags)
+	mux.Handle("/webdav/", srv.newWebDAVHandler())
 
 	addr := ":" + *port
 	httpServer := &http.Server{
