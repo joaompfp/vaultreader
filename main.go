@@ -477,6 +477,70 @@ func renderWikilinks(htmlStr string, currentVault, currentNotePath string, idx *
 	})
 }
 
+// renderWikilinksPlain rewrites `[[name|alias]]` to a plain styled span,
+// dropping the navigation. Used in shared notes — the share is one specific
+// note, so wikilinks shouldn't escape into the vault. The visible text is
+// the alias (when present) or the bare name (without #heading / ^block).
+func renderWikilinksPlain(htmlStr string) string {
+	return wikilinkRe.ReplaceAllStringFunc(htmlStr, func(match string) string {
+		sub := wikilinkRe.FindStringSubmatch(match)
+		if sub == nil {
+			return match
+		}
+		name := sub[1]
+		alias := sub[2]
+		if alias == "" {
+			alias = name
+			if hash := strings.IndexAny(alias, "#^"); hash >= 0 {
+				alias = alias[:hash]
+			}
+		}
+		return fmt.Sprintf(`<span class="wikilink-plain">%s</span>`, htmlEscape(alias))
+	})
+}
+
+// renderCallouts post-processes goldmark-rendered HTML to convert Obsidian
+// callouts into styled <div class="callout callout-<type>"> blocks. The
+// markdown:
+//
+//	> [!info] Document Metadata
+//	> Body content here
+//
+// becomes (after goldmark):
+//
+//	<blockquote><p>[!info] Document Metadata</p><p>Body content here</p></blockquote>
+//
+// We match `<blockquote>\s*<p>[!type] optional title</p>` and rewrite to
+// `<div class="callout callout-info"><div class="callout-title">…</div>…</div>`.
+// Anything inside the blockquote past the first <p> is preserved verbatim.
+//
+// Supported types use the Obsidian set; unknown types still render via the
+// generic `.callout` styles. The marker `[!type]-` (Obsidian fold-start
+// syntax) is treated identically — fold state is not preserved.
+var calloutRe = regexp.MustCompile(
+	`(?s)<blockquote>\s*<p>\[!([a-zA-Z0-9_-]+)\]-?\s*([^<\n]*)</p>(.*?)</blockquote>`)
+
+func renderCallouts(htmlStr string) string {
+	return calloutRe.ReplaceAllStringFunc(htmlStr, func(match string) string {
+		sub := calloutRe.FindStringSubmatch(match)
+		if sub == nil {
+			return match
+		}
+		typ := strings.ToLower(sub[1])
+		title := strings.TrimSpace(sub[2])
+		if title == "" {
+			// Default title: capitalized type name (Obsidian's fallback).
+			if len(typ) > 0 {
+				title = strings.ToUpper(typ[:1]) + typ[1:]
+			}
+		}
+		body := sub[3]
+		return fmt.Sprintf(
+			`<div class="callout callout-%s" data-callout="%s"><div class="callout-title"><span class="callout-icon"></span>%s</div><div class="callout-body">%s</div></div>`,
+			htmlEscape(typ), htmlEscape(typ), htmlEscape(title), body)
+	})
+}
+
 // noteHref builds a clean URL for a note: /n/<vault>/<encoded path segments>.
 // The path keeps its `.md` extension to stay unambiguous (matches filebrowser
 // pattern). Each segment is URL-encoded individually so spaces, parens, etc.
@@ -1385,7 +1449,11 @@ func (s *server) handleShareView(w http.ResponseWriter, r *http.Request) {
 	body = expandEmbeds(body, e.Vault, e.Path, s.idx, s.vaultsDir)
 	var buf bytes.Buffer
 	_ = md.Convert([]byte(body), &buf)
-	renderedHTML := rewriteShareImageURLs(buf.String(), e.Path)
+	// Post-process: callouts → styled divs, wikilinks → plain spans (no
+	// off-share nav), then rewrite image src for the share-file route.
+	renderedHTML := renderCallouts(buf.String())
+	renderedHTML = renderWikilinksPlain(renderedHTML)
+	renderedHTML = rewriteShareImageURLs(renderedHTML, e.Path)
 
 	expiresStr := "Never"
 	if e.ExpiresAt > 0 { expiresStr = time.Unix(e.ExpiresAt, 0).Format("2 Jan 2006 15:04") }
@@ -1439,6 +1507,20 @@ ul,ol{padding-left:1.4em;margin:.5em 0}li{margin:.2em 0}
 table{border-collapse:collapse;width:100%%;margin:1em 0}th,td{border:1px solid var(--bd);padding:7px 11px}th{background:var(--bg2)}
 img{max-width:100%%}hr{border:none;border-top:1px solid var(--bd);margin:1.5em 0}
 .mermaid svg{display:block;margin:1em auto;max-width:100%%}
+.wikilink-plain{color:var(--ac);background:rgba(185,28,28,.06);padding:1px 4px;border-radius:3px;font-size:.95em}
+.callout{margin:1em 0;padding:0;border-radius:8px;background:var(--bg2);border-left:4px solid var(--cl,#3b82f6);overflow:hidden}
+.callout-title{display:flex;align-items:center;gap:8px;padding:10px 14px;font-weight:600;color:var(--ct,#1d4ed8);background:var(--ctb,rgba(59,130,246,.08));font-size:.95em}
+.callout-title .callout-icon{width:14px;height:14px;flex-shrink:0;background:var(--ct,#1d4ed8);-webkit-mask:var(--ci,none) center/contain no-repeat;mask:var(--ci,none) center/contain no-repeat}
+.callout-body{padding:8px 14px}
+.callout-body>:first-child{margin-top:0}.callout-body>:last-child{margin-bottom:0}
+.callout-note,.callout-info{--cl:#3b82f6;--ct:#1d4ed8;--ctb:rgba(59,130,246,.08)}
+.callout-tip,.callout-hint,.callout-important{--cl:#0d9488;--ct:#0f766e;--ctb:rgba(20,184,166,.10)}
+.callout-success,.callout-check,.callout-done{--cl:#16a34a;--ct:#166534;--ctb:rgba(34,197,94,.10)}
+.callout-warning,.callout-caution,.callout-attention{--cl:#f59e0b;--ct:#b45309;--ctb:rgba(245,158,11,.12)}
+.callout-failure,.callout-fail,.callout-missing,.callout-danger,.callout-error,.callout-bug{--cl:#dc2626;--ct:#b91c1c;--ctb:rgba(220,38,38,.10)}
+.callout-question,.callout-faq,.callout-help{--cl:#7c3aed;--ct:#6d28d9;--ctb:rgba(124,58,237,.10)}
+.callout-quote,.callout-cite,.callout-example,.callout-abstract,.callout-summary,.callout-tldr{--cl:#64748b;--ct:#475569;--ctb:rgba(100,116,139,.10)}
+@media(prefers-color-scheme:dark){.callout{background:#181825}.callout-note,.callout-info{--ct:#89b4fa}.callout-tip,.callout-hint,.callout-important{--ct:#94e2d5}.callout-success,.callout-check,.callout-done{--ct:#a6e3a1}.callout-warning,.callout-caution,.callout-attention{--ct:#fab387}.callout-failure,.callout-fail,.callout-missing,.callout-danger,.callout-error,.callout-bug{--ct:#f38ba8}.callout-question,.callout-faq,.callout-help{--ct:#cba6f7}.callout-quote,.callout-cite,.callout-example,.callout-abstract,.callout-summary,.callout-tldr{--ct:#bac2de}}
 .foot{text-align:center;padding:20px;font-size:12px;color:var(--t3);border-top:1px solid var(--bd)}.foot a{color:var(--t3);text-decoration:none}
 </style>%s</head><body>
 <div class="bar"><strong>%s</strong><span class="badge%s">%s</span><span>Expires: %s</span>
@@ -2166,6 +2248,7 @@ func (s *server) handleGetNote(w http.ResponseWriter, r *http.Request) {
 
 	body = expandEmbeds(body, vault, path, s.idx, s.vaultsDir)
 	rendered := renderMarkdown(body)
+	rendered = renderCallouts(rendered)
 	rendered = renderWikilinks(rendered, vault, path, s.idx, s.vaultsDir)
 
 	backlinks := s.idx.getBacklinks(vault, path)

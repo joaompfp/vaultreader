@@ -4,6 +4,12 @@ All notable changes to VaultReader. Versioning is loose — there are no formal 
 
 Most-recent first.
 
+## 2026-04-29 — Callouts + parity polish
+
+- **Obsidian callouts (`> [!type] Title`) now render as styled blocks** in both the internal preview and shared notes. Eight type families with Obsidian-compatible color codes (info/tip/success/warning/failure/question/quote + generic), light + dark palettes, fold-marker (`-` suffix) accepted. Unknown types render as a generic `.callout`. Implemented as a regex post-pass over the goldmark blockquote output (`renderCallouts`) — no goldmark extension dependency.
+- **Wikilinks now render in shared notes** as plain styled spans (`renderWikilinksPlain`) — visible as the alias text, no clickable navigation off the share. Previously wikilinks rendered as raw `[[name|alias]]`.
+- Synced docs: `docs/syntax.md` now documents callouts (was previously listed under "not handled").
+
 ## 2026-04-29 — Shared-note image rendering
 
 - **Fix: images broken in shared notes accessed via `/notas/<token>` proxy alias.** The rewriter was emitting absolute `/share/<token>/file?…` URLs; on the public `joao.date` host the `/share/*` path has no Traefik route, so every embed 404'd. Switched to path-relative URLs (`file?path=…` + `asset?name=…`) anchored to a `<base href="<token>/">` tag. Works under both `/share/<token>` and `/notas/<token>` without the server needing to know the proxy prefix.

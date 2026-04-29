@@ -212,7 +212,35 @@ Obsidian's `%% comment %%` syntax is **not** handled — it renders as plain tex
 
 ## Callouts
 
-Obsidian's `> [!note] Title` callout syntax is **not** handled — it renders as a normal blockquote.
+Obsidian's admonition syntax renders as styled blocks:
+
+```
+> [!info] Document Metadata
+> File details and metadata here.
+> Multi-paragraph body works.
+
+> [!warning] Be careful
+> Anything inside the blockquote becomes the callout body.
+
+> [!tip]-
+> The trailing `-` (Obsidian fold-start) is accepted but fold state is not preserved.
+```
+
+Type → color mapping (Obsidian-compatible):
+
+| Type | Color |
+|---|---|
+| `note`, `info` | blue |
+| `tip`, `hint`, `important` | teal |
+| `success`, `check`, `done` | green |
+| `warning`, `caution`, `attention` | amber |
+| `failure`, `fail`, `missing`, `danger`, `error`, `bug` | red |
+| `question`, `faq`, `help` | violet |
+| `quote`, `cite`, `example`, `abstract`, `summary`, `tldr` | slate |
+
+Unknown types still render as a generic `.callout` block. Title falls back to the type name when omitted (`> [!info]` → "Info"). Both light and dark colour palettes are predefined.
+
+Callouts work the same in shared notes (with their own bundled CSS).
 
 ## Footnotes
 
@@ -227,7 +255,6 @@ Standard markdown footnotes (`[^1]` / `[^1]: …`) are **not** parsed. Goldmark'
 ## What's planned (not yet implemented)
 
 - Inline `#tag` detection (with tokenizer to skip code blocks / strings)
-- Callouts (Obsidian-style admonition blocks)
 - Math `\[…\]` block-bracket delimiter (currently broken by goldmark backslash escape)
 - Footnotes
 - Image dimensions hint `![[foo.png|400]]`
