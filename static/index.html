@@ -923,15 +923,22 @@
         <div class="shortcut-row"><span class="sc-keys">Ctrl + K</span><span class="sc-desc">Open search</span></div>
         <div class="shortcut-row"><span class="sc-keys">/</span><span class="sc-desc">Quick search</span></div>
         <div class="shortcut-row"><span class="sc-keys">Ctrl + N</span><span class="sc-desc">New note</span></div>
+        <div class="shortcut-row"><span class="sc-keys">Ctrl + D</span><span class="sc-desc">Open today's daily note</span></div>
         <div class="shortcut-row"><span class="sc-keys">Ctrl + Shift + C</span><span class="sc-desc">Copy wikilink</span></div>
         <div class="shortcut-row"><span class="sc-keys">E</span><span class="sc-desc">Toggle Preview / Edit</span></div>
         <div class="shortcut-row"><span class="sc-keys">?</span><span class="sc-desc">This help</span></div>
         <div class="shortcut-row"><span class="sc-keys">Esc</span><span class="sc-desc">Close modals / menus</span></div>
+        <div class="shortcut-row" style="border-top: 1px solid var(--border); margin-top: 8px; padding-top: 12px;"><span class="sc-keys" style="font-weight:600">In editor:</span></div>
+        <div class="shortcut-row"><span class="sc-keys">Ctrl + B</span><span class="sc-desc">Bold</span></div>
+        <div class="shortcut-row"><span class="sc-keys">Ctrl + I</span><span class="sc-desc">Italic</span></div>
+        <div class="shortcut-row"><span class="sc-keys">Ctrl + E</span><span class="sc-desc">Inline code</span></div>
+        <div class="shortcut-row"><span class="sc-keys">Ctrl + K</span><span class="sc-desc">Link</span></div>
+        <div class="shortcut-row"><span class="sc-keys">Ctrl + L</span><span class="sc-desc">Wikilink</span></div>
+        <div class="shortcut-row"><span class="sc-keys">[[</span><span class="sc-desc">Wikilink autocomplete</span></div>
       </div>
     </div>
   </div>
 
-  <!-- ─── Trash overlay ────────────────────────── -->
 </div><!-- #app -->
 
 <!-- ─── CodeMirror 6 (local IIFE bundle) ─────── -->
@@ -1167,6 +1174,11 @@ function vaultApp() {
         if ((e.ctrlKey || e.metaKey) && e.key === 'n' && !e.shiftKey) {
           e.preventDefault()
           if (this.activeVault) this.promptCreateNote()
+        }
+        // Ctrl/Cmd+D — open or create today's daily note in the active vault.
+        if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'd' && !e.shiftKey && !e.altKey) {
+          e.preventDefault()
+          if (this.activeVault) this.openDailyNote()
         }
         // E — toggle preview/edit when a note is open (no modifier)
         if (e.key === 'e' && !e.ctrlKey && !e.metaKey && !e.altKey && this.activePath) {
@@ -1700,6 +1712,45 @@ function vaultApp() {
           })
         })
       } catch(e) { console.error('mermaid:', e) }
+    },
+
+    // ── daily note ────────────────────────────────
+    async openDailyNote() {
+      const d = new Date()
+      const yyyy = d.getFullYear()
+      const mm = String(d.getMonth() + 1).padStart(2, '0')
+      const dd = String(d.getDate()).padStart(2, '0')
+      const dateStr = `${yyyy}-${mm}-${dd}`
+      const path = `daily/${dateStr}.md`
+      const vault = this.activeVault
+      try {
+        const probe = await fetch('/api/note?vault=' + encodeURIComponent(vault) +
+                                  '&path=' + encodeURIComponent(path))
+        if (probe.status === 404) {
+          // Create with a tiny template
+          const template = `# ${dateStr}\n\n`
+          const create = await fetch('/api/note?vault=' + encodeURIComponent(vault) +
+                                     '&path=' + encodeURIComponent(path), {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ raw: template }),
+          })
+          if (!create.ok && create.status !== 409) {
+            const txt = await create.text()
+            this.modal = {
+              open: true, title: 'Daily note', body: 'Could not create: ' + txt,
+              confirmOnly: true, confirmLabel: 'OK',
+            }
+            return
+          }
+        }
+        await this.openNote(vault, path)
+      } catch (e) {
+        this.modal = {
+          open: true, title: 'Daily note', body: 'Failed: ' + String(e),
+          confirmOnly: true, confirmLabel: 'OK',
+        }
+      }
     },
 
     // ── note properties ───────────────────────────
