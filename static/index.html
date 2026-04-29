@@ -1701,10 +1701,12 @@ function vaultApp() {
       const el = document.getElementById('preview')
       if (!el) return
       try {
+        // Note: bare `$...$` is intentionally excluded — it false-matches
+        // currency ("costs $5 and $10" → renders as math). Use `\(…\)`
+        // for inline math, `$$…$$` or `\[…\]` for block.
         renderMathInElement(el, {
           delimiters: [
             { left: '$$', right: '$$', display: true },
-            { left: '$', right: '$', display: false },
             { left: '\\(', right: '\\)', display: false },
             { left: '\\[', right: '\\]', display: true },
           ],
