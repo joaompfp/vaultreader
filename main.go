@@ -2182,19 +2182,27 @@ func (s *server) handleAttachments(w http.ResponseWriter, r *http.Request) {
 		return nil
 	})
 
-	// Count references. A reference to an image can be ![[name.png]] (basename),
-	// ![[path/to/name.png]] (full path), or ![alt](url) where url is a file path
-	// (often relative). Use basename as the cheap, vault-wide match unit.
+	// Count references. Obsidian's ![[...]] syntax can use:
+	//   - basename ("foo.png" or "foo")
+	//   - any suffix of the vault-relative path ("subdir/foo.png", "full/path/foo.png")
+	// We try all suffixes plus also ![alt](path) for standard markdown images.
 	refByImage := map[string]int{}
 	for imgRel := range imageInfo {
-		base := filepath.Base(imgRel)
+		segs := strings.Split(imgRel, string(os.PathSeparator))
+		base := segs[len(segs)-1]
 		baseNoExt := strings.TrimSuffix(base, filepath.Ext(base))
-		// Patterns: ![[base]] or ![[base.ext]] or ![[full/path]] or ![[full/path.ext]]
 		patterns := []string{
 			"![[" + base + "]]",
 			"![[" + baseNoExt + "]]",
-			"![[" + imgRel + "]]",
-			"![[" + strings.TrimSuffix(imgRel, filepath.Ext(imgRel)) + "]]",
+		}
+		// Add every suffix of the path: "foo.png", "subdir/foo.png", ...
+		for i := len(segs) - 1; i >= 0; i-- {
+			suffix := strings.Join(segs[i:], "/")
+			patterns = append(patterns,
+				"![["+suffix+"]]",
+				"![["+strings.TrimSuffix(suffix, filepath.Ext(suffix))+"]]",
+				"]("+suffix+")",  // standard markdown ![alt](path)
+			)
 		}
 		count := 0
 		for _, content := range mdContents {
