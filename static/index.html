@@ -2226,6 +2226,9 @@ function vaultApp() {
           elements,
           style: [
             // Base node: tiny outlined dot. Geometry first, text second.
+            // `min-zoomed-font-size` hides labels until the user zooms in
+            // far enough that the rendered font is readable — natural,
+            // declarative, no JS handler needed.
             { selector: 'node', style: {
               'background-color': bg,
               'border-color': text3,
@@ -2234,29 +2237,28 @@ function vaultApp() {
               'color': text2,
               'font-size': 10,
               'font-family': 'inherit',
+              'min-zoomed-font-size': 11,           // hide label below ~1.1x zoom
               'text-valign': 'bottom',
               'text-margin-y': 4,
               'text-wrap': 'ellipsis',
-              'text-max-width': 140,
-              'text-opacity': 0,                    // hidden by default
+              'text-max-width': 120,
               'text-background-color': bg,
               'text-background-opacity': 0.85,
               'text-background-padding': 2,
               'text-background-shape': 'round-rectangle',
               'width': 'mapData(refs, 0, 10, 5, 14)',
               'height': 'mapData(refs, 0, 10, 5, 14)',
-              'transition-property': 'background-color, border-color, opacity, text-opacity',
+              'transition-property': 'background-color, border-color, opacity',
               'transition-duration': '180ms',
               'transition-timing-function': 'ease-out',
             }},
-            // Referenced (incoming wikilinks) — accent fill. Label visibility
-            // is controlled by the zoom handler (updateLabelVisibility).
+            // Referenced (incoming wikilinks) — accent fill.
             { selector: 'node[refs > 0]', style: {
               'background-color': accent,
               'border-color': accent,
               'color': text,
             }},
-            // Center — outlined ring + larger + bold label.
+            // Center — outlined ring + larger + bold label, always visible.
             { selector: 'node[?isCenter]', style: {
               'background-color': bg,
               'border-color': accent,
@@ -2266,7 +2268,7 @@ function vaultApp() {
               'font-size': 13,
               'font-weight': 700,
               'color': accent,
-              'text-opacity': 1,
+              'min-zoomed-font-size': 0,            // always-on label
               'text-margin-y': 8,
             }},
             // Edges — visible curved strokes, accent-tinted at low opacity.
@@ -2281,16 +2283,15 @@ function vaultApp() {
               'transition-property': 'line-color, opacity, width',
               'transition-duration': '180ms',
             }},
-            // Hover state — bring up the label
+            // Hover state — bring up the label regardless of zoom
             { selector: 'node:active, node.hovered', style: {
-              'text-opacity': 1,
+              'min-zoomed-font-size': 0,
               'border-color': accent,
               'border-width': 2,
             }},
-            // Highlighted neighborhood (during hover)
+            // Highlighted neighborhood during hover
             { selector: 'node.dim', style: {
               'opacity': 0.12,
-              'text-opacity': 0,
             }},
             { selector: 'edge.dim', style: {
               'opacity': 0.05,
@@ -2302,14 +2303,14 @@ function vaultApp() {
             }},
             { selector: 'node.lit', style: {
               'opacity': 1,
-              'text-opacity': 1,
+              'min-zoomed-font-size': 0,           // labels visible while neighborhood lit
               'border-color': accent,
             }},
-            // Tap-selected (cytoscape's :selected) — visual mirror of hover-lit
+            // Tap-selected (cytoscape's :selected)
             { selector: 'node:selected', style: {
               'border-width': 3,
               'border-color': accent,
-              'text-opacity': 1,
+              'min-zoomed-font-size': 0,
             }},
           ],
           layout: {
@@ -2367,21 +2368,6 @@ function vaultApp() {
             { duration: 500, easing: 'ease-out' })
         })
 
-        // Zoom-aware label visibility — only show non-center labels when
-        // the user has zoomed in enough to read them without collision.
-        const updateLabelVisibility = () => {
-          const z = this._cy.zoom()
-          this._cy.batch(() => {
-            this._cy.nodes().forEach(n => {
-              if (n.data('isCenter')) return  // always-on
-              if (n.hasClass('hovered') || n.hasClass('lit')) return
-              n.style('text-opacity', z >= 0.9 ? (n.data('refs') > 0 ? 0.9 : 0.5) : 0)
-            })
-          })
-        }
-        this._cy.on('zoom', updateLabelVisibility)
-        // Initial sync (after layout settles)
-        setTimeout(updateLabelVisibility, 1000)
 
         // Tap behavior: plain → open note, shift → re-center, cmd/ctrl → new tab.
         this._cy.on('tap', 'node', evt => {
