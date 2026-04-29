@@ -4,6 +4,14 @@ All notable changes to VaultReader. Versioning is loose — there are no formal 
 
 Most-recent first.
 
+## 2026-04-29 — Copy/paste flows for agent workflows
+
+- **Copy button on every rendered code block** (top-right of each `<pre>`, fades in on hover). Click → copies the code text to clipboard with a brief tick. Idempotent: works after every render, plays nicely with the Mermaid replacement pass (skipped for mermaid blocks since they're swapped to SVG).
+- **"Copy note body" toolbar button** — copies the active note's markdown without the YAML frontmatter to the clipboard. Different from the existing "Copy wikilink" button (which copies just `[[name]]`). For pasting note content into agent conversations cleanly.
+- **"Paste-append to note" toolbar button** — reads the OS clipboard and appends it to the end of the active note (with one blank-line separator), autosaves, and shows a 6.5-second undo toast. Click Undo → reverts the file to its pre-paste state via a regular conflict-aware PUT. Disabled (greyed out) when the path isn't writable.
+- **New public endpoint `GET /api/writable-paths`** — returns just the `rw_paths` array (no admin token needed). The full `/api/admin/config` is still gated. Lets the SPA gate write-related UI (paste-append, future flows) without requiring the admin token. Knowing which paths are writable isn't sensitive — the writes themselves are gated server-side.
+- **Generic action-toast factory (`showActionToast`)** — undo-toast pattern was previously hardcoded for trash-restore. Now any flow can pass a custom undo callback (`_undoFn`) to `undoToast`; falls back to the trash-restore behaviour when absent. Used by the paste-append undo.
+
 ## 2026-04-29 — Copy-path button on the breadcrumb row
 
 - **Small copy button on the breadcrumb row** (left of the frontmatter toggle, right edge of the row). Click → copies `vault/path/to/note.md` to the clipboard for pasting into agent conversations or scripts. When no note is open, copies the active vault + current folder (`vault/path/to/folder`). Tick + crimson confirmation for 2s. Doesn't touch the breadcrumb segment click handlers — those still navigate.

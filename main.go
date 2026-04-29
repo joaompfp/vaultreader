@@ -1238,6 +1238,23 @@ func (s *server) requireAdminToken(w http.ResponseWriter, r *http.Request) bool 
 	return true
 }
 
+// handleWritablePaths exposes only the rw_paths list (no admin token).
+// The list isn't sensitive — knowing which vaults/folders are writable
+// only confirms what the writes themselves would already reveal. Lets
+// the SPA disable write-related UI (paste-append, edit toggle, etc.)
+// without needing the admin token.
+func (s *server) handleWritablePaths(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		errResponse(w, 405, "method not allowed")
+		return
+	}
+	s.cfgMu.RLock()
+	paths := make([]string, len(s.cfg.RWPaths))
+	copy(paths, s.cfg.RWPaths)
+	s.cfgMu.RUnlock()
+	jsonResponse(w, map[string][]string{"rw_paths": paths})
+}
+
 func (s *server) handleAdminConfig(w http.ResponseWriter, r *http.Request) {
 	if !s.requireAdminToken(w, r) {
 		return
@@ -3485,6 +3502,7 @@ func main() {
 	// browser back/forward, and link sharing work natively.
 	mux.HandleFunc("/n/", srv.handleIndex)
 	mux.HandleFunc("/api/admin/config", srv.handleAdminConfig)
+	mux.HandleFunc("/api/writable-paths", srv.handleWritablePaths)
 	mux.HandleFunc("/api/shares", srv.handleShareList)
 	mux.HandleFunc("/api/shares/create", srv.handleShareCreate)
 	mux.HandleFunc("/api/shares/revoke", srv.handleShareRevoke)

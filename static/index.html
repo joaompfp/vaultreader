@@ -209,6 +209,39 @@
         </button>
       </template>
 
+      <!-- Copy whole note body (no frontmatter) — for pasting into agent
+           conversations. Distinct from "copy wikilink" (above) which copies
+           only the link reference. Uses a document-with-page icon. -->
+      <template x-if="activePath">
+        <button class="btn-icon btn-copybody" :class="{ copied: copyBodyDone }" @click="copyNoteBody()"
+                :title="copyBodyDone ? 'Copied!' : 'Copy note body (no frontmatter)'">
+          <svg x-show="!copyBodyDone" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+            <polyline points="14 2 14 8 20 8"/>
+            <line x1="8" y1="13" x2="16" y2="13"/>
+            <line x1="8" y1="17" x2="14" y2="17"/>
+          </svg>
+          <svg x-show="copyBodyDone" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+            <polyline points="20 6 9 17 4 12"/>
+          </svg>
+        </button>
+      </template>
+
+      <!-- Paste-append: read OS clipboard, append to note end, autosave,
+           show undo toast. Disabled state if path isn't writable. -->
+      <template x-if="activePath">
+        <button class="btn-icon btn-pasteappend" @click="pasteAppendToNote()"
+                :disabled="!isWritable(activeVault, activePath)"
+                :title="isWritable(activeVault, activePath) ? 'Paste-append clipboard to end of note' : 'Path is read-only'">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/>
+            <rect x="8" y="2" width="8" height="4" rx="1"/>
+            <line x1="12" y1="11" x2="12" y2="17"/>
+            <line x1="9" y1="14" x2="15" y2="14"/>
+          </svg>
+        </button>
+      </template>
+
       <!-- Share button + popover. Crimson active state when current note has any
            share link; popover surfaces the link list with Copy / Open / Revoke
            or, when no share exists, quick share-create options. -->
@@ -1552,6 +1585,7 @@ function vaultApp() {
     // copy link
     copyLinkDone: false,
     copyPathDone: false,
+    copyBodyDone: false,
     // modal dialog
     modal: { open: false, title: '', body: '', value: '', placeholder: '', error: '', confirmLabel: 'OK', confirmOnly: false, danger: false, onConfirm: null, secondaryLabel: '', onSecondary: null },
     _conflictDiskRaw: '',
@@ -1809,6 +1843,10 @@ function vaultApp() {
       // load active shares once so the toolbar share button can show the
       // active-state indicator without requiring the user to open Settings.
       this.loadActiveShares()
+      // load writable paths (public, no admin token) so toolbar buttons
+      // tied to write capability (paste-append) can disable themselves
+      // pre-emptively. The full admin config still requires the token.
+      this.loadWritablePaths()
       setInterval(() => this.refreshSyncStatus(), 10000)
 
       // ── URL routing: restore open note on page load ──
@@ -2082,7 +2120,7 @@ function vaultApp() {
         this.noteSize = data.size || 0
         this.backlinks = data.backlinks || []
         this.isDirty = false
-        this.$nextTick(() => { this.rerenderMermaid(); this.rerenderMath() })
+        this.$nextTick(() => { this.rerenderMermaid(); this.rerenderMath(); this.decorateCodeBlocks() })
         this._recordRecent(vault, path, this.noteTitle())
       } catch(e) { console.error('_routeHash:', e) }
     },
@@ -2295,6 +2333,12 @@ function vaultApp() {
       const t = this.toasts.find(x => x.id === id)
       if (!t) return
       try {
+        // Custom undo handler (paste-append, future flows): runs the
+        // toast's own callback. Tossed entirely outside the trash flow.
+        if (typeof t._undoFn === 'function') {
+          try { await t._undoFn() } catch(err) { console.error('undo:', err) }
+          return
+        }
         // Bulk: restore each item in the bag.
         if (t._bulk && t._bulk.length > 0) {
           for (const e of t._bulk) {
@@ -2316,6 +2360,14 @@ function vaultApp() {
       } finally {
         this.dismissToast(id)
       }
+    },
+
+    // Generic action-toast factory used by paste-append and other flows
+    // that want a "Undo" button but don't need trash-restore semantics.
+    showActionToast(message, undoFn) {
+      const id = ++this._toastSeq
+      const timer = setTimeout(() => this.dismissToast(id), 6500)
+      this.toasts.push({ id, message, timer, _undoFn: undoFn })
     },
 
     // ── sidebar drag-and-drop ─────────────────────
@@ -2433,7 +2485,7 @@ function vaultApp() {
         this.noteSize = data.size || 0
         this.backlinks = data.backlinks || []
         this.isDirty = false
-        this.$nextTick(() => { this.rerenderMermaid(); this.rerenderMath() })
+        this.$nextTick(() => { this.rerenderMermaid(); this.rerenderMath(); this.decorateCodeBlocks() })
         this.saveStatus = ''
         if (window.__cmAPI) window.__cmAPI.destroy()
         this._recordRecent(vault, path, this.noteTitle())
@@ -2476,7 +2528,7 @@ function vaultApp() {
         this.noteMTime = data.mtime || 0
         this.noteSize = data.size || 0
         this.backlinks = data.backlinks || []
-        this.$nextTick(() => { this.rerenderMermaid(); this.rerenderMath() })
+        this.$nextTick(() => { this.rerenderMermaid(); this.rerenderMath(); this.decorateCodeBlocks() })
       } catch(e) { /* ignore */ }
     },
 
@@ -2523,6 +2575,58 @@ function vaultApp() {
           })
         })
       } catch(e) { console.error('mermaid:', e) }
+    },
+
+    // Wrap each <pre> code block in a .code-block container with a copy
+    // button in the top-right. Skips mermaid blocks (rerenderMermaid()
+    // replaces those with a <div class="mermaid"> containing SVG, and
+    // we should run AFTER mermaid so the selector won't match anymore).
+    // Idempotent — bails on blocks already wrapped.
+    decorateCodeBlocks() {
+      const pres = document.querySelectorAll('#preview pre')
+      pres.forEach(pre => {
+        if (pre.parentElement && pre.parentElement.classList.contains('code-block')) return
+        // Skip mermaid blocks that haven't been replaced yet (race).
+        if (pre.querySelector('code.language-mermaid')) return
+        const wrap = document.createElement('div')
+        wrap.className = 'code-block'
+        const btn = document.createElement('button')
+        btn.className = 'code-copy-btn'
+        btn.type = 'button'
+        btn.title = 'Copy code'
+        btn.setAttribute('aria-label', 'Copy code')
+        btn.innerHTML = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>`
+        pre.parentNode.insertBefore(wrap, pre)
+        wrap.appendChild(btn)
+        wrap.appendChild(pre)
+      })
+    },
+
+    // Delegated click handler — runs from #preview's @click via
+    // handlePreviewClick when the click target is a copy button.
+    async _copyCodeBlock(btn) {
+      const wrap = btn.closest('.code-block')
+      const code = wrap && wrap.querySelector('pre code, pre')
+      if (!code) return
+      const text = code.textContent || ''
+      try {
+        await navigator.clipboard.writeText(text)
+      } catch {
+        const ta = document.createElement('textarea')
+        ta.value = text
+        ta.style.position = 'fixed'; ta.style.opacity = '0'
+        document.body.appendChild(ta)
+        ta.focus(); ta.select()
+        document.execCommand('copy')
+        document.body.removeChild(ta)
+      }
+      btn.classList.add('copied')
+      btn.innerHTML = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><polyline points="20 6 9 17 4 12"/></svg>`
+      clearTimeout(btn._t)
+      btn._t = setTimeout(() => {
+        btn.classList.remove('copied')
+        btn.innerHTML = `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>`
+      }, 1500)
     },
 
     // ── daily note ────────────────────────────────
@@ -3150,6 +3254,31 @@ function vaultApp() {
       this.saveTimer = setTimeout(() => this.saveNow(), 1500)
     },
 
+    // Low-level "PUT this content to a note path" helper used by
+    // paste-append and undo flows. No conflict-modal escalation —
+    // returns the new mtime on success, throws on failure. Updates
+    // this.noteMTime when target matches the active note.
+    async _saveNote(content, target) {
+      const vault = (target && target.vault) || this.activeVault
+      const path  = (target && target.path)  || this.activePath
+      if (!vault || !path) throw new Error('no target')
+      const res = await fetch('/api/note?vault=' + encodeURIComponent(vault) +
+        '&path=' + encodeURIComponent(path), {
+        method: 'PUT',
+        headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+        body: content,
+      })
+      if (!res.ok) throw new Error('HTTP ' + res.status)
+      try {
+        const body = await res.json()
+        if (body && typeof body.mtime === 'number' &&
+            this.activeVault === vault && this.activePath === path) {
+          this.noteMTime = body.mtime
+        }
+        return body && body.mtime
+      } catch(_) { return 0 }
+    },
+
     async saveNow(force) {
       if (!this.activePath || !this.isDirty) return
       this.saveStatus = 'saving'
@@ -3277,6 +3406,14 @@ function vaultApp() {
     },
 
     async handlePreviewClick(e) {
+      // Code-block copy button — handle first so wikilink resolution
+      // doesn't need to care about it.
+      const copyBtn = e.target.closest('.code-copy-btn')
+      if (copyBtn) {
+        e.preventDefault()
+        this._copyCodeBlock(copyBtn)
+        return
+      }
       const a = e.target.closest('a.wikilink')
       if (!a) return
       // Let the browser handle "open in new tab" intents natively (the link
@@ -3319,6 +3456,108 @@ function vaultApp() {
       }
       this.copyLinkDone = true
       setTimeout(() => { this.copyLinkDone = false }, 2000)
+    },
+
+    // ── copy note body / paste-append ─────────────
+    // Strip a leading YAML frontmatter block from raw markdown. Returns
+    // the body only (everything after the closing `---`). Mirrors the
+    // server-side parseFrontmatter — done client-side so we don't have
+    // to re-fetch.
+    _stripFrontmatter(raw) {
+      if (!raw.startsWith('---\n') && !raw.startsWith('---\r\n')) return raw
+      const rest = raw.slice(raw.startsWith('---\r\n') ? 5 : 4)
+      const end = rest.indexOf('\n---')
+      if (end < 0) return raw
+      let body = rest.slice(end + 4)
+      if (body.startsWith('\r\n')) body = body.slice(2)
+      else if (body.startsWith('\n')) body = body.slice(1)
+      return body
+    },
+
+    async copyNoteBody() {
+      if (!this.activePath) return
+      const body = this._stripFrontmatter(this.noteRaw || '')
+      try {
+        await navigator.clipboard.writeText(body)
+      } catch {
+        const ta = document.createElement('textarea')
+        ta.value = body
+        ta.style.position = 'fixed'; ta.style.opacity = '0'
+        document.body.appendChild(ta)
+        ta.focus(); ta.select()
+        document.execCommand('copy')
+        document.body.removeChild(ta)
+      }
+      this.copyBodyDone = true
+      setTimeout(() => { this.copyBodyDone = false }, 2000)
+    },
+
+    // Append OS-clipboard text to the active note, autosave, and show
+    // an undo toast that reverts the file to its pre-append state.
+    async pasteAppendToNote() {
+      if (!this.activePath) return
+      if (!this.isWritable(this.activeVault, this.activePath)) {
+        this.modal = { open: true, title: 'Read-only path',
+          body: 'This note is in a read-only path. Add it to rw_paths in admin settings to enable writes.',
+          confirmOnly: true, confirmLabel: 'OK' }
+        return
+      }
+      let pasted = ''
+      try {
+        pasted = await navigator.clipboard.readText()
+      } catch(e) {
+        this.modal = { open: true, title: 'Clipboard unavailable',
+          body: 'Browser refused clipboard access. Click somewhere in the page first, then try again.',
+          confirmOnly: true, confirmLabel: 'OK' }
+        return
+      }
+      pasted = (pasted || '').trim()
+      if (!pasted) {
+        // Don't bother appending nothing.
+        return
+      }
+      const before = this.noteRaw || ''
+      // Ensure exactly one blank line between existing content and the
+      // pasted block — matches what feels natural in vim/Obsidian.
+      const sep = before.endsWith('\n\n') ? '' : (before.endsWith('\n') ? '\n' : '\n\n')
+      const after = before + sep + pasted + '\n'
+      this.noteRaw = after
+      try {
+        await this._saveNote(after)
+        // Re-render
+        const r = await fetch('/api/note?vault=' + encodeURIComponent(this.activeVault) +
+          '&path=' + encodeURIComponent(this.activePath))
+        if (r.ok) {
+          const d = await r.json()
+          this.noteHtml = d.html || ''
+          this.noteMTime = d.mtime || 0
+          this.$nextTick(() => { this.rerenderMermaid(); this.rerenderMath(); this.decorateCodeBlocks() })
+        }
+      } catch(e) {
+        console.error('paste-append save:', e)
+        this.noteRaw = before
+        this.modal = { open: true, title: 'Append failed', body: String(e),
+          confirmOnly: true, confirmLabel: 'OK' }
+        return
+      }
+      // Undo callback restores the file to its pre-append content.
+      const vault = this.activeVault, path = this.activePath
+      this.showActionToast('Pasted ' + pasted.length + ' chars · appended', async () => {
+        try {
+          await this._saveNote(before, { vault, path })
+          if (this.activeVault === vault && this.activePath === path) {
+            this.noteRaw = before
+            const r2 = await fetch('/api/note?vault=' + encodeURIComponent(vault) +
+              '&path=' + encodeURIComponent(path))
+            if (r2.ok) {
+              const d2 = await r2.json()
+              this.noteHtml = d2.html || ''
+              this.noteMTime = d2.mtime || 0
+              this.$nextTick(() => { this.rerenderMermaid(); this.rerenderMath(); this.decorateCodeBlocks() })
+            }
+          }
+        } catch(e) { console.error('undo paste-append:', e) }
+      })
     },
 
     // ── copy note path ────────────────────────────
@@ -4226,6 +4465,20 @@ function vaultApp() {
         const r = await fetch('/api/shares')
         if (r.ok) this.activeShares = await r.json()
       } catch(e) { console.error('shares fetch:', e) }
+    },
+
+    // Public read of just the rw_paths list — runs on init for non-admin
+    // sessions so isWritable() can return correct values for UI gating.
+    // Admin Settings still loads the full config (with admin_token) when
+    // the user opens that tab.
+    async loadWritablePaths() {
+      try {
+        const r = await fetch('/api/writable-paths')
+        if (r.ok) {
+          const data = await r.json()
+          this.adminConfig.rw_paths = data.rw_paths || []
+        }
+      } catch(e) { console.error('writable-paths fetch:', e) }
     },
 
     async revokeShare(token) {
