@@ -65,24 +65,36 @@
 
     <!-- File listing (flat, file-commander style) -->
     <div class="file-list">
-      <!-- Up dir -->
-      <div class="fl-item fl-up" x-show="cwd !== ''" @click="goUp()">
+      <!-- Up dir — also a drop target (move into parent folder) -->
+      <div class="fl-item fl-up" x-show="cwd !== ''"
+           @click="goUp()"
+           @dragover.prevent="$event.dataTransfer.dropEffect = 'move'; $event.currentTarget.classList.add('drop-target')"
+           @dragleave="$event.currentTarget.classList.remove('drop-target')"
+           @drop.prevent="$event.currentTarget.classList.remove('drop-target'); handleSidebarDrop($event, _parentDirOfCwd())">
         <svg class="fl-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/></svg>
         <span class="fl-name">..</span>
       </div>
 
-      <!-- Dirs first -->
+      <!-- Dirs first — draggable AND a drop target -->
       <template x-for="item in currentDirs()" :key="item.path">
-        <div class="fl-item fl-dir" @click="enterDir(activeVault, item.path)"
+        <div class="fl-item fl-dir"
+             draggable="true"
+             @dragstart="handleSidebarDragStart($event, item)"
+             @dragover.prevent="$event.dataTransfer.dropEffect = 'move'; $event.currentTarget.classList.add('drop-target')"
+             @dragleave="$event.currentTarget.classList.remove('drop-target')"
+             @drop.prevent="$event.currentTarget.classList.remove('drop-target'); handleSidebarDrop($event, item.path)"
+             @click="enterDir(activeVault, item.path)"
              @contextmenu.prevent="openCtxMenu($event, item)">
           <svg class="fl-icon fl-icon-dir" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
           <span class="fl-name" x-text="item.name"></span>
         </div>
       </template>
 
-      <!-- Files -->
+      <!-- Files — draggable -->
       <template x-for="item in currentFiles()" :key="item.path">
         <div class="fl-item fl-file" :class="{ active: item.path === activePath }"
+             draggable="true"
+             @dragstart="handleSidebarDragStart($event, item)"
              @click="openNote(activeVault, item.path)"
              @contextmenu.prevent="openCtxMenu($event, item)">
           <svg class="fl-icon fl-icon-file" width="12" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
@@ -448,6 +460,7 @@
            x-html="noteHtml"
            tabindex="-1"
            @click="handlePreviewClick($event)"
+           @contextmenu.prevent="handlePreviewContextMenu($event)"
            @dragover.prevent="$event.dataTransfer.dropEffect = 'copy'"
            @drop.prevent="handlePreviewDrop($event)">
       </div>
@@ -1162,6 +1175,7 @@
         <div class="shortcut-row"><span class="sc-keys">Ctrl + N</span><span class="sc-desc">New note</span></div>
         <div class="shortcut-row"><span class="sc-keys">Ctrl + D</span><span class="sc-desc">Open today's daily note</span></div>
         <div class="shortcut-row"><span class="sc-keys">Alt + ← / →</span><span class="sc-desc">Back / forward through visited notes</span></div>
+        <div class="shortcut-row"><span class="sc-keys">Ctrl + Shift + L</span><span class="sc-desc">Reveal current note in sidebar</span></div>
         <div class="shortcut-row"><span class="sc-keys">Ctrl + Shift + C</span><span class="sc-desc">Copy wikilink</span></div>
         <div class="shortcut-row"><span class="sc-keys">E</span><span class="sc-desc">Toggle Preview / Edit</span></div>
         <div class="shortcut-row"><span class="sc-keys">?</span><span class="sc-desc">This help</span></div>
@@ -1436,6 +1450,13 @@ function vaultApp() {
         if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'd' && !e.shiftKey && !e.altKey) {
           e.preventDefault()
           if (this.activeVault) this.openDailyNote()
+        }
+        // Ctrl/Cmd+Shift+L — reveal current note in sidebar.
+        if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'l') {
+          if (this.activePath) {
+            e.preventDefault()
+            this.revealInSidebar(this.activeVault, this.activePath)
+          }
         }
         // Alt+← / Alt+→ — back/forward through visited notes. Reuses the
         // browser history that openNote() already populates via pushState.
@@ -1889,6 +1910,77 @@ function vaultApp() {
     },
 
     // ── open note ─────────────────────────────────
+    // ── sidebar drag-and-drop ─────────────────────
+    _parentDirOfCwd() {
+      // Return the parent of the current cwd (e.g. cwd=foo/bar → "foo").
+      // Used by the "..↑" drop target to move into the parent folder.
+      if (!this.cwd) return ''
+      const i = this.cwd.lastIndexOf('/')
+      return i === -1 ? '' : this.cwd.substring(0, i)
+    },
+    handleSidebarDragStart(e, item) {
+      // Stash what's being dragged so handleSidebarDrop can act on it.
+      // Using state (not just dataTransfer) because dataTransfer isn't
+      // readable until 'drop' on most browsers — this lets dragover
+      // visually distinguish self-drops as no-ops.
+      this._dragItem = { path: item.path, isDir: !!item.isDir, name: item.name }
+      try { e.dataTransfer.setData('text/plain', item.path) } catch(_) {}
+      e.dataTransfer.effectAllowed = 'move'
+    },
+    async handleSidebarDrop(e, targetDir) {
+      const drag = this._dragItem
+      this._dragItem = null
+      if (!drag) return
+      // No-op: dropping onto a folder that's already the item's parent,
+      // OR dropping a folder onto itself / inside itself.
+      const fromDir = drag.path.includes('/') ? drag.path.substring(0, drag.path.lastIndexOf('/')) : ''
+      if (fromDir === targetDir) return
+      if (drag.isDir && (targetDir === drag.path || targetDir.startsWith(drag.path + '/'))) return
+      const newPath = (targetDir ? targetDir + '/' : '') + drag.name
+      try {
+        const res = await fetch('/api/move?vault=' + encodeURIComponent(this.activeVault) +
+          '&from=' + encodeURIComponent(drag.path) +
+          '&to=' + encodeURIComponent(newPath), { method: 'POST' })
+        if (res.status === 409) {
+          this.modal = { open: true, title: 'Move failed', body: 'A note/folder with that name already exists in the destination.', confirmOnly: true, confirmLabel: 'OK' }
+          return
+        }
+        if (!res.ok) {
+          this.modal = { open: true, title: 'Move failed', body: 'HTTP ' + res.status, confirmOnly: true, confirmLabel: 'OK' }
+          return
+        }
+        await this.enterDir(this.activeVault, this.cwd)
+        // If the moved item was the open note, follow it.
+        if (this.activePath === drag.path) {
+          await this.openNote(this.activeVault, newPath)
+        }
+      } catch(err) {
+        this.modal = { open: true, title: 'Move failed', body: 'Network error.', confirmOnly: true, confirmLabel: 'OK' }
+        console.error('drag-drop move:', err)
+      }
+    },
+
+    // Scroll the sidebar to the given vault+path, expanding/entering its
+    // parent folder. Doesn't open the note (use openNote for that).
+    async revealInSidebar(vault, path) {
+      this.sidebarOpen = true
+      const dir = path.includes('/') ? path.substring(0, path.lastIndexOf('/')) : ''
+      // If we're in a different vault, swap to its tree first.
+      if (vault !== this.activeVault) {
+        await this.enterDir(vault, dir)
+      } else if (this.cwd !== dir) {
+        this.cwd = dir
+      }
+      this.activePath = path  // mark the row as active so it gets the highlight
+      // Scroll to the row after the DOM updates.
+      this.$nextTick(() => {
+        const list = document.querySelector('.file-list')
+        if (!list) return
+        const active = list.querySelector('.fl-item.fl-file.active')
+        if (active) active.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      })
+    },
+
     async openNote(vault, path) {
       // Push a real URL so reload, back/forward, bookmarks, and right-click
       // "open in new tab" all work. Skip pushing if we're already on this
@@ -2034,6 +2126,7 @@ function vaultApp() {
       const dateStr = `${yyyy}-${mm}-${dd}`
       const path = `daily/${dateStr}.md`
       const vault = this.activeVault
+      let justCreated = false
       try {
         const probe = await fetch('/api/note?vault=' + encodeURIComponent(vault) +
                                   '&path=' + encodeURIComponent(path))
@@ -2054,8 +2147,23 @@ function vaultApp() {
             }
             return
           }
+          justCreated = true
         }
         await this.openNote(vault, path)
+        // If we just made the note, drop the user straight into edit mode
+        // with the cursor at end-of-file. Saves two clicks for the common
+        // "open today's daily and start typing" workflow.
+        if (justCreated) {
+          this.setMode('edit')
+          this.$nextTick(() => {
+            const view = window.__cmAPI?.getView()
+            if (view) {
+              const end = view.state.doc.length
+              view.dispatch({ selection: { anchor: end } })
+              view.focus()
+            }
+          })
+        }
       } catch (e) {
         this.modal = {
           open: true, title: 'Daily note', body: 'Failed: ' + String(e),
@@ -2715,6 +2823,51 @@ function vaultApp() {
     },
 
     // ── preview click (wikilinks) ─────────────────
+    handlePreviewContextMenu(e) {
+      // Right-click on a wikilink in preview → context menu.
+      // Anywhere else → fall through to native context menu (browser default
+      // by removing .prevent — but we already prevented via x-on directive,
+      // so do nothing here; the native menu won't show, which is fine for
+      // a markdown reader).
+      const a = e.target.closest('a.wikilink')
+      if (!a) return
+      const vault = a.dataset.vault || this.activeVault
+      const path = a.dataset.path
+      const name = a.dataset.name           // present on missing-link spans
+      const items = []
+      if (path) {
+        items.push({ label: 'Open', action: () => this.openNote(vault, path) })
+        items.push({ label: 'Open in new tab', action: () => window.open(this._noteURL(vault, path), '_blank') })
+        items.push({ label: 'Reveal in sidebar', action: () => this.revealInSidebar(vault, path) })
+        items.push({ label: 'Copy wikilink', action: () => {
+          const display = path.split('/').pop().replace(/\.md$/, '')
+          navigator.clipboard.writeText('[[' + display + ']]').catch(() => {})
+        }})
+        items.push({ label: 'Copy URL', action: () => {
+          const url = window.location.origin + this._noteURL(vault, path)
+          navigator.clipboard.writeText(url).catch(() => {})
+        }})
+      } else if (name) {
+        items.push({ label: 'Create "' + name + '"', action: async () => {
+          const safe = name.replace(/[\\/]+/g, '_').trim()
+          if (!safe) return
+          const targetPath = (this.cwd ? this.cwd + '/' : '') + safe + '.md'
+          try {
+            await fetch('/api/note?vault=' + encodeURIComponent(this.activeVault) +
+                        '&path=' + encodeURIComponent(targetPath), {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ raw: '# ' + name + '\n\n' }),
+            })
+            await this.openNote(this.activeVault, targetPath)
+          } catch(err) { console.error('create from wikilink:', err) }
+        }})
+        items.push({ label: 'Copy as text', action: () => navigator.clipboard.writeText(name).catch(() => {}) })
+      }
+      if (items.length === 0) return
+      this.ctxMenu = { open: true, x: e.clientX, y: e.clientY, items }
+    },
+
     async handlePreviewClick(e) {
       const a = e.target.closest('a.wikilink')
       if (!a) return

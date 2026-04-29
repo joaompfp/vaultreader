@@ -749,11 +749,37 @@ func saveNote(vaultPath, notePath, content string) error {
 	if err := os.MkdirAll(filepath.Dir(full), 0755); err != nil {
 		return err
 	}
+	// Normalize: strip trailing whitespace per line, ensure exactly one
+	// trailing newline. Reduces noise in git diffs when the same file is
+	// edited from different tools (Obsidian, vim, VaultReader).
+	content = normalizeMarkdown(content)
 	tmp := full + ".tmp-vaultreader"
 	if err := os.WriteFile(tmp, []byte(content), 0644); err != nil {
 		return err
 	}
 	return os.Rename(tmp, full)
+}
+
+// normalizeMarkdown applies whitespace normalization that is uncontroversial
+// across markdown editors (Obsidian, vim, VS Code with default settings):
+//   - strip trailing spaces/tabs from every line
+//   - end the file with exactly one newline (no trailing blanks; no missing)
+// Does NOT touch line endings beyond what os.WriteFile does, and does NOT
+// collapse internal blank lines (markdown's blank-line semantics matter).
+func normalizeMarkdown(s string) string {
+	lines := strings.Split(s, "\n")
+	for i, ln := range lines {
+		// rstrip space + tab; preserve other whitespace (none should appear
+		// at end of a markdown line anyway).
+		lines[i] = strings.TrimRight(ln, " \t")
+	}
+	out := strings.Join(lines, "\n")
+	// Trim ALL trailing newlines, then add exactly one back.
+	out = strings.TrimRight(out, "\n")
+	if out != "" {
+		out += "\n"
+	}
+	return out
 }
 
 // ─── Gzip middleware ──────────────────────────────────────────────────────────
