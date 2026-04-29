@@ -815,7 +815,11 @@ func searchVault(vaultPath, vaultName, query string) []SearchResult {
 			for _, want := range q.tags {
 				found := false
 				for _, have := range noteTags {
-					if have == want || strings.HasPrefix(have, want+"/") {
+					// Match if exact, hierarchical descendant (work/active),
+					// or substring (so tag:london matches "london-2026").
+					if have == want ||
+						strings.HasPrefix(have, want+"/") ||
+						strings.Contains(have, want) {
 						found = true
 						break
 					}
