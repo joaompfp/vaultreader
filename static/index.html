@@ -209,6 +209,76 @@
         </button>
       </template>
 
+      <!-- Share button + popover. Crimson active state when current note has any
+           share link; popover surfaces the link list with Copy / Open / Revoke
+           or, when no share exists, quick share-create options. -->
+      <template x-if="activePath">
+        <div class="btn-share-wrap">
+          <button class="btn-icon btn-share"
+                  :class="{ active: noteShares().length > 0 }"
+                  @click.stop="toggleSharePopover($event)"
+                  :title="noteShares().length > 0 ? noteShares().length + ' active share' + (noteShares().length === 1 ? '' : 's') : 'Share…'">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="18" cy="5" r="3"/><circle cx="6" cy="12" r="3"/><circle cx="18" cy="19" r="3"/>
+              <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"/>
+              <line x1="15.41" y1="6.51" x2="8.59" y2="10.49"/>
+            </svg>
+            <span class="bl-badge" x-show="noteShares().length > 0" x-text="noteShares().length"></span>
+          </button>
+          <div class="share-pop" x-show="sharePopoverOpen" :style="'top:'+sharePopY+'px;left:'+sharePopX+'px'"
+               @click.stop @click.outside="sharePopoverOpen = false" style="display:none">
+            <!-- Active shares list -->
+            <template x-if="noteShares().length > 0">
+              <div class="share-pop-section">
+                <div class="share-pop-head">Active links</div>
+                <template x-for="s in noteShares()" :key="s.token">
+                  <div class="share-pop-item">
+                    <div class="share-pop-row">
+                      <span class="share-pop-mode" :class="{ rw: s.writable }" x-text="s.writable ? 'RW' : 'RO'"></span>
+                      <span class="share-pop-label" x-text="s.label || ('Created ' + new Date(s.created_at*1000).toLocaleDateString())"></span>
+                      <span class="share-pop-expiry" x-text="shareExpiry(s)" x-show="s.expires_at > 0"></span>
+                    </div>
+                    <div class="share-pop-actions">
+                      <button class="btn btn-sm" @click="copyShareLinkFor(s.token)" :class="{ copied: sharePopCopied === s.token }">
+                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+                          <g x-show="sharePopCopied !== s.token"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></g>
+                          <polyline x-show="sharePopCopied === s.token" points="20 6 9 17 4 12"/>
+                        </svg>
+                        <span x-text="sharePopCopied === s.token ? 'Copied!' : 'Copy'"></span>
+                      </button>
+                      <a class="btn btn-sm" :href="'https://joao.date/notas/' + s.token" target="_blank" rel="noopener">
+                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+                        Open
+                      </a>
+                      <button class="btn btn-sm btn-danger" @click="revokeShareFromPop(s.token)">Revoke</button>
+                    </div>
+                  </div>
+                </template>
+              </div>
+            </template>
+            <!-- Quick-share options -->
+            <div class="share-pop-section">
+              <div class="share-pop-head" x-text="noteShares().length > 0 ? 'New link' : 'Share this note'"></div>
+              <button class="share-pop-quick" @click="quickShare(false, 0)">
+                <span class="share-pop-quick-title">Read-only · no expiry</span>
+                <span class="share-pop-quick-sub">Most common — anyone with the link can view</span>
+              </button>
+              <button class="share-pop-quick" @click="quickShare(false, 7*86400)">
+                <span class="share-pop-quick-title">Read-only · expires in 7 days</span>
+                <span class="share-pop-quick-sub">Self-revoking after a week</span>
+              </button>
+              <button class="share-pop-quick" @click="quickShare(true, 0)" x-show="canWriteCurrent()">
+                <span class="share-pop-quick-title">Editable · no expiry</span>
+                <span class="share-pop-quick-sub">Recipient can edit the note</span>
+              </button>
+              <button class="share-pop-quick share-pop-quick-more" @click="sharePopoverOpen=false; openShareModal(activePath)">
+                More options…
+              </button>
+            </div>
+          </div>
+        </div>
+      </template>
+
       <button class="btn-icon" @click="openSettings('admin')" title="Admin (RW paths, restart)" :class="{ active: settingsOpen && settingsTab === 'admin' }">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <circle cx="12" cy="12" r="3"/>
@@ -1491,6 +1561,9 @@ function vaultApp() {
     // shares
     shareModal: { open: false, vault: '', path: '', writable: false, ttl: 0, label: '', result: null, copying: false },
     activeShares: [],
+    sharePopoverOpen: false,
+    sharePopX: 0, sharePopY: 0,
+    sharePopCopied: '', // token of the row most recently copied (for tick state)
     // trash tab data
     trashItems: [],
     // move picker modal
@@ -1714,6 +1787,9 @@ function vaultApp() {
       } catch(e) { console.error('init:', e) }
       // load status bar stats
       this.refreshStats()
+      // load active shares once so the toolbar share button can show the
+      // active-state indicator without requiring the user to open Settings.
+      this.loadActiveShares()
       setInterval(() => this.refreshSyncStatus(), 10000)
 
       // ── URL routing: restore open note on page load ──
@@ -3988,6 +4064,86 @@ function vaultApp() {
     },
 
     // ── shares ────────────────────────────────────
+
+    // Active shares for the currently-open note. Used by the toolbar share
+    // button to show count + active state.
+    noteShares() {
+      if (!this.activePath) return []
+      return (this.activeShares || []).filter(s =>
+        s.vault === this.activeVault && s.path === this.activePath)
+    },
+
+    canWriteCurrent() {
+      // Mirrors backend isWritable() logic but only as a client-side hint
+      // for which quick-share options to surface. The server is the source
+      // of truth — if rwPaths is wrong the create call will return 403.
+      const rw = this.config?.rw_paths || []
+      const full = this.activeVault + '/' + this.activePath
+      return rw.some(p => p === this.activeVault || full.startsWith(p + '/') || full === p)
+    },
+
+    toggleSharePopover(ev) {
+      if (this.sharePopoverOpen) { this.sharePopoverOpen = false; return }
+      const rect = ev.currentTarget.getBoundingClientRect()
+      // Position popover under the button, right-aligned-ish so it
+      // doesn't push off the edge of the toolbar.
+      this.sharePopY = rect.bottom + 6
+      this.sharePopX = Math.max(8, rect.right - 320)
+      this.sharePopoverOpen = true
+      // Keep activeShares fresh so the popover always reflects current state.
+      this.loadActiveShares()
+    },
+
+    async quickShare(writable, ttlSecs) {
+      try {
+        const r = await fetch('/api/shares/create', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            vault: this.activeVault, path: this.activePath,
+            writable, ttl: ttlSecs, label: ''
+          })
+        })
+        if (!r.ok) {
+          const txt = await r.text()
+          alert('Failed to create share: ' + txt)
+          return
+        }
+        const data = await r.json()
+        const url = 'https://joao.date/notas/' + data.token
+        try { await navigator.clipboard.writeText(url) } catch {}
+        await this.loadActiveShares()
+        // Brief confirmation in the same toast system used elsewhere.
+        if (this.toasts) {
+          this.toasts.push({
+            id: 'share-' + data.token,
+            text: 'Share link created · copied to clipboard',
+            kind: 'info', undo: null,
+          })
+          setTimeout(() => {
+            this.toasts = this.toasts.filter(t => t.id !== 'share-' + data.token)
+          }, 4000)
+        }
+      } catch(e) { console.error('quickShare:', e); alert('Network error') }
+    },
+
+    async copyShareLinkFor(token) {
+      const url = 'https://joao.date/notas/' + token
+      try {
+        await navigator.clipboard.writeText(url)
+        this.sharePopCopied = token
+        setTimeout(() => { if (this.sharePopCopied === token) this.sharePopCopied = '' }, 1500)
+      } catch(e) { console.error('copy:', e) }
+    },
+
+    async revokeShareFromPop(token) {
+      if (!confirm('Revoke this share link? It will stop working immediately.')) return
+      try {
+        await fetch('/api/shares/revoke?token=' + encodeURIComponent(token), { method: 'DELETE' })
+        await this.loadActiveShares()
+      } catch(e) { console.error('revoke:', e) }
+    },
+
     openShareModal(path) {
       this.shareModal = {
         open: true, vault: this.activeVault, path,
@@ -4006,6 +4162,8 @@ function vaultApp() {
         if (!r.ok) { alert('Failed to create share'); return }
         const data = await r.json()
         this.shareModal.result = 'https://joao.date/notas/' + data.token
+        // Refresh so the toolbar share button reflects the new active share.
+        this.loadActiveShares()
       } catch(e) { alert('Network error'); console.error(e) }
     },
 

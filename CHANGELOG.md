@@ -4,6 +4,11 @@ All notable changes to VaultReader. Versioning is loose — there are no formal 
 
 Most-recent first.
 
+## 2026-04-29 — Share-from-toolbar + wikilink/table fix
+
+- **Share button on the main toolbar** (next to copy-wikilink) with a per-note popover. When the active note has any active share, the button turns crimson and shows a small badge with the count; the popover lists each link with one-click Copy / Open / Revoke. When unshared, the popover offers three quick-share options (read-only · no expiry / read-only · 7 days / editable · no expiry) plus a "More options…" link to the full create-share modal. No more digging through Settings → Shared to find out which open note is shared.
+- **Fix: wikilink with alias inside a markdown table** (`[[name|alias]]` in a table cell) — previously the `|` was eaten by goldmark's table parser as a column boundary, splitting the link across two cells (rendering as raw `[[name`). Added a pre-pass (`protectWikilinkPipes`) that swaps the alias pipe for a sentinel before goldmark sees it, restored after rendering. Applies to both internal preview and shared notes.
+
 ## 2026-04-29 — Callouts + parity polish
 
 - **Obsidian callouts (`> [!type] Title`) now render as styled blocks** in both the internal preview and shared notes. Eight type families with Obsidian-compatible color codes (info/tip/success/warning/failure/question/quote + generic), light + dark palettes, fold-marker (`-` suffix) accepted. Unknown types render as a generic `.callout`. Implemented as a regex post-pass over the goldmark blockquote output (`renderCallouts`) — no goldmark extension dependency.

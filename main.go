@@ -330,12 +330,33 @@ func (idx *NoteIndex) getBacklinks(vault, path string) []BacklinkRef {
 
 // ─── Markdown rendering ───────────────────────────────────────────────────────
 
+// wikilinkAliasPipeSentinel is swapped in for `|` inside `[[…|…]]` before
+// goldmark parses the markdown — otherwise the alias pipe inside a table
+// cell is treated as a column boundary, splitting the wikilink across
+// two cells. We swap it back after rendering so renderWikilinks /
+// renderWikilinksPlain see the canonical `[[name|alias]]` form.
+const wikilinkAliasPipeSentinel = "\x01WLPIPE\x01"
+
+func protectWikilinkPipes(raw string) string {
+	return wikilinkRe.ReplaceAllStringFunc(raw, func(m string) string {
+		// Only the *first* `|` inside the link is the alias separator;
+		// any further `|` would already be illegal per the regex (which
+		// doesn't allow `|` inside the alias group), so a single
+		// replacement is enough.
+		return strings.Replace(m, "|", wikilinkAliasPipeSentinel, 1)
+	})
+}
+
+func restoreWikilinkPipes(s string) string {
+	return strings.ReplaceAll(s, wikilinkAliasPipeSentinel, "|")
+}
+
 func renderMarkdown(raw string) string {
 	var buf bytes.Buffer
-	if err := md.Convert([]byte(raw), &buf); err != nil {
+	if err := md.Convert([]byte(protectWikilinkPipes(raw)), &buf); err != nil {
 		return "<pre>" + raw + "</pre>"
 	}
-	return buf.String()
+	return restoreWikilinkPipes(buf.String())
 }
 
 // expandEmbeds rewrites Obsidian embed syntax `![[target]]` into standard
@@ -1448,10 +1469,11 @@ func (s *server) handleShareView(w http.ResponseWriter, r *http.Request) {
 	_, body := parseFrontmatter(raw)
 	body = expandEmbeds(body, e.Vault, e.Path, s.idx, s.vaultsDir)
 	var buf bytes.Buffer
-	_ = md.Convert([]byte(body), &buf)
+	_ = md.Convert([]byte(protectWikilinkPipes(body)), &buf)
 	// Post-process: callouts → styled divs, wikilinks → plain spans (no
 	// off-share nav), then rewrite image src for the share-file route.
-	renderedHTML := renderCallouts(buf.String())
+	renderedHTML := restoreWikilinkPipes(buf.String())
+	renderedHTML = renderCallouts(renderedHTML)
 	renderedHTML = renderWikilinksPlain(renderedHTML)
 	renderedHTML = rewriteShareImageURLs(renderedHTML, e.Path)
 
