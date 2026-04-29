@@ -440,7 +440,7 @@
     <div class="outline-list">
       <template x-for="h in outlineItems()" :key="h.id + ':' + h.text">
         <a class="outline-item"
-           :class="['outline-h' + h.level, { active: outlineActiveId === h.id }]"
+           :class="'outline-h' + h.level + (outlineActiveId === h.id ? ' active' : '')"
            :href="'#' + h.id"
            @click.prevent="scrollToHeading(h.id)"
            x-text="h.text"></a>
