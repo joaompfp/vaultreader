@@ -97,12 +97,12 @@
            extension chip so it's clear what kind of file it is. -->
       <template x-for="item in currentFiles()" :key="item.path">
         <div class="fl-item fl-file"
-             :class="{ active: item.path === activePath, selected: isSelected(item.path), 'fl-non-note': item.ext }"
+             :class="'fl-kind-' + fileKind(item) + (item.path === activePath ? ' active' : '') + (isSelected(item.path) ? ' selected' : '') + (item.ext ? ' fl-non-note' : '')"
              draggable="true"
              @dragstart="handleSidebarDragStart($event, item)"
              @click="handleSidebarRowClick($event, item, false)"
              @contextmenu.prevent="openCtxMenu($event, item)">
-          <svg class="fl-icon fl-icon-file" width="12" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+          <span class="fl-icon fl-icon-file" x-html="fileIconSvg(item)"></span>
           <span class="fl-name" x-text="item.ext ? item.name : item.name.replace(/\.md$/, '')"></span>
           <span class="fl-ext" x-show="item.ext" x-text="item.ext.replace(/^\./, '')"></span>
         </div>
@@ -184,7 +184,7 @@
         </svg>
       </button>
 
-      <template x-if="activePath">
+      <template x-if="activePath && !viewerKind">
         <button class="btn-icon btn-mode-toggle"
                 :class="{ editing: mode === 'edit' }"
                 @click="setMode(mode === 'preview' ? 'edit' : 'preview')"
@@ -215,8 +215,9 @@
 
       <!-- Copy whole note body (no frontmatter) — for pasting into agent
            conversations. Distinct from "copy wikilink" (above) which copies
-           only the link reference. Uses a document-with-page icon. -->
-      <template x-if="activePath">
+           only the link reference. Uses a document-with-page icon.
+           Hidden for non-md viewer items (no markdown body to copy). -->
+      <template x-if="activePath && !viewerKind">
         <button class="btn-icon btn-copybody" :class="{ copied: copyBodyDone }" @click="copyNoteBody()"
                 :title="copyBodyDone ? 'Copied!' : 'Copy note body (no frontmatter)'">
           <svg x-show="!copyBodyDone" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -232,8 +233,9 @@
       </template>
 
       <!-- Paste-append: read OS clipboard, append to note end, autosave,
-           show undo toast. Disabled state if path isn't writable. -->
-      <template x-if="activePath">
+           show undo toast. Disabled state if path isn't writable.
+           Hidden for non-md viewer items (would corrupt binary files). -->
+      <template x-if="activePath && !viewerKind">
         <button class="btn-icon btn-pasteappend" @click="pasteAppendToNote()"
                 :disabled="!isWritable(activeVault, activePath)"
                 :title="isWritable(activeVault, activePath) ? 'Paste-append clipboard to end of note' : 'Path is read-only'">
@@ -304,7 +306,7 @@
                 <span class="share-pop-quick-title">Read-only · expires in 7 days</span>
                 <span class="share-pop-quick-sub">Self-revoking after a week</span>
               </button>
-              <button class="share-pop-quick" @click="quickShare(true, 0)" x-show="canWriteCurrent()">
+              <button class="share-pop-quick" @click="quickShare(true, 0)" x-show="canWriteCurrent() && !viewerKind">
                 <span class="share-pop-quick-title">Editable · no expiry</span>
                 <span class="share-pop-quick-sub">Recipient can edit the note</span>
               </button>
@@ -323,7 +325,7 @@
         </svg>
       </button>
 
-      <button class="btn-icon btn-backlinks" :class="{ active: backlinksOpen }" @click="backlinksOpen = !backlinksOpen" title="Backlinks (incoming links)">
+      <button class="btn-icon btn-backlinks" :class="{ active: backlinksOpen }" @click="backlinksOpen = !backlinksOpen" title="Backlinks (incoming links)" x-show="!viewerKind">
         <svg width="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
           <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
@@ -2528,6 +2530,49 @@ function vaultApp() {
       if (/^\.(mp3|wav|ogg|flac|m4a|aac|opus)$/i.test(ext)) return 'audio'
       if (/^\.(mp4|webm|mkv|mov|avi)$/i.test(ext)) return 'video'
       return null
+    },
+
+    // Coarse file kind for sidebar styling. Returns:
+    //   'note'   — .md (default note appearance)
+    //   'image'  — png/jpg/gif/webp/svg/bmp/avif
+    //   'pdf'    — .pdf
+    //   'code'   — source code + structured data (.py/.go/.json/.yaml/etc)
+    //   'media'  — audio/video
+    //   'file'   — anything else (generic document icon)
+    fileKind(item) {
+      const ext = (item.ext || '').toLowerCase()
+      if (!ext) return 'note'
+      if (/^\.(png|jpe?g|gif|webp|svg|bmp|avif)$/i.test(ext)) return 'image'
+      if (ext === '.pdf') return 'pdf'
+      if (/^\.(mp3|wav|ogg|flac|m4a|aac|opus|mp4|webm|mkv|mov|avi)$/i.test(ext)) return 'media'
+      if (/^\.(txt|json|yaml|yml|csv|tsv|log|ini|conf|toml|sh|py|js|ts|tsx|jsx|go|rs|java|c|cpp|h|hpp|css|scss|html|xml|sql|env)$/i.test(ext)) return 'code'
+      return 'file'
+    },
+
+    // SVG markup for the row icon. Inline so we can swap by kind without
+    // a templating dance. The classes (.fl-icon-img, etc) on each shape
+    // let CSS recolor them per kind.
+    fileIconSvg(item) {
+      const k = this.fileKind(item)
+      if (k === 'note') {
+        // Document with a small fold — keeps the existing note look.
+        return '<svg width="12" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>'
+      }
+      if (k === 'image') {
+        return '<svg width="12" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="1.5" fill="currentColor"/><polyline points="21 15 16 10 4.5 21"/></svg>'
+      }
+      if (k === 'pdf') {
+        // Document with "PDF" feel — a folded corner + horizontal lines.
+        return '<svg width="12" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="14" y2="17"/></svg>'
+      }
+      if (k === 'code') {
+        return '<svg width="12" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>'
+      }
+      if (k === 'media') {
+        return '<svg width="12" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="6 4 20 12 6 20 6 4" fill="currentColor"/></svg>'
+      }
+      // Fallback "generic file"
+      return '<svg width="12" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>'
     },
 
     async openViewer(vault, path, kind, size, mtime) {

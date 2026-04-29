@@ -424,6 +424,22 @@ body.sidebar-resizing * {
 }
 .fl-non-note.active .fl-ext { color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
 
+/* Per-kind icon colors so a folder of mixed types is scannable at a
+   glance. Active-row override keeps the icon legible against the
+   accent-tinted active background. */
+.fl-kind-image .fl-icon { color: #2563eb; }
+.fl-kind-pdf   .fl-icon { color: #b91c1c; }
+.fl-kind-code  .fl-icon { color: #16a34a; }
+.fl-kind-media .fl-icon { color: #d97706; }
+.fl-kind-file  .fl-icon { color: var(--text3); }
+.fl-item.active .fl-icon { color: var(--accent); }
+@media (prefers-color-scheme: dark) {
+  .fl-kind-image .fl-icon { color: #93c5fd; }
+  .fl-kind-pdf   .fl-icon { color: #fca5a5; }
+  .fl-kind-code  .fl-icon { color: #86efac; }
+  .fl-kind-media .fl-icon { color: #fcd34d; }
+}
+
 /* ── Legacy tree (keep for compat) ───────────── */
 .tree-scroll { flex: 1; overflow-y: auto; }
 .tree-node { user-select: none; }

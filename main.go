@@ -1492,6 +1492,27 @@ func (s *server) handleShareView(w http.ResponseWriter, r *http.Request) {
 	if !ok { http.Error(w, "Vault not available.", http.StatusNotFound); return }
 	full, ok2 := s.safePath(vp, e.Path)
 	if !ok2 { http.Error(w, "Invalid path.", http.StatusNotFound); return }
+
+	// Non-markdown files (images, PDFs, anything-but-.md): serve directly
+	// via the same byte stream that `/share/<token>/file` would emit. The
+	// markdown rendering path below would run goldmark over binary bytes
+	// and emit garbage. Browser then renders the file natively (image,
+	// PDF viewer, download prompt) just like `/api/file`.
+	pathExt := strings.ToLower(filepath.Ext(e.Path))
+	if pathExt != ".md" && pathExt != "" {
+		info, err := os.Stat(full)
+		if err != nil || info.IsDir() {
+			http.Error(w, "Not found.", http.StatusNotFound)
+			return
+		}
+		if ct := mime.TypeByExtension(pathExt); ct != "" {
+			w.Header().Set("Content-Type", ct)
+		}
+		w.Header().Set("Cache-Control", "max-age=3600")
+		http.ServeFile(w, r, full)
+		return
+	}
+
 	data, err := os.ReadFile(full)
 	if err != nil { http.Error(w, "Note not found.", http.StatusNotFound); return }
 

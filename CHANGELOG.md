@@ -4,6 +4,12 @@ All notable changes to VaultReader. Versioning is loose — there are no formal 
 
 Most-recent first.
 
+## 2026-04-29 — Per-kind icons + toolbar gating for non-md items
+
+- **Per-kind icons in the sidebar** so a folder of mixed types is scannable at a glance. `.fl-kind-image` (blue picture-frame icon), `.fl-kind-pdf` (red doc-with-lines), `.fl-kind-code` (green `</>`), `.fl-kind-media` (amber play triangle), `.fl-kind-file` (neutral generic doc), `.fl-kind-note` (default doc — same as before). Dark-mode palette tuned for legibility on dark backgrounds.
+- **Toolbar adapts when a non-md viewer is active.** Hides the buttons that don't apply to binary files: edit/preview toggle, copy-body, paste-append, backlinks, "Editable share" option in the share popover. Keeps the ones that still make sense: copy-wikilink, copy-path, share, settings.
+- **Share-page handler now serves non-md files as raw bytes** instead of running goldmark over binary content. Sharing a PNG / PDF / audio file via `/share/<token>` now serves the file directly with the right `Content-Type` — the browser renders it natively (image, PDF viewer, download). Markdown rendering path is unchanged for `.md` shares.
+
 ## 2026-04-29 — Sidebar lists non-md files; inline image/PDF/text viewer
 
 - **`buildTree` no longer filters by `.md`** — every non-skipped file appears in the sidebar with an extension chip on the right (e.g. "PNG", "PDF", "PY"). Note rows look as before (basename without `.md`); non-note rows show the full filename + chip.
