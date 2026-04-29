@@ -2254,6 +2254,99 @@ func countWithRefs(items []AttachmentItem) int {
 	return n
 }
 
+// handleGraph returns the wikilink graph for one or all vaults.
+// GET /api/graph[?vault=X] → { nodes: [...], edges: [...] }
+func (s *server) handleGraph(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		errResponse(w, 405, "method not allowed")
+		return
+	}
+	vaultFilter := r.URL.Query().Get("vault") // empty = all vaults
+
+	type GraphNode struct {
+		ID    string `json:"id"`
+		Label string `json:"label"`
+		Vault string `json:"vault"`
+		Path  string `json:"path"`
+		Refs  int    `json:"refs"`
+	}
+	type GraphEdge struct {
+		ID     string `json:"id"`
+		Source string `json:"source"`
+		Target string `json:"target"`
+	}
+
+	s.idx.mu.RLock()
+	defer s.idx.mu.RUnlock()
+
+	// Build a vaultKey → NoteRef map by walking allNotes (which is keyed by
+	// normalized name, possibly with vault prefix). Deduplicate by key.
+	noteByKey := map[string]NoteRef{}
+	for _, ref := range s.idx.allNotes {
+		if vaultFilter != "" && ref.Vault != vaultFilter {
+			continue
+		}
+		key := vaultKey(ref.Vault, ref.Path)
+		// Skip duplicates (compound + plain key both point to same NoteRef)
+		if _, ok := noteByKey[key]; ok {
+			continue
+		}
+		noteByKey[key] = ref
+	}
+
+	nodes := make([]GraphNode, 0, len(noteByKey))
+	for key, ref := range noteByKey {
+		nodes = append(nodes, GraphNode{
+			ID:    key,
+			Label: ref.Title,
+			Vault: ref.Vault,
+			Path:  ref.Path,
+		})
+	}
+
+	// Sort for stable output
+	sort.Slice(nodes, func(i, j int) bool { return nodes[i].ID < nodes[j].ID })
+
+	edges := []GraphEdge{}
+	refCount := map[string]int{}
+	for srcKey, targets := range s.idx.outbound {
+		// srcKey is "vault:path" — only include if source is in our filtered set.
+		if _, ok := noteByKey[srcKey]; !ok {
+			continue
+		}
+		for _, t := range targets {
+			// `t` is a normalized name. Resolve via allNotes.
+			ref, ok := s.idx.allNotes[t]
+			if !ok {
+				continue
+			}
+			if vaultFilter != "" && ref.Vault != vaultFilter {
+				continue
+			}
+			tKey := vaultKey(ref.Vault, ref.Path)
+			if _, ok := noteByKey[tKey]; !ok {
+				continue
+			}
+			edges = append(edges, GraphEdge{
+				ID:     srcKey + "->" + tKey,
+				Source: srcKey,
+				Target: tKey,
+			})
+			refCount[tKey]++
+		}
+	}
+
+	for i := range nodes {
+		nodes[i].Refs = refCount[nodes[i].ID]
+	}
+
+	jsonResponse(w, map[string]any{
+		"nodes": nodes,
+		"edges": edges,
+		"vault": vaultFilter,
+	})
+}
+
 func (s *server) handleIndex(w http.ResponseWriter, r *http.Request) {
 	data, err := fs.ReadFile(staticFiles, "static/index.html")
 	if err != nil {
@@ -2384,6 +2477,7 @@ func main() {
 	mux.HandleFunc("/api/trash/restore", srv.handleTrashRestore)
 	mux.HandleFunc("/api/trash/empty", srv.handleTrashEmpty)
 	mux.HandleFunc("/api/attachments", srv.handleAttachments)
+	mux.HandleFunc("/api/graph", srv.handleGraph)
 
 	addr := ":" + *port
 	httpServer := &http.Server{

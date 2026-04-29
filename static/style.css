@@ -720,6 +720,40 @@ a.wikilink-missing {
   #editor-toolbar { display: none; }
 }
 
+/* ── Graph view (full-screen) ──────────────────── */
+#graph-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 700;
+  background: var(--bg);
+  display: flex;
+  flex-direction: column;
+}
+.graph-header {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg2);
+  flex-shrink: 0;
+}
+.graph-title {
+  font-weight: 600;
+  font-size: 13px;
+  color: var(--text);
+}
+.graph-vault-select { width: auto !important; }
+.graph-stats {
+  font-size: 12px;
+  color: var(--text3);
+  margin-left: auto;
+}
+#graph-canvas {
+  flex: 1;
+  background: var(--bg);
+}
+
 /* ── Outline (right rail) ──────────────────────── */
 #outline {
   flex: 0 0 220px;

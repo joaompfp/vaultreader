@@ -10,6 +10,7 @@
   <script src="/mermaid.min.js"></script>
   <script src="/katex.min.js"></script>
   <script src="/katex-auto-render.min.js" defer></script>
+  <script src="/cytoscape.min.js" defer></script>
   <script defer src="/alpine.min.js"></script>
 </head>
 <body>
@@ -206,6 +207,17 @@
           <circle cx="3.5" cy="6" r="1.5" fill="currentColor"/>
           <circle cx="3.5" cy="12" r="1.5" fill="currentColor"/>
           <circle cx="3.5" cy="18" r="1.5" fill="currentColor"/>
+        </svg>
+      </button>
+
+      <button class="btn-icon" :class="{ active: graphOpen }" @click="openGraph()" title="Graph view">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="6" cy="6" r="2.5"/>
+          <circle cx="18" cy="6" r="2.5"/>
+          <circle cx="12" cy="18" r="2.5"/>
+          <line x1="8" y1="7" x2="16" y2="7"/>
+          <line x1="6" y1="8" x2="11" y2="16"/>
+          <line x1="18" y1="8" x2="13" y2="16"/>
         </svg>
       </button>
 
@@ -439,6 +451,27 @@
       </div>
 
     </div>
+  </div>
+
+  <!-- ─── Graph view (full-screen overlay) ──────── -->
+  <div id="graph-overlay" x-show="graphOpen" @keydown.escape.window="closeGraph()" x-ref="graphOverlay" style="display:none">
+    <div class="graph-header">
+      <span class="graph-title">Graph</span>
+      <select class="admin-add-input graph-vault-select" x-model="graphVault" @change="renderGraph()">
+        <option value="">All vaults</option>
+        <template x-for="v in vaults" :key="v">
+          <option :value="v" x-text="v"></option>
+        </template>
+      </select>
+      <span class="graph-stats" x-show="!graphLoading">
+        <span x-text="(_cy && _cy.nodes ? _cy.nodes().length : 0) + ' notes · ' + (_cy && _cy.edges ? _cy.edges().length : 0) + ' links'"></span>
+      </span>
+      <span class="graph-stats" x-show="graphLoading">Loading…</span>
+      <button class="btn-icon" @click="closeGraph()" title="Close">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+    <div id="graph-canvas"></div>
   </div>
 
   <!-- ─── Outline (right rail) ──────────────────── -->
@@ -1136,6 +1169,10 @@ function vaultApp() {
     backlinksOpen: false,
     outlineOpen: false,
     outlineActiveId: '',
+    graphOpen: false,
+    graphLoading: false,
+    graphVault: '',  // empty = all vaults
+    _cy: null,       // cytoscape instance
     frontmatterOpen: false,
     searchQuery: '',
     searchResults: [],
@@ -1887,6 +1924,110 @@ function vaultApp() {
       if (!raw) return 0
       const matches = raw.match(/\[\[[^\]\n]+\]\]/g)
       return matches ? matches.length : 0
+    },
+
+    // ── graph view ────────────────────────────────
+    async openGraph() {
+      this.graphVault = this.activeVault || ''
+      this.graphOpen = true
+      await this.$nextTick()
+      await this.renderGraph()
+    },
+    closeGraph() {
+      this.graphOpen = false
+      if (this._cy) {
+        try { this._cy.destroy() } catch(_) {}
+        this._cy = null
+      }
+    },
+    async renderGraph() {
+      if (typeof cytoscape === 'undefined') {
+        // Cytoscape lazy-loaded with `defer` — wait briefly.
+        for (let i = 0; i < 20 && typeof cytoscape === 'undefined'; i++) {
+          await new Promise(r => setTimeout(r, 100))
+        }
+        if (typeof cytoscape === 'undefined') {
+          console.error('cytoscape failed to load')
+          return
+        }
+      }
+      this.graphLoading = true
+      try {
+        const url = '/api/graph' + (this.graphVault ? '?vault=' + encodeURIComponent(this.graphVault) : '')
+        const r = await fetch(url)
+        if (!r.ok) return
+        const data = await r.json()
+        const elements = [
+          ...data.nodes.map(n => ({
+            data: { id: n.id, label: n.label, vault: n.vault, path: n.path, refs: n.refs },
+          })),
+          ...data.edges.map(e => ({
+            data: { id: e.id, source: e.source, target: e.target },
+          })),
+        ]
+        const container = document.getElementById('graph-canvas')
+        if (this._cy) { try { this._cy.destroy() } catch(_) {} }
+        // CSS variables resolved at runtime for theming
+        const styles = getComputedStyle(document.documentElement)
+        const accent = styles.getPropertyValue('--accent').trim() || '#b91c1c'
+        const text = styles.getPropertyValue('--text').trim() || '#1f1f1f'
+        const text3 = styles.getPropertyValue('--text3').trim() || '#888'
+        const bg2 = styles.getPropertyValue('--bg2').trim() || '#eee'
+        this._cy = cytoscape({
+          container,
+          elements,
+          style: [
+            { selector: 'node', style: {
+              'background-color': bg2,
+              'border-color': text3,
+              'border-width': 1,
+              'label': 'data(label)',
+              'color': text,
+              'font-size': 9,
+              'text-valign': 'bottom',
+              'text-margin-y': 3,
+              'text-wrap': 'ellipsis',
+              'text-max-width': 100,
+              'width': 'mapData(refs, 0, 20, 8, 32)',
+              'height': 'mapData(refs, 0, 20, 8, 32)',
+            }},
+            { selector: 'node[refs > 0]', style: {
+              'background-color': accent,
+              'border-color': accent,
+            }},
+            { selector: 'edge', style: {
+              'width': 1,
+              'line-color': text3,
+              'opacity': 0.4,
+              'curve-style': 'bezier',
+              'target-arrow-shape': 'none',
+            }},
+            { selector: 'node:selected', style: {
+              'border-width': 3,
+              'border-color': accent,
+            }},
+          ],
+          layout: {
+            name: 'cose',
+            idealEdgeLength: 80,
+            nodeRepulsion: 4000,
+            animate: false,
+            randomize: true,
+          },
+          minZoom: 0.1,
+          maxZoom: 4,
+          wheelSensitivity: 0.2,
+        })
+        this._cy.on('tap', 'node', evt => {
+          const data = evt.target.data()
+          this.closeGraph()
+          this.openNote(data.vault, data.path)
+        })
+      } catch(e) {
+        console.error('graph render:', e)
+      } finally {
+        this.graphLoading = false
+      }
     },
 
     // ── outline (table of contents) ───────────────
