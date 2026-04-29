@@ -2400,9 +2400,13 @@ function vaultApp() {
           dimAll()
         })
 
-        // After layout completes, fit the viewport to the whole graph (or
-        // pan/zoom-to-center for ego graphs).
+        // After the FIRST layout completes, fit the viewport. Subsequent
+        // layoutstops (from interactive reflows) leave the camera alone so
+        // dragging doesn't yank your viewport around.
+        let _firstLayoutDone = false
         this._cy.on('layoutstop', () => {
+          if (_firstLayoutDone) return
+          _firstLayoutDone = true
           if (this.graphCenter) {
             const c = this._cy.getElementById(this.graphCenter)
             if (c && c.length > 0) {
@@ -2415,6 +2419,26 @@ function vaultApp() {
             { duration: 500, easing: 'ease-out' })
         })
 
+
+        // Live reflow on drag — restart the cola simulation whenever the
+        // user grabs a node, so the rest of the graph re-settles around it.
+        // Default cola stops after maxSimulationTime; this kicks it back to
+        // life only on interaction (no idle CPU cost).
+        this._graphReflow = () => {
+          // Cancel any layout currently running, run a brief one.
+          if (this._graphLayoutInstance) {
+            try { this._graphLayoutInstance.stop() } catch(_) {}
+          }
+          const opts = this._graphLayoutOptions(nodeCount <= 30, nodeCount)
+          // Shorter simulation budget for interactive reflow — feels snappy.
+          opts.maxSimulationTime = 1500
+          opts.fit = false  // don't re-fit; user has positioned the camera
+          opts.randomize = false  // continue from current positions
+          this._graphLayoutInstance = this._cy.layout(opts)
+          this._graphLayoutInstance.run()
+        }
+        this._cy.on('grab', 'node', () => this._graphReflow())
+        this._cy.on('free', 'node', () => this._graphReflow())
 
         // Tap behavior: plain → open note, shift → re-center, cmd/ctrl → new tab.
         this._cy.on('tap', 'node', evt => {
