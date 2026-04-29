@@ -795,6 +795,24 @@ a.wikilink-missing {
   #outline { width: 100%; }
 }
 
+/* ── Pinned recents ──────────────────────────── */
+.recent-item.pinned,
+.fv-item.pinned {
+  background: linear-gradient(90deg, rgba(184,28,28,0.06), transparent 70%);
+}
+.recent-pin,
+.fv-pin {
+  display: inline-flex;
+  font-size: 11px;
+  margin-right: 4px;
+  flex-shrink: 0;
+  filter: grayscale(.3);
+}
+.recent-item.pinned .recent-title,
+.fv-item.pinned .fv-name {
+  font-weight: 600;
+}
+
 /* ── Wikilink autocomplete popup ───────────────── */
 #wiki-popup {
   position: fixed;

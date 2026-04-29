@@ -282,7 +282,8 @@
             <div class="recent-files">
               <p class="recent-label">Recent</p>
               <template x-for="r in recentFiles" :key="r.vault + r.path">
-                <div class="recent-item" @click="openNote(r.vault, r.path)">
+                <div class="recent-item" :class="{ pinned: r.pinned }" @click="openNote(r.vault, r.path)">
+                  <span class="recent-pin" x-show="r.pinned" title="Pinned">📌</span>
                   <span class="recent-vault" x-text="r.vault"></span>
                   <span class="recent-title" x-text="r.title || r.path.split('/').pop().replace(/\.md$/, '')"></span>
                 </div>
@@ -305,8 +306,9 @@
                   </div>
                   <div class="fv-list">
                     <template x-for="r in recentFiles" :key="r.vault + r.path">
-                      <div class="fv-item fv-item-note" @click="openNote(r.vault, r.path)">
-                        <svg class="fv-icon fv-icon-file" width="12" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                      <div class="fv-item fv-item-note" :class="{ pinned: r.pinned }" @click="openNote(r.vault, r.path)">
+                        <span x-show="r.pinned" class="fv-pin" title="Pinned">📌</span>
+                        <svg x-show="!r.pinned" class="fv-icon fv-icon-file" width="12" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
                         <span class="fv-name" x-text="r.title || r.path.split('/').pop().replace(/\.md$/, '')"></span>
                         <span class="fv-meta fv-vault" x-text="r.vault"></span>
                       </div>
@@ -1302,7 +1304,10 @@ function vaultApp() {
         if (this.vaults.length > 0) {
           this.activeVault = this.vaults[0]
           await this.enterDir(this.activeVault, '')
-          this.recentFiles = JSON.parse(localStorage.getItem(this._recentKey()) || '[]')
+          this.recentFiles = this._mergeRecentsWithPinned(
+          JSON.parse(localStorage.getItem(this._recentKey()) || '[]'),
+          JSON.parse(localStorage.getItem('vr-pinned-' + this.activeVault) || '[]'),
+        )
         }
       } catch(e) { console.error('init:', e) }
       // load status bar stats
@@ -1386,7 +1391,10 @@ function vaultApp() {
         this.allNodes = this.flattenTree(tree)
       } catch(e) { console.error('enterDir:', e) }
       if (vaultChanged) {
-        this.recentFiles = JSON.parse(localStorage.getItem(this._recentKey()) || '[]')
+        this.recentFiles = this._mergeRecentsWithPinned(
+          JSON.parse(localStorage.getItem(this._recentKey()) || '[]'),
+          JSON.parse(localStorage.getItem('vr-pinned-' + this.activeVault) || '[]'),
+        )
       }
     },
 
@@ -1968,9 +1976,23 @@ function vaultApp() {
       const key = 'vr-recent-' + vault
       const recent = JSON.parse(localStorage.getItem(key) || '[]')
       const filtered = recent.filter(r => r.path !== path)
-      const updated = [{ vault, path, title }, ...filtered].slice(0, 7)
+      const pinned = !!(this.noteFrontmatter && this.noteFrontmatter.pinned)
+      const updated = [{ vault, path, title, pinned }, ...filtered].slice(0, 7)
       localStorage.setItem(key, JSON.stringify(updated))
-      this.recentFiles = updated
+      // Maintain a separate pinned list keyed per vault, surviving recents churn.
+      const pinKey = 'vr-pinned-' + vault
+      let pinList = JSON.parse(localStorage.getItem(pinKey) || '[]')
+      pinList = pinList.filter(p => p.path !== path)
+      if (pinned) pinList = [{ vault, path, title }, ...pinList].slice(0, 20)
+      localStorage.setItem(pinKey, JSON.stringify(pinList))
+      this.recentFiles = this._mergeRecentsWithPinned(updated, pinList)
+    },
+    _mergeRecentsWithPinned(recents, pins) {
+      // Pins on top (with isPinned flag), then recents (de-duped against pins).
+      const pinPaths = new Set(pins.map(p => p.path))
+      const top = pins.map(p => ({ ...p, pinned: true }))
+      const tail = recents.filter(r => !pinPaths.has(r.path))
+      return [...top, ...tail].slice(0, 10)
     },
 
     // ── new menu toggle ───────────────────────────
