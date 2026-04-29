@@ -52,6 +52,7 @@ type TreeNode struct {
 	Name     string      `json:"name"`
 	Path     string      `json:"path"`
 	IsDir    bool        `json:"isDir"`
+	Ext      string      `json:"ext,omitempty"` // lowercase, with leading dot, "" for .md / dirs
 	MTime    int64       `json:"mtime"`
 	Size     int64       `json:"size"`
 	Children []*TreeNode `json:"children,omitempty"`
@@ -668,7 +669,10 @@ func buildTree(root, current string) ([]*TreeNode, error) {
 	}
 
 	var nodes []*TreeNode
-	// dirs first, then files
+	// dirs first, then files. Files include any non-skipped entry (not
+	// just .md) so the sidebar reflects the real folder contents — image
+	// attachments, PDFs, plaintext, etc. The frontend dispatches on Ext
+	// to render or download appropriately.
 	var dirs, files []os.DirEntry
 	for _, e := range entries {
 		if shouldSkip(e.Name()) {
@@ -676,7 +680,7 @@ func buildTree(root, current string) ([]*TreeNode, error) {
 		}
 		if e.IsDir() {
 			dirs = append(dirs, e)
-		} else if strings.HasSuffix(e.Name(), ".md") {
+		} else {
 			files = append(files, e)
 		}
 	}
@@ -703,10 +707,18 @@ func buildTree(root, current string) ([]*TreeNode, error) {
 			mtime = info.ModTime().Unix()
 			size = info.Size()
 		}
+		ext := strings.ToLower(filepath.Ext(e.Name()))
+		// Empty Ext for .md so existing frontend code paths that key on
+		// "no ext means note" stay correct without touching them.
+		jsonExt := ext
+		if ext == ".md" {
+			jsonExt = ""
+		}
 		nodes = append(nodes, &TreeNode{
 			Name:  e.Name(),
 			Path:  rel,
 			IsDir: false,
+			Ext:   jsonExt,
 			MTime: mtime,
 			Size:  size,
 		})

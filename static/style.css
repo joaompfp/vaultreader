@@ -407,6 +407,22 @@ body.sidebar-resizing * {
 .fl-dir .fl-icon { color: var(--accent); }
 .fl-file .fl-icon { color: var(--text3); }
 .fl-icon-dir { color: var(--accent); }
+/* Non-note rows: dimmer text + small extension chip on the right */
+.fl-non-note .fl-name { color: var(--text2); }
+.fl-non-note.active .fl-name { color: var(--text); }
+.fl-ext {
+  flex-shrink: 0;
+  margin-left: auto;
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: var(--text3);
+  background: var(--bg3);
+  padding: 1px 5px;
+  border-radius: 3px;
+}
+.fl-non-note.active .fl-ext { color: var(--accent); background: color-mix(in srgb, var(--accent) 12%, transparent); }
 
 /* ── Legacy tree (keep for compat) ───────────── */
 .tree-scroll { flex: 1; overflow-y: auto; }
@@ -775,6 +791,52 @@ body.sidebar-resizing * {
   margin-inline: auto;
   align-self: flex-start;
 }
+
+/* ── Inline file viewer (non-md attachments) ─── */
+#viewer {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  width: 100%;
+}
+.viewer-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+  color: var(--text2);
+  background: var(--bg2);
+}
+.viewer-name { font-family: var(--mono); font-size: 11px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 60ch; }
+.viewer-size { color: var(--text3); font-size: 11px; }
+.viewer-image {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  overflow: auto;
+  background: var(--bg2);
+}
+.viewer-image img { max-width: 100%; max-height: 100%; box-shadow: 0 4px 18px rgba(0,0,0,.18); border-radius: 4px; background: #fff; }
+.viewer-pdf { flex: 1; width: 100%; border: 0; background: var(--bg2); }
+.viewer-text {
+  flex: 1;
+  margin: 0;
+  padding: 16px 24px;
+  overflow: auto;
+  font-family: var(--mono);
+  font-size: 13px;
+  line-height: 1.5;
+  white-space: pre;
+  background: var(--bg);
+  color: var(--text);
+}
+.viewer-audio { margin: 24px auto; width: 80%; max-width: 600px; }
+.viewer-video { flex: 1; width: 100%; max-height: 100%; background: #000; }
 
 /* prose styles */
 #preview {

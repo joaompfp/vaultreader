@@ -4,6 +4,14 @@ All notable changes to VaultReader. Versioning is loose — there are no formal 
 
 Most-recent first.
 
+## 2026-04-29 — Sidebar lists non-md files; inline image/PDF/text viewer
+
+- **`buildTree` no longer filters by `.md`** — every non-skipped file appears in the sidebar with an extension chip on the right (e.g. "PNG", "PDF", "PY"). Note rows look as before (basename without `.md`); non-note rows show the full filename + chip.
+- **Inline file viewer** for non-`.md` items. Click an image/PDF/text file in the sidebar (or hit a deep URL like `/n/<vault>/path/to/img.png`) and the main pane swaps from markdown preview to a viewer panel with: file path + size header, an "Open" button to pop out, and the appropriate inline element. Supported: images (`png/jpg/gif/webp/svg/bmp/avif`), PDFs (browser-native via `<iframe>`), plaintext / source code (`txt/json/yaml/csv/log/ini/conf/toml/sh/py/js/ts/go/rs/css/html/xml/sql/env`), audio (`mp3/wav/ogg/flac/m4a/aac/opus`), video (`mp4/webm/mkv/mov/avi`).
+- **Unknown extensions** open in a new tab (`/api/file?…`) so the browser decides what to do — keeps the viewer palette small without cutting off less-common formats.
+- **`TreeNode` gains an `Ext` field** — empty for `.md` so existing frontend code paths keying on "no ext means note" stay correct without churn.
+- **Routing** (`_routePath`) now dispatches by extension: `.md` → `openNote`, supported types → `openViewer`, fallthrough → `openNote` (which 404s gracefully). Reload, back/forward, deep links, and bookmarks all work for non-md files too.
+
 ## 2026-04-29 — Copy/paste flows for agent workflows
 
 - **Copy button on every rendered code block** (top-right of each `<pre>`, fades in on hover). Click → copies the code text to clipboard with a brief tick. Idempotent: works after every render, plays nicely with the Mermaid replacement pass (skipped for mermaid blocks since they're swapped to SVG).

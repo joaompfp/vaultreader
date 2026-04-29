@@ -91,16 +91,20 @@
         </div>
       </template>
 
-      <!-- Files — draggable -->
+      <!-- Files — draggable. Both notes (.md) and other files (images,
+           PDFs, plaintext, etc.) appear here. Note rows show the basename
+           sans extension; non-note rows show the full filename and an
+           extension chip so it's clear what kind of file it is. -->
       <template x-for="item in currentFiles()" :key="item.path">
         <div class="fl-item fl-file"
-             :class="{ active: item.path === activePath, selected: isSelected(item.path) }"
+             :class="{ active: item.path === activePath, selected: isSelected(item.path), 'fl-non-note': item.ext }"
              draggable="true"
              @dragstart="handleSidebarDragStart($event, item)"
              @click="handleSidebarRowClick($event, item, false)"
              @contextmenu.prevent="openCtxMenu($event, item)">
           <svg class="fl-icon fl-icon-file" width="12" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-          <span class="fl-name" x-text="item.name.replace(/\.md$/, '')"></span>
+          <span class="fl-name" x-text="item.ext ? item.name : item.name.replace(/\.md$/, '')"></span>
+          <span class="fl-ext" x-show="item.ext" x-text="item.ext.replace(/^\./, '')"></span>
         </div>
       </template>
 
@@ -589,9 +593,9 @@
         </div>
       </template>
 
-      <!-- Preview mode -->
+      <!-- Preview mode (hidden when a non-md viewer is active) -->
       <div id="preview"
-           x-show="activePath && mode === 'preview'"
+           x-show="activePath && mode === 'preview' && !viewerKind"
            x-html="noteHtml"
            tabindex="-1"
            @click="handlePreviewClick($event)"
@@ -600,9 +604,43 @@
            @drop.prevent="handlePreviewDrop($event)">
       </div>
 
-      <!-- Editor mode -->
+      <!-- Inline viewer for non-md attachments (images, PDFs, plaintext,
+           audio, video). Shown when viewerKind is set; replaces the
+           markdown editor/preview. The actual file bytes come from
+           /api/file?vault=…&path=…, which is auth-gated by Authelia or
+           equivalent reverse-proxy auth. -->
+      <div id="viewer" x-show="viewerKind" tabindex="-1" style="display:none">
+        <div class="viewer-bar">
+          <span class="viewer-name" x-text="activePath"></span>
+          <span class="viewer-size" x-show="viewerSize" x-text="(viewerSize / 1024).toFixed(1) + ' KB'"></span>
+          <span style="flex:1"></span>
+          <a class="btn btn-sm" :href="'/api/file?vault=' + encodeURIComponent(activeVault) + '&path=' + encodeURIComponent(activePath)" target="_blank" rel="noopener" title="Open in new tab">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+            Open
+          </a>
+        </div>
+        <template x-if="viewerKind === 'image'">
+          <div class="viewer-image">
+            <img :src="'/api/file?vault=' + encodeURIComponent(activeVault) + '&path=' + encodeURIComponent(activePath)" :alt="activePath">
+          </div>
+        </template>
+        <template x-if="viewerKind === 'pdf'">
+          <iframe class="viewer-pdf" :src="'/api/file?vault=' + encodeURIComponent(activeVault) + '&path=' + encodeURIComponent(activePath)"></iframe>
+        </template>
+        <template x-if="viewerKind === 'text'">
+          <pre class="viewer-text" x-text="viewerText"></pre>
+        </template>
+        <template x-if="viewerKind === 'audio'">
+          <audio class="viewer-audio" controls preload="metadata" :src="'/api/file?vault=' + encodeURIComponent(activeVault) + '&path=' + encodeURIComponent(activePath)"></audio>
+        </template>
+        <template x-if="viewerKind === 'video'">
+          <video class="viewer-video" controls preload="metadata" :src="'/api/file?vault=' + encodeURIComponent(activeVault) + '&path=' + encodeURIComponent(activePath)"></video>
+        </template>
+      </div>
+
+      <!-- Editor mode (hidden when a non-md viewer is active) -->
       <div id="editor-wrap"
-           x-show="activePath && mode === 'edit'"
+           x-show="activePath && mode === 'edit' && !viewerKind"
            style="display:none">
 
         <!-- ─── Editor toolbar ─────────────────── -->
@@ -1586,6 +1624,13 @@ function vaultApp() {
     copyLinkDone: false,
     copyPathDone: false,
     copyBodyDone: false,
+    // Inline file viewer (non-md attachments). viewerKind in
+    // {'', 'image', 'pdf', 'text', 'audio', 'video'} — '' means the
+    // markdown panes are active.
+    viewerKind: '',
+    viewerSize: 0,
+    viewerMTime: 0,
+    viewerText: '',
     // modal dialog
     modal: { open: false, title: '', body: '', value: '', placeholder: '', error: '', confirmLabel: 'OK', confirmOnly: false, danger: false, onConfirm: null, secondaryLabel: '', onSecondary: null },
     _conflictDiskRaw: '',
@@ -2069,6 +2114,18 @@ function vaultApp() {
       if (!this.vaults.includes(vault) || this.activeVault !== vault) {
         await this.enterDir(vault, '')
       }
+      // Dispatch by extension: .md → openNote, others → openViewer (when
+      // the type is supported) or fall through to openNote (which will
+      // 404 from the API and show the standard "missing" state).
+      const lastDot = path.lastIndexOf('.')
+      const ext = lastDot >= 0 ? path.slice(lastDot).toLowerCase() : ''
+      if (ext && ext !== '.md') {
+        const kind = this._viewerKindFor(ext)
+        if (kind) {
+          await this.openViewer(vault, path, kind, 0, 0)
+          return true
+        }
+      }
       await this.openNote(vault, path)
       return true
     },
@@ -2243,7 +2300,7 @@ function vaultApp() {
       this.bulkSelected = []
       this._lastSelectedPath = ''
       if (isFolder) this.enterDir(this.activeVault, item.path)
-      else this.openNote(this.activeVault, item.path)
+      else this.openItem(this.activeVault, item)
     },
     clearSelection() {
       this.bulkSelected = []
@@ -2441,7 +2498,79 @@ function vaultApp() {
       })
     },
 
+    // Dispatch a click on any sidebar item to the right opener:
+    //   - .md  → openNote (markdown editor + preview)
+    //   - image/pdf/text/audio/video  → openViewer (inline pane)
+    //   - everything else  → download in a new tab
+    // Lets the sidebar list non-note files without forcing every click
+    // through the markdown pipeline.
+    openItem(vault, item) {
+      const ext = (item.ext || '').toLowerCase()
+      if (!ext) {
+        // .md note (server emits "" for ext on .md so existing paths
+        // that key on "no ext means note" stay correct).
+        return this.openNote(vault, item.path)
+      }
+      const kind = this._viewerKindFor(ext)
+      if (kind) {
+        return this.openViewer(vault, item.path, kind, item.size, item.mtime)
+      }
+      // Unknown type — open the file URL in a new tab so the browser
+      // decides what to do with it (download / use a plugin).
+      window.open('/api/file?vault=' + encodeURIComponent(vault) +
+        '&path=' + encodeURIComponent(item.path), '_blank', 'noopener')
+    },
+
+    _viewerKindFor(ext) {
+      if (/^\.(png|jpe?g|gif|webp|svg|bmp|avif)$/i.test(ext)) return 'image'
+      if (ext === '.pdf') return 'pdf'
+      if (/^\.(txt|json|yaml|yml|csv|tsv|log|ini|conf|toml|sh|py|js|ts|tsx|jsx|go|rs|java|c|cpp|h|hpp|css|scss|html|xml|sql|env)$/i.test(ext)) return 'text'
+      if (/^\.(mp3|wav|ogg|flac|m4a|aac|opus)$/i.test(ext)) return 'audio'
+      if (/^\.(mp4|webm|mkv|mov|avi)$/i.test(ext)) return 'video'
+      return null
+    },
+
+    async openViewer(vault, path, kind, size, mtime) {
+      // Same URL-pushing behaviour as openNote so reload/back/forward work.
+      const targetURL = this._noteURL(vault, path)
+      if (window.location.pathname !== targetURL) {
+        window.history.pushState({ vault, path }, '', targetURL)
+      }
+      this.activeVault = vault
+      this.activePath = path
+      this.viewerKind = kind
+      this.viewerSize = size || 0
+      this.viewerMTime = mtime || 0
+      this.viewerText = ''
+      this.frontmatterOpen = false
+      this.searchOpen = false
+      // Clear note-specific state so the markdown pane stays hidden.
+      this.noteRaw = ''
+      this.noteHtml = ''
+      this.noteFrontmatter = {}
+      this.backlinks = []
+      // Adjust cwd to the file's parent folder.
+      const parts = path.split('/'); parts.pop(); this.cwd = parts.join('/')
+      if (window.innerWidth <= 700) this.sidebarOpen = false
+      // For text-like files, fetch the body so we can render in <pre>.
+      if (kind === 'text') {
+        try {
+          const r = await fetch('/api/file?vault=' + encodeURIComponent(vault) +
+            '&path=' + encodeURIComponent(path))
+          this.viewerText = r.ok ? await r.text() : '(failed to load)'
+        } catch(e) { this.viewerText = '(error: ' + e.message + ')' }
+      }
+      this._recordRecent(vault, path, path.split('/').pop())
+    },
+
+    closeViewer() {
+      this.viewerKind = ''
+      this.viewerText = ''
+    },
+
     async openNote(vault, path) {
+      // Clear any active non-md viewer so the markdown panes show.
+      if (this.viewerKind) this.closeViewer()
       // Push a real URL so reload, back/forward, bookmarks, and right-click
       // "open in new tab" all work. Skip pushing if we're already on this
       // exact URL (e.g. when invoked from popstate).
