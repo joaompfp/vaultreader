@@ -720,6 +720,91 @@ a.wikilink-missing {
   #editor-toolbar { display: none; }
 }
 
+/* ── Tags overlay ─────────────────────────────── */
+#tags-overlay {
+  position: fixed; inset: 0; z-index: 750;
+  background: rgba(0,0,0,0.35);
+}
+.tags-box {
+  position: absolute;
+  top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  width: 600px;
+  max-width: calc(100vw - 32px);
+  max-height: 80vh;
+  box-shadow: 0 8px 32px rgba(0,0,0,.25);
+  display: flex; flex-direction: column;
+  overflow: hidden;
+}
+.tags-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg2);
+  flex-shrink: 0;
+}
+.tags-title {
+  font-weight: 700;
+  font-size: 13px;
+  color: var(--text);
+}
+.tags-filter-input {
+  flex: 1;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 5px 8px;
+  font-size: 12px;
+  color: var(--text);
+  font-family: inherit;
+}
+.tags-cloud {
+  flex: 1;
+  overflow-y: auto;
+  padding: 14px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-content: flex-start;
+}
+.tag-cloud-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 12px;
+  color: var(--text2);
+  cursor: pointer;
+  font-family: inherit;
+  transition: background var(--transition), color var(--transition), border-color var(--transition);
+}
+.tag-cloud-item:hover {
+  background: var(--accent);
+  color: var(--bg);
+  border-color: var(--accent);
+}
+.tag-cloud-count {
+  background: var(--bg3);
+  color: var(--text3);
+  border-radius: 999px;
+  font-size: 10px;
+  padding: 1px 6px;
+  font-weight: 600;
+  font-family: var(--mono);
+}
+.tag-cloud-item:hover .tag-cloud-count {
+  background: var(--bg);
+  color: var(--accent);
+}
+
 /* ── Graph view (full-screen) ──────────────────── */
 #graph-overlay {
   position: fixed;

@@ -221,6 +221,13 @@
         </svg>
       </button>
 
+      <button class="btn-icon" :class="{ active: tagsOpen }" @click="openTags()" title="Tags">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/>
+          <line x1="7" y1="7" x2="7.01" y2="7"/>
+        </svg>
+      </button>
+
       <button class="btn-icon" @click="toggleDark()" :title="darkMode ? 'Light mode' : 'Dark mode'" style="padding:6px">
         <!-- Sun (shown in dark mode, click for light) -->
         <svg x-show="darkMode" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -450,6 +457,38 @@
         <div id="cm-editor"></div>
       </div>
 
+    </div>
+  </div>
+
+  <!-- ─── Tags overlay ──────────────────────────── -->
+  <div id="tags-overlay" x-show="tagsOpen" @click.self="closeTags()"
+       @keydown.escape.window="closeTags()" x-ref="tagsOverlay" style="display:none">
+    <div class="tags-box" @click.stop>
+      <div class="tags-header">
+        <span class="tags-title">Tags</span>
+        <input class="tags-filter-input" type="text" placeholder="Filter tags..."
+               x-model="tagsFilter" autocomplete="off">
+        <span class="settings-hint" x-show="!tagsLoading"
+              x-text="filteredTags().length + ' / ' + tagsList.length"></span>
+        <span class="settings-hint" x-show="tagsLoading">Loading…</span>
+        <button class="btn-icon" @click="closeTags()" title="Close">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+      <div class="tags-cloud">
+        <template x-for="t in filteredTags()" :key="t.tag">
+          <button class="tag-cloud-item" @click="selectTag(t.tag)" :title="'Used in ' + t.count + ' note' + (t.count === 1 ? '' : 's') + ' across ' + t.vaults.join(', ')">
+            <span class="tag-cloud-name" x-text="t.tag"></span>
+            <span class="tag-cloud-count" x-text="t.count"></span>
+          </button>
+        </template>
+        <template x-if="!tagsLoading && tagsList.length === 0">
+          <div class="settings-empty">No tags found in any note's frontmatter.</div>
+        </template>
+        <template x-if="!tagsLoading && tagsList.length > 0 && filteredTags().length === 0">
+          <div class="settings-empty">No tags match "<span x-text="tagsFilter"></span>"</div>
+        </template>
+      </div>
     </div>
   </div>
 
@@ -1173,6 +1212,10 @@ function vaultApp() {
     graphLoading: false,
     graphVault: '',  // empty = all vaults
     _cy: null,       // cytoscape instance
+    tagsOpen: false,
+    tagsLoading: false,
+    tagsList: [],
+    tagsFilter: '',
     frontmatterOpen: false,
     searchQuery: '',
     searchResults: [],
@@ -1924,6 +1967,34 @@ function vaultApp() {
       if (!raw) return 0
       const matches = raw.match(/\[\[[^\]\n]+\]\]/g)
       return matches ? matches.length : 0
+    },
+
+    // ── tags ──────────────────────────────────────
+    async openTags() {
+      this.tagsOpen = true
+      this.tagsLoading = true
+      this.tagsFilter = ''
+      try {
+        const r = await fetch('/api/tags')
+        if (!r.ok) { this.tagsList = []; return }
+        const data = await r.json()
+        this.tagsList = data.tags || []
+      } catch(e) {
+        console.error('tags fetch:', e)
+        this.tagsList = []
+      } finally {
+        this.tagsLoading = false
+      }
+    },
+    closeTags() { this.tagsOpen = false },
+    filteredTags() {
+      const q = (this.tagsFilter || '').toLowerCase().trim()
+      if (!q) return this.tagsList
+      return this.tagsList.filter(t => t.tag.toLowerCase().includes(q))
+    },
+    selectTag(tag) {
+      this.closeTags()
+      this.chipSearch(tag)
     },
 
     // ── graph view ────────────────────────────────
