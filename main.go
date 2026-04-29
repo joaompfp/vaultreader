@@ -1385,7 +1385,7 @@ func (s *server) handleShareView(w http.ResponseWriter, r *http.Request) {
 	body = expandEmbeds(body, e.Vault, e.Path, s.idx, s.vaultsDir)
 	var buf bytes.Buffer
 	_ = md.Convert([]byte(body), &buf)
-	renderedHTML := rewriteShareImageURLs(buf.String(), token)
+	renderedHTML := rewriteShareImageURLs(buf.String(), e.Path)
 
 	expiresStr := "Never"
 	if e.ExpiresAt > 0 { expiresStr = time.Unix(e.ExpiresAt, 0).Format("2 Jan 2006 15:04") }
@@ -1400,21 +1400,29 @@ func (s *server) handleShareView(w http.ResponseWriter, r *http.Request) {
 		strings.Contains(renderedHTML, "\\(") ||
 		strings.Contains(renderedHTML, "\\[")
 
+	// All asset/file URLs below are emitted as path-relative ("asset?…",
+	// "file?…") so they resolve against the page's <base href>. That keeps
+	// the share page working under both `/share/<token>` and the proxy
+	// alias `/notas/<token>` without baking the prefix into the HTML.
 	headExtra := ""
 	bodyExtra := ""
 	if wantsMath {
-		headExtra += `<link rel="stylesheet" href="/share/` + token + `/asset?name=katex.min.css">`
-		bodyExtra += `<script src="/share/` + token + `/asset?name=katex.min.js"></script>` +
-			`<script src="/share/` + token + `/asset?name=katex-auto-render.min.js"></script>` +
+		headExtra += `<link rel="stylesheet" href="asset?name=katex.min.css">`
+		bodyExtra += `<script src="asset?name=katex.min.js"></script>` +
+			`<script src="asset?name=katex-auto-render.min.js"></script>` +
 			`<script>document.addEventListener('DOMContentLoaded',function(){renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'\\(',right:'\\)',display:false},{left:'\\[',right:'\\]',display:true}],throwOnError:false});});</script>`
 	}
 	if wantsMermaid {
-		bodyExtra += `<script src="/share/` + token + `/asset?name=mermaid.min.js"></script>` +
+		bodyExtra += `<script src="asset?name=mermaid.min.js"></script>` +
 			`<script>document.addEventListener('DOMContentLoaded',async function(){if(typeof mermaid==='undefined')return;await mermaid.initialize({startOnLoad:false});const els=Array.from(document.querySelectorAll('pre code.language-mermaid'));for(const el of els){const code=el.textContent||'';const pre=el.closest('pre');if(!pre)continue;const div=document.createElement('div');div.className='mermaid';pre.replaceWith(div);try{const{svg}=await mermaid.render('shm-'+Date.now()+Math.random().toString(36).slice(2),code);div.innerHTML=svg;}catch(e){div.innerHTML='<pre style=\"color:#b91c1c\">'+e.message+'</pre>';}}});</script>`
 	}
 
+	// <base href="<token>/"> makes relative URLs in the page resolve to
+	// `…/<token>/file?…` and `…/<token>/asset?…` regardless of whether
+	// the page was reached via `/share/<token>` or `/notas/<token>`.
 	page := fmt.Sprintf(`<!DOCTYPE html>
 <html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<base href="%s/">
 <title>%s</title><style>
 :root{--ac:#b91c1c;--t:#1a1a1a;--t2:#555;--t3:#888;--bd:#e0e0e0;--bg:#fff;--bg2:#f5f5f5}
 @media(prefers-color-scheme:dark){:root{--t:#cdd6f4;--t2:#a6adc8;--t3:#6c7086;--bd:#45475a;--bg:#1e1e2e;--bg2:#181825}}
@@ -1437,7 +1445,7 @@ img{max-width:100%%}hr{border:none;border-top:1px solid var(--bd);margin:1.5em 0
 <span style="flex:1"></span><a href="https://notes.joao.date" style="color:var(--t3);font-size:11px">VaultReader</a></div>
 <div class="content">%s</div>
 <div class="foot">Shared via <a href="https://notes.joao.date">VaultReader</a></div>
-%s</body></html>`, title, headExtra, title, modeCls, modeStr, expiresStr, renderedHTML, bodyExtra)
+%s</body></html>`, token, title, headExtra, title, modeCls, modeStr, expiresStr, renderedHTML, bodyExtra)
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Write([]byte(page))
@@ -1545,18 +1553,32 @@ func (s *server) handleShareFile(w http.ResponseWriter, r *http.Request, e *Shar
 }
 
 // rewriteShareImageURLs replaces inline `<img src="/api/file?...">` URLs
-// emitted by goldmark with `/share/<token>/file?path=...` so embeds load
-// under the share's auth context instead of the gated /api namespace.
+// emitted by goldmark with relative `file?path=...` URLs that resolve
+// against the page's <base href> (set to "<token>/"). Two image-source
+// shapes are rewritten:
 //
-// Goldmark HTML-escapes the `&` between query args to `&amp;`, so the
-// attribute looks like: src="/api/file?vault=X&amp;path=Y". The regex
-// matches that variant.
-func rewriteShareImageURLs(html, token string) string {
-	re := regexp.MustCompile(`src="(/api/file\?[^"]+)"`)
-	return re.ReplaceAllStringFunc(html, func(match string) string {
+//  1. `/api/file?vault=X&path=Y` — emitted by expandEmbeds for `![[…]]`
+//     wikilink embeds. Goldmark HTML-escapes the `&`, so the attribute
+//     looks like `src="/api/file?vault=X&amp;path=Y"`.
+//
+//  2. Plain markdown image paths `![alt](path/to/img.jpg)` — goldmark
+//     emits these as `src="path/to/img.jpg"`, which the share page
+//     would otherwise resolve against `/notas/` (the proxy prefix) and
+//     404. Rewrite to `file?path=<vault-relative-path>` so the asset
+//     comes out of the share's vault.
+//
+// Using path-relative URLs (no leading slash, no /share/<token>/ prefix)
+// is what makes the share page work under both `/share/<token>` and the
+// public `/notas/<token>` Traefik alias — the <base href> tag picks up
+// whichever prefix the user came in on.
+func rewriteShareImageURLs(html, notePath string) string {
+	noteDir := filepath.Dir(notePath)
+
+	// Pass 1: rewrite `/api/file?vault=X&path=Y` (with optional `&amp;`).
+	reAPI := regexp.MustCompile(`src="(/api/file\?[^"]+)"`)
+	html = reAPI.ReplaceAllStringFunc(html, func(match string) string {
 		quoted := strings.TrimPrefix(match, `src="`)
 		quoted = strings.TrimSuffix(quoted, `"`)
-		// Decode HTML entities (just `&amp;` → `&` is enough here).
 		unescaped := strings.ReplaceAll(quoted, "&amp;", "&")
 		u, err := url.Parse(unescaped)
 		if err != nil {
@@ -1566,8 +1588,42 @@ func rewriteShareImageURLs(html, token string) string {
 		if p == "" {
 			return match
 		}
-		return fmt.Sprintf(`src="/share/%s/file?path=%s"`, token, urlEscape(p))
+		return fmt.Sprintf(`src="file?path=%s"`, urlEscape(p))
 	})
+
+	// Pass 2: rewrite plain markdown image refs whose src is neither
+	// absolute (http://, https://, /…) nor data: nor already pointing at
+	// our share endpoint. These are vault-relative or note-relative
+	// filesystem paths from `![alt](path)` syntax.
+	reImg := regexp.MustCompile(`src="([^"]+)"`)
+	html = reImg.ReplaceAllStringFunc(html, func(match string) string {
+		quoted := strings.TrimPrefix(match, `src="`)
+		quoted = strings.TrimSuffix(quoted, `"`)
+		// Skip already-rewritten, absolute, scheme-bearing, data:, or
+		// fragment-only refs.
+		if strings.HasPrefix(quoted, "file?") ||
+			strings.HasPrefix(quoted, "/") ||
+			strings.HasPrefix(quoted, "#") ||
+			strings.Contains(quoted, "://") ||
+			strings.HasPrefix(quoted, "data:") ||
+			strings.HasPrefix(quoted, "mailto:") {
+			return match
+		}
+		decoded, err := url.QueryUnescape(strings.ReplaceAll(quoted, "&amp;", "&"))
+		if err != nil {
+			decoded = quoted
+		}
+		// Resolve the markdown-image path against the note's directory
+		// (matches Obsidian's "shortest path when possible" — explicit
+		// relative paths win). filepath.Join + Clean handles `../` walks.
+		joined := filepath.Clean(filepath.Join(noteDir, decoded))
+		if strings.HasPrefix(joined, "..") {
+			return match
+		}
+		return fmt.Sprintf(`src="file?path=%s"`, urlEscape(joined))
+	})
+
+	return html
 }
 
 // handleFile serves an arbitrary file from inside a vault. Used by image

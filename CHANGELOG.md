@@ -4,6 +4,11 @@ All notable changes to VaultReader. Versioning is loose — there are no formal 
 
 Most-recent first.
 
+## 2026-04-29 — Shared-note image rendering
+
+- **Fix: images broken in shared notes accessed via `/notas/<token>` proxy alias.** The rewriter was emitting absolute `/share/<token>/file?…` URLs; on the public `joao.date` host the `/share/*` path has no Traefik route, so every embed 404'd. Switched to path-relative URLs (`file?path=…` + `asset?name=…`) anchored to a `<base href="<token>/">` tag. Works under both `/share/<token>` and `/notas/<token>` without the server needing to know the proxy prefix.
+- **Plain markdown images now resolved against the note directory.** Previously only Obsidian wikilink embeds (`![[img.png]]`) reached the share-file route — `![alt](sub/img.png)` syntax leaked the literal `sub/img.png` href, which the browser tried against `/notas/...` and 404'd. Now both forms route through `file?path=…`. Fixes embeds in notes that use vanilla markdown image syntax (e.g. converted-from-PDF reports).
+
 ## 2026-04-29/30 — Polish wave (Tiers 1–4)
 
 A second wave of work driven by daily-use feedback. Twenty-plus features and fixes across a single user session, mostly small and ergonomic. Rolled out in four "tiers" (the planning rationale is captured in commit messages).
