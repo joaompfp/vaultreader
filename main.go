@@ -2112,13 +2112,19 @@ func (s *server) handleTrashEmpty(w http.ResponseWriter, r *http.Request) {
 
 // AttachmentItem is one image file in a vault, with metadata + reference count.
 type AttachmentItem struct {
-	Vault    string `json:"vault"`
-	Path     string `json:"path"`
-	Name     string `json:"name"`
-	Size     int64  `json:"size"`
-	MTime    int64  `json:"mtime"`
-	Ext      string `json:"ext"`
-	RefCount int    `json:"refCount"`
+	Vault    string             `json:"vault"`
+	Path     string             `json:"path"`
+	Name     string             `json:"name"`
+	Size     int64              `json:"size"`
+	MTime    int64              `json:"mtime"`
+	Ext      string             `json:"ext"`
+	RefCount int                `json:"refCount"`
+	Refs     []AttachmentRef    `json:"refs,omitempty"` // referencing notes (cap 8)
+}
+
+type AttachmentRef struct {
+	Path  string `json:"path"`
+	Title string `json:"title"`
 }
 
 var imageExtensions = map[string]bool{
@@ -2204,6 +2210,12 @@ func (s *server) handleAttachments(w http.ResponseWriter, r *http.Request) {
 	//   - any suffix of the vault-relative path ("subdir/foo.png", "full/path/foo.png")
 	// We try all suffixes plus also ![alt](path) for standard markdown images.
 	refByImage := map[string]int{}
+	// Per-image: count + a list of referencing note paths (capped). We
+	// also need note titles for display — extract first-H1 (or fall back
+	// to the basename) from each matched note's content.
+	refsByImage := map[string][]AttachmentRef{}
+	const refsCap = 8
+
 	for imgRel := range imageInfo {
 		segs := strings.Split(imgRel, string(os.PathSeparator))
 		base := segs[len(segs)-1]
@@ -2222,15 +2234,24 @@ func (s *server) handleAttachments(w http.ResponseWriter, r *http.Request) {
 			)
 		}
 		count := 0
-		for _, content := range mdContents {
+		var refs []AttachmentRef
+		for notePath, content := range mdContents {
 			for _, pat := range patterns {
 				if strings.Contains(content, pat) {
 					count++
+					if len(refs) < refsCap {
+						_, body := parseFrontmatter(content)
+						title := extractTitle(body, notePath)
+						refs = append(refs, AttachmentRef{Path: notePath, Title: title})
+					}
 					break
 				}
 			}
 		}
 		refByImage[imgRel] = count
+		if len(refs) > 0 {
+			refsByImage[imgRel] = refs
+		}
 	}
 
 	for _, rel := range imagePaths {
@@ -2243,6 +2264,7 @@ func (s *server) handleAttachments(w http.ResponseWriter, r *http.Request) {
 			MTime:    info.ModTime().Unix(),
 			Ext:      strings.ToLower(filepath.Ext(rel)),
 			RefCount: refByImage[rel],
+			Refs:     refsByImage[rel],
 		})
 	}
 

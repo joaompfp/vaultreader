@@ -135,7 +135,14 @@
         </template>
       </div>
 
-      <span x-show="saveStatus" :class="'save-status ' + saveStatus" x-text="saveStatusText()"></span>
+      <span x-show="saveStatus"
+            x-transition:enter="save-status-anim"
+            x-transition:enter-start="save-status-fade-start"
+            x-transition:enter-end="save-status-fade-end"
+            x-transition:leave="save-status-anim"
+            x-transition:leave-start="save-status-fade-end"
+            x-transition:leave-end="save-status-fade-start"
+            :class="'save-status ' + saveStatus" x-text="saveStatusText()"></span>
 
       <template x-if="activeVault">
         <div class="btn-new-wrap">
@@ -286,7 +293,14 @@
             </template>
           </div>
         </div>
-        <div x-show="frontmatterOpen" x-transition class="fm-content">
+        <div x-show="frontmatterOpen"
+             x-transition:enter="fm-anim-enter"
+             x-transition:enter-start="fm-anim-enter-start"
+             x-transition:enter-end="fm-anim-enter-end"
+             x-transition:leave="fm-anim-leave"
+             x-transition:leave-start="fm-anim-leave-start"
+             x-transition:leave-end="fm-anim-leave-end"
+             class="fm-content">
           <template x-for="[key, val] in Object.entries(noteFrontmatter)" :key="key">
             <div class="fm-field">
               <span class="fm-key" x-text="key + ':'"></span>
@@ -492,7 +506,7 @@
                x-model="tagsFilter" autocomplete="off">
         <span class="settings-hint" x-show="!tagsLoading"
               x-text="filteredTags().length + ' / ' + tagsList.length"></span>
-        <span class="settings-hint" x-show="tagsLoading">Loading…</span>
+        <span class="spinner-row" x-show="tagsLoading"><span class="spinner"></span> Loading…</span>
         <button class="btn-icon" @click="closeTags()" title="Close">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
         </button>
@@ -549,7 +563,7 @@
       <span class="graph-stats" x-show="!graphLoading">
         <span x-text="(_cy && _cy.nodes ? _cy.nodes().length : 0) + ' notes · ' + (_cy && _cy.edges ? _cy.edges().length : 0) + ' links'"></span>
       </span>
-      <span class="graph-stats" x-show="graphLoading">Loading…</span>
+      <span class="spinner-row" x-show="graphLoading"><span class="spinner"></span> Loading…</span>
       <button class="btn-icon" @click="closeGraph()" title="Close">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
       </button>
@@ -999,7 +1013,7 @@
           </div>
           <span class="settings-hint" x-show="!attachmentsLoading"
                 x-text="filteredAttachments().length + ' / ' + attachments.length"></span>
-          <span class="settings-hint" x-show="attachmentsLoading">Loading…</span>
+          <span class="spinner-row" x-show="attachmentsLoading"><span class="spinner"></span> Loading…</span>
         </div>
         <div class="settings-action-row" x-show="attachments.filter(a => a.refCount === 0).length > 0">
           <span class="settings-hint" style="color: var(--accent)"
@@ -1019,9 +1033,20 @@
                   <span x-text="_formatSize(a.size)"></span>
                   <span class="att-dot">·</span>
                   <span x-text="_relativeTime(a.mtime)"></span>
-                  <span class="att-dot">·</span>
-                  <span x-show="a.refCount > 0" class="att-refs" x-text="a.refCount + ' ref' + (a.refCount === 1 ? '' : 's')"></span>
-                  <span x-show="a.refCount === 0" class="att-orphan-tag">orphan</span>
+                  <template x-if="a.refCount === 0">
+                    <span><span class="att-dot">·</span><span class="att-orphan-tag">orphan</span></span>
+                  </template>
+                </div>
+                <!-- Referencing notes — clickable chip per ref. Caps at 8. -->
+                <div class="att-refnotes" x-show="a.refs && a.refs.length > 0">
+                  <template x-for="ref in a.refs" :key="ref.path">
+                    <button class="att-refnote"
+                            :title="ref.path"
+                            @click.stop="settingsOpen = false; openNote(a.vault, ref.path)"
+                            x-text="ref.title || ref.path.split('/').pop().replace(/\.md$/, '')"></button>
+                  </template>
+                  <span class="att-refnote-more" x-show="a.refCount > a.refs.length"
+                        x-text="'+ ' + (a.refCount - a.refs.length) + ' more'"></span>
                 </div>
               </div>
               <button class="att-del" @click="deleteAttachment(a)" title="Delete">✕</button>

@@ -66,6 +66,41 @@
 /* ── Reset / Base ────────────────────────────── */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
+/* ── Spinner (used wherever we'd show "Loading…") ── */
+.spinner {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border: 1.5px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: vr-spin 0.8s linear infinite;
+  vertical-align: -2px;
+}
+.spinner-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text3);
+}
+@keyframes vr-spin {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+
+/* Modal/overlay entrance — subtle scale-in over 140ms.
+   Two keyframes: one that includes the centered translate (for boxes
+   positioned with translate(-50%, -50%)), one for non-centered boxes. */
+@keyframes vr-pop-in {
+  from { opacity: 0; transform: scale(0.96); }
+  to   { opacity: 1; transform: scale(1); }
+}
+@keyframes vr-pop-in-centered {
+  from { opacity: 0; transform: translate(-50%, -50%) scale(0.96); }
+  to   { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+}
+
 html, body {
   height: 100%;
   font-family: var(--font);
@@ -490,7 +525,22 @@ body.sidebar-resizing * {
   flex-direction: column;
   gap: 4px;
   border-top: 1px solid var(--border);
+  overflow: hidden;
 }
+
+/* Save-status fade — gentle 250ms enter/leave so "✓ Saved" doesn't snap out */
+.save-status-anim { transition: opacity 250ms ease, transform 250ms ease; }
+.save-status-fade-start { opacity: 0; transform: translateY(-2px); }
+.save-status-fade-end   { opacity: 1; transform: none; }
+
+/* Frontmatter panel expand/collapse */
+.fm-anim-enter, .fm-anim-leave {
+  transition: max-height 220ms ease, opacity 180ms ease;
+}
+.fm-anim-enter-start { max-height: 0; opacity: 0; }
+.fm-anim-enter-end   { max-height: 600px; opacity: 1; }
+.fm-anim-leave-start { max-height: 600px; opacity: 1; }
+.fm-anim-leave-end   { max-height: 0; opacity: 0; }
 .fm-field {
   display: flex;
   gap: 8px;
@@ -756,6 +806,7 @@ a.wikilink-missing {
   position: absolute;
   top: 50%; left: 50%;
   transform: translate(-50%, -50%);
+  animation: vr-pop-in-centered 140ms ease-out;
   background: var(--bg);
   border: 1px solid var(--border);
   border-radius: 10px;
@@ -1517,6 +1568,7 @@ mark {
   position: absolute;
   top: 50%; left: 50%;
   transform: translate(-50%, -50%);
+  animation: vr-pop-in-centered 140ms ease-out;
   background: var(--bg);
   border: 1px solid var(--border);
   border-radius: 10px;
@@ -1665,6 +1717,40 @@ mark {
 }
 .att-dot { opacity: .5; }
 .att-refs { color: var(--text2); }
+.att-refnotes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+}
+.att-refnote {
+  display: inline-flex;
+  align-items: center;
+  background: var(--bg);
+  color: var(--text2);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 1px 8px;
+  font-size: 10px;
+  font-family: inherit;
+  cursor: pointer;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition: background var(--transition), color var(--transition), border-color var(--transition);
+}
+.att-refnote:hover {
+  background: var(--accent);
+  color: var(--bg);
+  border-color: var(--accent);
+}
+.att-refnote-more {
+  font-size: 10px;
+  color: var(--text3);
+  font-style: italic;
+  align-self: center;
+}
 .att-orphan-tag {
   color: var(--accent);
   font-weight: 600;
@@ -1755,6 +1841,7 @@ mark {
   max-width: 92vw;
   display: flex; flex-direction: column; gap: 14px;
   box-shadow: 0 12px 40px rgba(0,0,0,.45);
+  animation: vr-pop-in 140ms ease-out;
 }
 .modal-title {
   font-size: 16px; font-weight: 700;
