@@ -544,7 +544,7 @@
        style="display:none">
     <div class="modal-box">
       <div class="modal-title" x-text="modal.title"></div>
-      <div class="modal-body" x-show="modal.body" x-text="modal.body"></div>
+      <div class="modal-body" x-show="modal.body" x-text="modal.body" style="white-space: pre-line"></div>
       <input class="modal-input" type="text"
              x-show="!modal.confirmOnly"
              x-model="modal.value"
@@ -555,6 +555,7 @@
       <div class="modal-error" x-show="modal.error" x-text="modal.error"></div>
       <div class="modal-actions">
         <button class="btn" @click="modal.open = false">Cancel</button>
+        <button class="btn" x-show="modal.secondaryLabel" @click="if (modal.onSecondary) modal.onSecondary(); modal.open = false" x-text="modal.secondaryLabel"></button>
         <button class="btn btn-primary" :class="modal.danger ? 'btn-danger' : ''" @click="confirmModal()" x-text="modal.confirmLabel || 'OK'"></button>
       </div>
     </div>
@@ -1124,7 +1125,9 @@ function vaultApp() {
     // copy link
     copyLinkDone: false,
     // modal dialog
-    modal: { open: false, title: '', body: '', value: '', placeholder: '', error: '', confirmLabel: 'OK', confirmOnly: false, danger: false, onConfirm: null },
+    modal: { open: false, title: '', body: '', value: '', placeholder: '', error: '', confirmLabel: 'OK', confirmOnly: false, danger: false, onConfirm: null, secondaryLabel: '', onSecondary: null },
+    _conflictDiskRaw: '',
+    _conflictDiskMtime: 0,
     // context menu
     ctxMenu: { open: false, x: 0, y: 0, items: [] },
     // new item dropdown
@@ -1888,18 +1891,33 @@ function vaultApp() {
       this.saveTimer = setTimeout(() => this.saveNow(), 1500)
     },
 
-    async saveNow() {
+    async saveNow(force) {
       if (!this.activePath || !this.isDirty) return
       this.saveStatus = 'saving'
       try {
-        const url = '/api/note?vault=' + encodeURIComponent(this.activeVault) +
-                    '&path=' + encodeURIComponent(this.activePath)
+        let url = '/api/note?vault=' + encodeURIComponent(this.activeVault) +
+                  '&path=' + encodeURIComponent(this.activePath)
+        if (!force && this.noteMTime > 0) {
+          url += '&ifMTime=' + this.noteMTime
+        }
         const res = await fetch(url, {
           method: 'PUT',
           headers: { 'Content-Type': 'text/plain; charset=utf-8' },
           body: this.noteRaw
         })
+        if (res.status === 409) {
+          // File changed on disk under us. Surface a resolution modal.
+          const data = await res.json().catch(() => ({}))
+          this.saveStatus = ''
+          this._showConflictModal(data.diskRaw || '', data.diskMtime || 0)
+          return
+        }
         if (!res.ok) throw new Error('HTTP ' + res.status)
+        // 200 with JSON body containing the new mtime (updated mid-2026).
+        try {
+          const body = await res.json()
+          if (body && typeof body.mtime === 'number') this.noteMTime = body.mtime
+        } catch(_) { /* old binary returns 204 with no body — ignore */ }
         this.isDirty = false
         this.saveStatus = 'saved'
         setTimeout(() => { if (this.saveStatus === 'saved') this.saveStatus = '' }, 2000)
@@ -1907,6 +1925,46 @@ function vaultApp() {
         this.saveStatus = 'error'
         console.error('save:', e)
       }
+    },
+    _showConflictModal(diskRaw, diskMtime) {
+      const mineLen = (this.noteRaw || '').length
+      const theirsLen = (diskRaw || '').length
+      const mineLines = (this.noteRaw || '').split('\n').length
+      const theirsLines = (diskRaw || '').split('\n').length
+      this.modal = {
+        open: true,
+        title: 'Note changed on disk',
+        body: `Your version: ${mineLines} lines, ${mineLen} chars\nDisk version: ${theirsLines} lines, ${theirsLen} chars\n\nKeep mine overwrites the disk copy. Take theirs replaces your editor with the disk copy (your unsaved edits are lost).`,
+        value: '', placeholder: '', error: '',
+        confirmLabel: 'Keep mine (overwrite)',
+        confirmOnly: true,  // hide the input
+        danger: true,
+        onConfirm: async () => { await this.saveNow(true) },
+        secondaryLabel: 'Take theirs',
+        onSecondary: () => this.takeTheirs(),
+      }
+      // Stash the disk version on a side channel so a "Take theirs" button
+      // (rendered ad-hoc in the modal body via the third button trick) can
+      // grab it. For now, expose via a small auxiliary state.
+      this._conflictDiskRaw = diskRaw
+      this._conflictDiskMtime = diskMtime
+    },
+    takeTheirs() {
+      // Replace editor + state with disk copy.
+      const view = this._cm()
+      const raw = this._conflictDiskRaw || ''
+      this.noteRaw = raw
+      this.noteMTime = this._conflictDiskMtime || 0
+      if (view) {
+        view.dispatch({
+          changes: { from: 0, to: view.state.doc.length, insert: raw },
+        })
+      }
+      this.isDirty = false
+      this.saveStatus = ''
+      this.modal.open = false
+      this._conflictDiskRaw = ''
+      this._conflictDiskMtime = 0
     },
 
     saveStatusText() {

@@ -1616,13 +1616,14 @@ func (s *server) handleGetNote(w http.ResponseWriter, r *http.Request) {
 func (s *server) handlePutNote(w http.ResponseWriter, r *http.Request) {
 	vault := r.URL.Query().Get("vault")
 	path := r.URL.Query().Get("path")
+	ifMTime := r.URL.Query().Get("ifMTime") // optional: client's last-known mtime
 
 	vp, ok := s.vaultPath(vault)
 	if !ok {
 		errResponse(w, 400, "invalid vault")
 		return
 	}
-	_, ok = s.safePath(vp, path)
+	full, ok := s.safePath(vp, path)
 	if !ok {
 		errResponse(w, 400, "invalid path")
 		return
@@ -1630,6 +1631,29 @@ func (s *server) handlePutNote(w http.ResponseWriter, r *http.Request) {
 	if !s.isWritable(vault, path) {
 		errResponse(w, 403, "path is not writable")
 		return
+	}
+
+	// Conflict detection: if client supplied ifMTime, compare against on-disk.
+	// 409 with the current file's content + mtime so the client can resolve.
+	if ifMTime != "" {
+		want, err := strconv.ParseInt(ifMTime, 10, 64)
+		if err == nil && want > 0 {
+			if info, errStat := os.Stat(full); errStat == nil {
+				cur := info.ModTime().Unix()
+				// Allow a 1-second slop for filesystems with second-precision mtime.
+				if cur > want+1 {
+					data, _ := os.ReadFile(full)
+					w.Header().Set("Content-Type", "application/json")
+					w.WriteHeader(http.StatusConflict)
+					json.NewEncoder(w).Encode(map[string]any{
+						"error":      "file changed on disk",
+						"diskMtime":  cur,
+						"diskRaw":    string(data),
+					})
+					return
+				}
+			}
+		}
 	}
 
 	var buf bytes.Buffer
@@ -1647,7 +1671,14 @@ func (s *server) handlePutNote(w http.ResponseWriter, r *http.Request) {
 	// update index
 	s.idx.updateNote(vault, path, content)
 
-	w.WriteHeader(http.StatusNoContent)
+	// Return the new mtime so client can stay in sync without an extra GET.
+	var newMTime int64
+	if info, err := os.Stat(full); err == nil {
+		newMTime = info.ModTime().Unix()
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(map[string]int64{"mtime": newMTime})
 }
 
 // handleUpload accepts a multipart image upload tied to a note and writes
