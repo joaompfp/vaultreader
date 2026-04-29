@@ -1158,6 +1158,7 @@
         <div class="shortcut-row"><span class="sc-keys">/</span><span class="sc-desc">Quick search</span></div>
         <div class="shortcut-row"><span class="sc-keys">Ctrl + N</span><span class="sc-desc">New note</span></div>
         <div class="shortcut-row"><span class="sc-keys">Ctrl + D</span><span class="sc-desc">Open today's daily note</span></div>
+        <div class="shortcut-row"><span class="sc-keys">Alt + ← / →</span><span class="sc-desc">Back / forward through visited notes</span></div>
         <div class="shortcut-row"><span class="sc-keys">Ctrl + Shift + C</span><span class="sc-desc">Copy wikilink</span></div>
         <div class="shortcut-row"><span class="sc-keys">E</span><span class="sc-desc">Toggle Preview / Edit</span></div>
         <div class="shortcut-row"><span class="sc-keys">?</span><span class="sc-desc">This help</span></div>
@@ -1432,6 +1433,18 @@ function vaultApp() {
         if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'd' && !e.shiftKey && !e.altKey) {
           e.preventDefault()
           if (this.activeVault) this.openDailyNote()
+        }
+        // Alt+← / Alt+→ — back/forward through visited notes. Reuses the
+        // browser history that openNote() already populates via pushState.
+        // Skipped when focus is in a text input (so Alt+← still works
+        // for word-jump in inputs/CodeMirror).
+        if (e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey) {
+          const tag = document.activeElement?.tagName
+          const inText = tag === 'INPUT' || tag === 'TEXTAREA' || document.activeElement?.closest('.cm-editor')
+          if (!inText) {
+            if (e.key === 'ArrowLeft') { e.preventDefault(); window.history.back() }
+            else if (e.key === 'ArrowRight') { e.preventDefault(); window.history.forward() }
+          }
         }
         // E — toggle preview/edit when a note is open (no modifier)
         if (e.key === 'e' && !e.ctrlKey && !e.metaKey && !e.altKey && this.activePath) {
