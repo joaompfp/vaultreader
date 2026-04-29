@@ -210,7 +210,8 @@
         </svg>
       </button>
 
-      <button class="btn-icon" :class="{ active: graphOpen }" @click="openGraph()" title="Graph view">
+      <button class="btn-icon" :class="{ active: graphOpen }" @click="openGraphSmart()"
+              :title="activePath ? 'Graph around this note (alt: scope to folder/vault)' : 'Graph view'">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <circle cx="6" cy="6" r="2.5"/>
           <circle cx="18" cy="6" r="2.5"/>
@@ -496,12 +497,34 @@
   <div id="graph-overlay" x-show="graphOpen" @keydown.escape.window="closeGraph()" x-ref="graphOverlay" style="display:none">
     <div class="graph-header">
       <span class="graph-title">Graph</span>
-      <select class="admin-add-input graph-vault-select" x-model="graphVault" @change="renderGraph()">
+
+      <!-- Scope breadcrumb: All ▸ Vault ▸ Folder, or Around: <note> -->
+      <span class="graph-scope">
+        <button class="graph-scope-btn" @click="setGraphScopeAllVaults()" :class="{ active: !graphCenter && !graphVault }">All vaults</button>
+        <span class="graph-scope-sep" x-show="graphVault || graphCenter">/</span>
+        <button class="graph-scope-btn" x-show="graphVault && !graphCenter" @click="setGraphScopeWholeVault()" :class="{ active: graphVault && !graphFolder }" x-text="graphVault"></button>
+        <span class="graph-scope-sep" x-show="graphFolder && !graphCenter">/</span>
+        <span class="graph-scope-current" x-show="graphFolder && !graphCenter" x-text="graphFolder"></span>
+        <span class="graph-scope-current" x-show="graphCenter">
+          ⊙ <span x-text="graphCenter.split(':').pop().split('/').pop().replace(/\.md$/, '')"></span>
+        </span>
+      </span>
+
+      <!-- Vault picker (visible only in vault/folder scope, not in ego mode) -->
+      <select class="admin-add-input graph-vault-select" x-model="graphVault" @change="renderGraph()" x-show="!graphCenter">
         <option value="">All vaults</option>
         <template x-for="v in vaults" :key="v">
           <option :value="v" x-text="v"></option>
         </template>
       </select>
+
+      <!-- Depth controls (only in ego/center mode) -->
+      <span class="graph-depth" x-show="graphCenter">
+        depth <strong x-text="graphDepth"></strong>
+        <button class="graph-depth-btn" @click="contractGraphDepth()" :disabled="graphDepth <= 1" title="Smaller">−</button>
+        <button class="graph-depth-btn" @click="expandGraphDepth()" :disabled="graphDepth >= 5" title="Wider">+</button>
+      </span>
+
       <span class="graph-stats" x-show="!graphLoading">
         <span x-text="(_cy && _cy.nodes ? _cy.nodes().length : 0) + ' notes · ' + (_cy && _cy.edges ? _cy.edges().length : 0) + ' links'"></span>
       </span>
@@ -509,6 +532,9 @@
       <button class="btn-icon" @click="closeGraph()" title="Close">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
       </button>
+    </div>
+    <div class="graph-hint" x-show="graphCenter">
+      Tip: shift-click any node to re-center the graph there. Cmd/Ctrl-click opens it in a new tab.
     </div>
     <div id="graph-canvas"></div>
   </div>
@@ -991,7 +1017,7 @@
             </div>
           </template>
           <template x-if="adminConfig.rw_paths.length === 0">
-            <div class="settings-empty">No RW paths — all vaults are read-only.</div>
+            <div class="settings-empty">No RW paths configured. Add a vault name (e.g. <code>pessoal</code>) or a vault-relative folder (e.g. <code>pessoal/agents</code>) to allow edits there.</div>
           </template>
         </div>
         <div class="admin-add-row">
@@ -1227,6 +1253,9 @@ function vaultApp() {
     graphOpen: false,
     graphLoading: false,
     graphVault: '',  // empty = all vaults
+    graphFolder: '', // empty = whole vault
+    graphCenter: '', // "vault:path" → ego graph; takes precedence
+    graphDepth: 1,
     _cy: null,       // cytoscape instance
     tagsOpen: false,
     tagsLoading: false,
@@ -2058,11 +2087,80 @@ function vaultApp() {
     },
 
     // ── graph view ────────────────────────────────
-    async openGraph() {
-      this.graphVault = this.activeVault || ''
+    async openGraph(opts) {
+      // opts: { vault, folder, center, depth }
+      // Default: scope to active vault if any.
+      this.graphVault = (opts && 'vault' in opts) ? opts.vault : (this.activeVault || '')
+      this.graphFolder = (opts && opts.folder) || ''
+      this.graphCenter = (opts && opts.center) || ''
+      this.graphDepth = (opts && opts.depth) || 1
       this.graphOpen = true
       await this.$nextTick()
       await this.renderGraph()
+    },
+    openGraphFromCurrentNote() {
+      if (!this.activePath) return
+      this.openGraph({
+        center: this.activeVault + ':' + this.activePath,
+        depth: 1,
+      })
+    },
+    openGraphSmart() {
+      // Sensible default scope based on what's currently visible:
+      //   - note open  → ego graph rooted there (depth 1)
+      //   - in a folder → folder-scoped graph
+      //   - vault selected → whole-vault graph
+      //   - nothing  → all vaults
+      if (this.activePath) {
+        this.openGraphFromCurrentNote()
+      } else if (this.activeVault && this.cwd) {
+        this.openGraphFromCurrentFolder()
+      } else if (this.activeVault) {
+        this.openGraph({ vault: this.activeVault })
+      } else {
+        this.openGraph({})
+      }
+    },
+    openGraphFromCurrentFolder() {
+      // cwd is the sidebar's current dir for the active vault
+      if (!this.activeVault) return
+      this.openGraph({
+        vault: this.activeVault,
+        folder: this.cwd || '',
+      })
+    },
+    setGraphScopeWholeVault() {
+      this.graphCenter = ''
+      this.graphFolder = ''
+      this.renderGraph()
+    },
+    setGraphScopeAllVaults() {
+      this.graphCenter = ''
+      this.graphFolder = ''
+      this.graphVault = ''
+      this.renderGraph()
+    },
+    expandGraphDepth() {
+      if (!this.graphCenter) return
+      this.graphDepth = Math.min(this.graphDepth + 1, 5)
+      this.renderGraph()
+    },
+    contractGraphDepth() {
+      if (!this.graphCenter) return
+      this.graphDepth = Math.max(this.graphDepth - 1, 1)
+      this.renderGraph()
+    },
+    graphScopeLabel() {
+      if (this.graphCenter) {
+        const [v, p] = this.graphCenter.split(':')
+        const name = (p || '').split('/').pop().replace(/\.md$/, '')
+        return 'Around "' + name + '" · depth ' + this.graphDepth
+      }
+      if (this.graphFolder) {
+        return this.graphVault + '/' + this.graphFolder
+      }
+      if (this.graphVault) return this.graphVault
+      return 'All vaults'
     },
     closeGraph() {
       this.graphOpen = false
@@ -2084,13 +2182,21 @@ function vaultApp() {
       }
       this.graphLoading = true
       try {
-        const url = '/api/graph' + (this.graphVault ? '?vault=' + encodeURIComponent(this.graphVault) : '')
+        const params = new URLSearchParams()
+        if (this.graphCenter) {
+          params.set('center', this.graphCenter)
+          params.set('depth', String(this.graphDepth || 1))
+        } else {
+          if (this.graphVault) params.set('vault', this.graphVault)
+          if (this.graphFolder) params.set('folder', this.graphFolder)
+        }
+        const url = '/api/graph' + (params.toString() ? '?' + params.toString() : '')
         const r = await fetch(url)
         if (!r.ok) return
         const data = await r.json()
         const elements = [
           ...data.nodes.map(n => ({
-            data: { id: n.id, label: n.label, vault: n.vault, path: n.path, refs: n.refs },
+            data: { id: n.id, label: n.label, vault: n.vault, path: n.path, refs: n.refs, isCenter: !!n.isCenter },
           })),
           ...data.edges.map(e => ({
             data: { id: e.id, source: e.source, target: e.target },
@@ -2126,6 +2232,15 @@ function vaultApp() {
               'background-color': accent,
               'border-color': accent,
             }},
+            { selector: 'node[?isCenter]', style: {
+              'background-color': accent,
+              'border-color': accent,
+              'border-width': 3,
+              'width': 28,
+              'height': 28,
+              'font-size': 11,
+              'font-weight': 'bold',
+            }},
             { selector: 'edge', style: {
               'width': 1,
               'line-color': text3,
@@ -2151,8 +2266,20 @@ function vaultApp() {
         })
         this._cy.on('tap', 'node', evt => {
           const data = evt.target.data()
-          this.closeGraph()
-          this.openNote(data.vault, data.path)
+          const orig = evt.originalEvent
+          // Shift-click → re-center the graph on this node (stay open).
+          // Cmd/Ctrl-click → open the note in a new tab.
+          // Plain click → close graph + open the note.
+          if (orig && orig.shiftKey) {
+            this.graphCenter = data.id
+            this.graphFolder = ''
+            this.renderGraph()
+          } else if (orig && (orig.metaKey || orig.ctrlKey)) {
+            window.open(this._noteURL(data.vault, data.path), '_blank')
+          } else {
+            this.closeGraph()
+            this.openNote(data.vault, data.path)
+          }
         })
       } catch(e) {
         console.error('graph render:', e)
@@ -3224,7 +3351,7 @@ function vaultApp() {
         placeholder: '',
         error: '',
         confirmLabel: 'Revoke all',
-        confirmOnly: false,
+        confirmOnly: true,    // pure confirm — no input
         danger: true,
         onConfirm: async () => {
           for (const s of [...this.activeShares]) {

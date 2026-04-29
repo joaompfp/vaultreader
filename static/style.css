@@ -829,6 +829,62 @@ a.wikilink-missing {
   color: var(--text);
 }
 .graph-vault-select { width: auto !important; }
+.graph-scope {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--text2);
+  font-family: var(--mono);
+}
+.graph-scope-btn {
+  background: transparent;
+  border: 1px solid transparent;
+  padding: 2px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  color: var(--text3);
+  cursor: pointer;
+  font-family: inherit;
+  transition: background var(--transition), color var(--transition), border-color var(--transition);
+}
+.graph-scope-btn:hover { background: var(--bg3); color: var(--text); }
+.graph-scope-btn.active {
+  color: var(--accent);
+  border-color: var(--accent);
+}
+.graph-scope-sep { color: var(--text3); }
+.graph-scope-current {
+  color: var(--accent);
+  font-weight: 600;
+  padding: 2px 8px;
+}
+.graph-depth {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text2);
+}
+.graph-depth-btn {
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0 6px;
+  font-size: 14px;
+  line-height: 1.4;
+  color: var(--text);
+  cursor: pointer;
+  font-family: inherit;
+}
+.graph-depth-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.graph-hint {
+  padding: 6px 14px;
+  font-size: 11px;
+  color: var(--text3);
+  background: var(--bg2);
+  border-bottom: 1px solid var(--border);
+}
 .graph-stats {
   font-size: 12px;
   color: var(--text3);
@@ -1659,7 +1715,7 @@ mark {
 
 /* ── Modal ───────────────────────────────────── */
 #modal-overlay {
-  position: fixed; inset: 0; z-index: 500;
+  position: fixed; inset: 0; z-index: 1100;     /* above settings (800), tags (750), graph (700), search (1000) */
   background: rgba(0,0,0,.75);
   display: flex; align-items: center; justify-content: center;
 }

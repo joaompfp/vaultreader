@@ -1,74 +1,156 @@
 # VaultReader
 
-A lightweight, self-hosted web reader and editor for [Obsidian](https://obsidian.md) vaults. Runs as a single static binary inside a tiny Docker container (~8MB).
+A self-hosted web reader and editor for [Obsidian](https://obsidian.md) vaults. Single ~8MB Go binary, no JavaScript build step, no database.
 
-![Go](https://img.shields.io/badge/Go-1.23-blue) ![Docker](https://img.shields.io/badge/Docker-scratch-lightgrey) ![License](https://img.shields.io/badge/license-MIT-green)
+![Go](https://img.shields.io/badge/Go-1.21-blue)
+![Docker](https://img.shields.io/badge/Docker-scratch-lightgrey)
+![License](https://img.shields.io/badge/license-MIT-green)
+
+> **Status:** personal project, used daily at `notes.joao.date`. PRs welcome but no SLA. The project is in active development; features land in main without long deprecation cycles.
+
+## What it is
+
+A read-mostly web view of your Obsidian vaults that you can put behind your reverse proxy of choice. Designed for the case where you want to:
+
+- Read your notes from a phone or borrowed computer without installing Obsidian.
+- Share a single note via a signed URL with an optional expiration.
+- Make light edits when you don't have your main machine — toolbar, wikilink autocomplete, paste-to-upload images. Conflict-aware writes prevent silent overwrites when Syncthing is bringing in changes from another device.
+- Browse your vault structure, tags, attachments, and the wikilink graph.
+
+It is not a sync engine, not a multi-user collaboration platform, not a Notion replacement. The vault on disk is the source of truth; VaultReader is a window onto it.
 
 ## Features
 
-- Browse multiple Obsidian vaults side by side
-- Read notes with rendered Markdown and wikilinks
-- Edit notes inline (CodeMirror 6)
-- Full-text search across vaults
-- Backlinks panel
-- Create, delete, rename notes and folders (soft-delete to `.trash/`)
-- Syncthing sync status indicator
-- Dark mode toggle
-- Mobile-friendly responsive layout
-- Custom vault icons via `appdata/icons/`
+### Reading
+- Multiple vaults with custom icons (`appdata/icons/<vault>.{png,svg,jpg,webp}`)
+- Wikilinks (`[[note]]`, `[[note|alias]]`) with vault-scoped resolution
+- Image embeds (`![[image.png]]`, including note-relative subpaths)
+- Backlinks panel with excerpts
+- Outline (table-of-contents) right rail with scroll-spy
+- Note properties strip — size, modified time, word count, link counts
+- Frontmatter rendered with array-typed and tag-like keys as clickable chips
+- Mermaid v11 diagrams (`flowchart`, `sequence`, `gantt`, `pie`, `block`, …)
+- KaTeX math (`$$…$$` block, `\(…\)` inline; bare `$` deliberately not consumed to avoid currency conflicts)
+- Mobile-friendly layout with sliding sidebar
+- Dark mode (auto + manual toggle)
+
+### Editing
+- CodeMirror 6 editor with markdown syntax highlighting
+- Toolbar (14 buttons): bold, italic, strikethrough, heading-cycle, lists, task, quote, inline/block code, table, link, wikilink, mermaid (with 5 starter dropdowns)
+- `[[` autocomplete from `/api/search`
+- Paste/drop image upload to `<note-dir>/attachments/`
+- Autosave with conflict detection (mtime check; resolution modal on collision)
+- Admin-managed writable paths (configure vaults / subfolders that allow editing in `appdata/config.json` → `rw_paths`)
+
+### Browsing & discovery
+- Search overlay (`Ctrl+K` or `/`)
+- Saved searches (per-browser localStorage)
+- Tag pane (frontmatter `tags:` aggregated across all vaults)
+- Graph view via Cytoscape — click any node to jump to that note
+- Daily-note shortcut (`Ctrl+D` opens or creates `daily/YYYY-MM-DD.md`)
+- Pinned notes via `pinned: true` frontmatter — float to top of recents
+- Sidebar with folder browser, sort options, file-commander UI; resizable
+
+### Sharing
+- Read-only share links with optional expiration (`/share/<token>`)
+- Active-shares management with bulk revoke
+- Custom share URL prefix supported via reverse proxy (e.g. `notes.example.com/notas/<token>`)
+
+### File operations
+- Create / rename / delete / move notes and folders
+- Soft-delete to `.trash/` (per vault); restore or permanently delete from the Trash tab
+- Attachment manager — list all images per vault, find orphans (no `![[…]]` references), bulk delete
+
+### Integration
+- Read-only WebDAV at `/webdav/` (point Obsidian Mobile or any WebDAV client at it)
+- Syncthing API for sync status indicator
+- `/health` endpoint for liveness checks
+- Authelia / forward-auth friendly (proxies pass through cleanly; rate limit honors `X-Real-IP` / `X-Forwarded-For`)
+
+### Operations
+- Single Go binary (~8MB after `-s -w` strip)
+- `embed.FS` static assets — no separate static dir to deploy
+- 7.4MB Docker image based on `scratch`
+- In-memory wikilink + backlink index, rebuilt on startup
+
+### Keyboard shortcuts
+| Shortcut | Action |
+|---|---|
+| `Ctrl/⌘ + K` or `/` | Open search |
+| `Ctrl/⌘ + N` | New note |
+| `Ctrl/⌘ + D` | Open today's daily note (creates if missing) |
+| `Ctrl/⌘ + Shift + C` | Copy wikilink for current note |
+| `E` | Toggle preview/edit |
+| `?` | Show shortcuts overlay |
+| `Esc` | Close any modal / menu |
+| In editor: `Ctrl/⌘ + B / I / E / K / L` | Bold, italic, inline code, link, wikilink |
+| In editor: `[[` | Trigger wikilink autocomplete |
 
 ## Quick start
 
 ```bash
-docker run -p 8080:8080 \
+docker run --rm -p 8080:8080 \
   -v /path/to/your/vaults:/vaults:rw \
-  ghcr.io/vaultreader/vaultreader:latest
+  -v $PWD/appdata:/appdata:rw \
+  ghcr.io/joaompfp/vaultreader:latest
 ```
 
-Then open http://localhost:8080.
+Open <http://localhost:8080>. The first subdirectory inside `/vaults` becomes the active vault.
 
 ## Docker Compose
 
-Copy `docker-compose.example.yml` to `docker-compose.yml`, adjust the volume paths, and run:
+Copy `docker-compose.example.yml` to `docker-compose.yml`, adjust paths, then:
 
 ```bash
 docker compose up -d
 ```
 
-## Configuration
-
-| Flag / Env | Default | Description |
-|---|---|---|
-| `-vaults` | `/vaults` | Path to your vaults directory |
-| `-appdata` | `/appdata` | Path to appdata directory (icons, customisations) |
-| `-port` | `8080` | HTTP port to listen on |
-| `SYNCTHING_API_KEY` | — | Syncthing API key for sync status |
-| `SYNCTHING_API_URL` | — | Syncthing API URL (e.g. `https://syncthing:8384`) |
-
-## Vault icons
-
-Drop an image file into `appdata/icons/` named after your vault (e.g. `work.png`, `personal.svg`). VaultReader serves it automatically — no restart needed.
-
-Supported formats: PNG, SVG, JPG, WebP.
-
-If no icon exists for a vault, a generic folder icon is shown.
+See [docs/configuration.md](docs/configuration.md) for the full configuration reference, including admin tokens, RW paths, Authelia integration, and Syncthing.
 
 ## Building from source
 
+Host build:
 ```bash
 go build -o vaultreader .
-./vaultreader -vaults /path/to/vaults -port 8080
+./vaultreader -vaults /path/to/vaults -appdata ./appdata -port 8080
 ```
 
-Or with Docker:
-
+Docker build:
 ```bash
 docker build -t vaultreader .
 ```
 
-## Vault structure
+The Dockerfile runs `go mod tidy` inside the builder stage, so adding a new Go dependency is a one-file edit (`main.go`) — no host-side `go mod tidy` round-trip needed.
 
-VaultReader reads any directory structure. Each subdirectory of the vaults mount is treated as a separate vault. Notes are `.md` files; everything else is ignored.
+## Documentation
+
+- [Features](docs/features.md) — every feature in detail
+- [Configuration](docs/configuration.md) — flags, env vars, admin token, RW paths, Authelia, Syncthing
+- [Architecture](docs/architecture.md) — backend, frontend, indexing, asset bundle
+- [API reference](docs/api.md) — every endpoint with request/response shapes
+- [Syntax reference](docs/syntax.md) — wikilinks, embeds, mermaid, math, frontmatter conventions
+- [Security model](docs/security.md) — admin token, share-link signing, RW paths, rate limit, body caps
+- [Deploying behind Authelia](docs/authelia.md) — works out of the box; share links are public-by-token
+- [Skin / theming](docs/theming.md) — CSS variables, dark mode, custom vault icons
+- [Changelog](CHANGELOG.md)
+
+## Project layout
+
+```
+main.go                 — single-file Go server (~2500 lines)
+go.mod                  — three dependencies: goldmark, yaml.v3, x/net/webdav
+static/                 — Alpine + CodeMirror + Mermaid + KaTeX + Cytoscape, all bundled
+  index.html            — single-page app
+  style.css             — full stylesheet
+  *.min.{js,css}        — third-party libs (no build step)
+  fonts/                — KaTeX font files
+docs/                   — user + developer documentation
+appdata/                — runtime data (gitignored): config.json, shares.json, icons/
+docker-compose.example.yml
+Dockerfile
+```
+
+Notes never leave the filesystem you mount. Custom user data (admin config, share tokens, vault icons) lives under `appdata/` and is gitignored — fork-safe.
 
 ## License
 
