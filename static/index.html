@@ -224,7 +224,26 @@
           <template x-for="[key, val] in Object.entries(noteFrontmatter)" :key="key">
             <div class="fm-field">
               <span class="fm-key" x-text="key + ':'"></span>
-              <span class="fm-val" x-text="Array.isArray(val) ? val.join(', ') : String(val)"></span>
+              <!-- array → list of chips -->
+              <template x-if="Array.isArray(val)">
+                <span class="fm-chips">
+                  <template x-for="(item, i) in val" :key="i">
+                    <button class="fm-chip" @click="chipSearch(String(item))" x-text="String(item)" :title="'Search for &quot;' + String(item) + '&quot;'"></button>
+                  </template>
+                </span>
+              </template>
+              <!-- tag-like scalar keys → single chip; other scalars → plain text -->
+              <template x-if="!Array.isArray(val) && typeof val !== 'object' && _isChipKey(key)">
+                <span class="fm-chips">
+                  <button class="fm-chip" @click="chipSearch(String(val))" x-text="String(val)"></button>
+                </span>
+              </template>
+              <template x-if="!Array.isArray(val) && (typeof val !== 'object' || val === null) && !_isChipKey(key)">
+                <span class="fm-val" x-text="val === null ? 'null' : String(val)"></span>
+              </template>
+              <template x-if="!Array.isArray(val) && typeof val === 'object' && val !== null">
+                <span class="fm-val fm-val-object" x-text="JSON.stringify(val)"></span>
+              </template>
             </div>
           </template>
         </div>
@@ -993,6 +1012,17 @@ function vaultApp() {
     saveTimer: null,
     recentFiles: [],
     _recentKey() { return 'vr-recent-' + (this.activeVault || '_global') },
+    // Frontmatter chip rendering — tag-like scalar keys get chipped too
+    _CHIP_KEYS: ['tags', 'tag', 'aliases', 'alias', 'category', 'categories', 'topic', 'topics', 'status', 'project'],
+    _isChipKey(key) { return this._CHIP_KEYS.includes(String(key).toLowerCase()) },
+    chipSearch(value) {
+      this.searchQuery = String(value)
+      this.searchOpen = true
+      this.$nextTick(() => {
+        if (this.$refs.searchInput) this.$refs.searchInput.focus()
+        this.doSearch()
+      })
+    },
     // status bar
     totalNotes: 0,
     vaultStats: [],
