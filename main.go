@@ -1508,19 +1508,10 @@ table{border-collapse:collapse;width:100%%;margin:1em 0}th,td{border:1px solid v
 img{max-width:100%%}hr{border:none;border-top:1px solid var(--bd);margin:1.5em 0}
 .mermaid svg{display:block;margin:1em auto;max-width:100%%}
 .wikilink-plain{color:var(--ac);background:rgba(185,28,28,.06);padding:1px 4px;border-radius:3px;font-size:.95em}
-.callout{margin:1em 0;padding:0;border-radius:8px;background:var(--bg2);border-left:4px solid var(--cl,#3b82f6);overflow:hidden}
-.callout-title{display:flex;align-items:center;gap:8px;padding:10px 14px;font-weight:600;color:var(--ct,#1d4ed8);background:var(--ctb,rgba(59,130,246,.08));font-size:.95em}
-.callout-title .callout-icon{width:14px;height:14px;flex-shrink:0;background:var(--ct,#1d4ed8);-webkit-mask:var(--ci,none) center/contain no-repeat;mask:var(--ci,none) center/contain no-repeat}
-.callout-body{padding:8px 14px}
+.callout{margin:1em 0;padding:9px 14px 11px;border:1px solid var(--bd);border-radius:8px;background:rgba(185,28,28,.03)}
+.callout-title{font-weight:600;font-size:.92em;color:var(--ac);margin-bottom:.35em;letter-spacing:.01em}
+.callout-icon{display:none}
 .callout-body>:first-child{margin-top:0}.callout-body>:last-child{margin-bottom:0}
-.callout-note,.callout-info{--cl:#3b82f6;--ct:#1d4ed8;--ctb:rgba(59,130,246,.08)}
-.callout-tip,.callout-hint,.callout-important{--cl:#0d9488;--ct:#0f766e;--ctb:rgba(20,184,166,.10)}
-.callout-success,.callout-check,.callout-done{--cl:#16a34a;--ct:#166534;--ctb:rgba(34,197,94,.10)}
-.callout-warning,.callout-caution,.callout-attention{--cl:#f59e0b;--ct:#b45309;--ctb:rgba(245,158,11,.12)}
-.callout-failure,.callout-fail,.callout-missing,.callout-danger,.callout-error,.callout-bug{--cl:#dc2626;--ct:#b91c1c;--ctb:rgba(220,38,38,.10)}
-.callout-question,.callout-faq,.callout-help{--cl:#7c3aed;--ct:#6d28d9;--ctb:rgba(124,58,237,.10)}
-.callout-quote,.callout-cite,.callout-example,.callout-abstract,.callout-summary,.callout-tldr{--cl:#64748b;--ct:#475569;--ctb:rgba(100,116,139,.10)}
-@media(prefers-color-scheme:dark){.callout{background:#181825}.callout-note,.callout-info{--ct:#89b4fa}.callout-tip,.callout-hint,.callout-important{--ct:#94e2d5}.callout-success,.callout-check,.callout-done{--ct:#a6e3a1}.callout-warning,.callout-caution,.callout-attention{--ct:#fab387}.callout-failure,.callout-fail,.callout-missing,.callout-danger,.callout-error,.callout-bug{--ct:#f38ba8}.callout-question,.callout-faq,.callout-help{--ct:#cba6f7}.callout-quote,.callout-cite,.callout-example,.callout-abstract,.callout-summary,.callout-tldr{--ct:#bac2de}}
 .foot{text-align:center;padding:20px;font-size:12px;color:var(--t3);border-top:1px solid var(--bd)}.foot a{color:var(--t3);text-decoration:none}
 </style>%s</head><body>
 <div class="bar"><strong>%s</strong><span class="badge%s">%s</span><span>Expires: %s</span>

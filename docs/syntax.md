@@ -226,21 +226,7 @@ Obsidian's admonition syntax renders as styled blocks:
 > The trailing `-` (Obsidian fold-start) is accepted but fold state is not preserved.
 ```
 
-Type → color mapping (Obsidian-compatible):
-
-| Type | Color |
-|---|---|
-| `note`, `info` | blue |
-| `tip`, `hint`, `important` | teal |
-| `success`, `check`, `done` | green |
-| `warning`, `caution`, `attention` | amber |
-| `failure`, `fail`, `missing`, `danger`, `error`, `bug` | red |
-| `question`, `faq`, `help` | violet |
-| `quote`, `cite`, `example`, `abstract`, `summary`, `tldr` | slate |
-
-Unknown types still render as a generic `.callout` block. Title falls back to the type name when omitted (`> [!info]` → "Info"). Both light and dark colour palettes are predefined.
-
-Callouts work the same in shared notes (with their own bundled CSS).
+All callout types render with the site accent color (no per-type color coding) — the type is preserved as a `data-callout` attribute on the wrapper if you want to style specific kinds in your own CSS. Title falls back to the type name when omitted (`> [!info]` → "Info"). Same look in shared notes.
 
 ## Footnotes
 
