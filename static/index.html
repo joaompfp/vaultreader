@@ -2196,11 +2196,17 @@ function vaultApp() {
           avoidOverlap: true,
           // Continuous live simulation — every tick redraws.
           animate: true,
-          // Refresh ticks per frame: lower = smoother, higher = faster settle.
-          // For < 60 nodes, 1 (smoothest); for big graphs, more ticks per
-          // frame so it converges before the user gives up.
-          refresh: nodeCount < 80 ? 1 : 3,
-          maxSimulationTime: nodeCount < 80 ? 4000 : 6000,
+          // Refresh ticks per frame: lower = smoother (more inertia-feeling),
+          // higher = faster but choppier settle.
+          refresh: 1,
+          // Longer simulation = more inertia. Things keep moving past the
+          // initial chaos longer, settling smoothly into place.
+          maxSimulationTime: nodeCount < 80 ? 7000 : 9000,
+          // Cola's three cooling phases. Bigger numbers = slower cool,
+          // weightier feel. Defaults are 100/200/200; we use ~50% more.
+          unconstrIter: 60,
+          userConstIter: 40,
+          allConstIter: 30,
           // Drag a node mid-simulation? Keep going from the new position.
           ungrabifyWhileSimulating: false,
           // Final fit happens via our own layoutstop handler, not here.
@@ -2295,13 +2301,13 @@ function vaultApp() {
               'border-width': 1,
               'label': 'data(label)',
               'color': text2,
-              'font-size': 10,
+              'font-size': 8,
               'font-family': 'inherit',
               'text-opacity': 0,                    // controlled by zoom handler below
               'text-valign': 'bottom',
               'text-margin-y': 4,
               'text-wrap': 'ellipsis',
-              'text-max-width': 120,
+              'text-max-width': 180,
               'text-background-color': bg,
               'text-background-opacity': 0.85,
               'text-background-padding': 2,
@@ -2325,7 +2331,7 @@ function vaultApp() {
               'border-width': 3,
               'width': 18,
               'height': 18,
-              'font-size': 13,
+              'font-size': 11,
               'font-weight': 700,
               'color': accent,
               'text-opacity': 1,            // always-on label
@@ -2426,7 +2432,7 @@ function vaultApp() {
         // user has zoomed in enough; never let labels collide at default zoom.
         const updateLabels = () => {
           const z = this._cy.zoom()
-          const showAll = z >= 1.4
+          const showAll = z >= 1.8       // 8px font × 1.8 ≈ 14px rendered
           this._cy.batch(() => {
             this._cy.nodes().forEach(n => {
               if (n.data('isCenter')) return  // center always-on
@@ -2451,10 +2457,12 @@ function vaultApp() {
             try { this._graphLayoutInstance.stop() } catch(_) {}
           }
           const opts = this._graphLayoutOptions(nodeCount <= 30, nodeCount)
-          // Shorter simulation budget for interactive reflow — feels snappy.
-          opts.maxSimulationTime = 1500
-          opts.fit = false  // don't re-fit; user has positioned the camera
-          opts.randomize = false  // continue from current positions
+          // Reflow keeps simulating long enough to feel like inertia — the
+          // graph keeps wobbling for a couple seconds after you let go.
+          opts.maxSimulationTime = 3500
+          opts.fit = false             // don't re-fit; user has positioned the camera
+          opts.randomize = false       // continue from current positions
+          opts.refresh = 1             // smoothest tick rate for the wobble
           this._graphLayoutInstance = this._cy.layout(opts)
           this._graphLayoutInstance.run()
         }
