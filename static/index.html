@@ -2297,7 +2297,7 @@ function vaultApp() {
               'color': text2,
               'font-size': 10,
               'font-family': 'inherit',
-              'min-zoomed-font-size': 14,           // hide label until rendered px ≥ 14 (zoom ≥ 1.4)
+              'text-opacity': 0,                    // controlled by zoom handler below
               'text-valign': 'bottom',
               'text-margin-y': 4,
               'text-wrap': 'ellipsis',
@@ -2328,7 +2328,7 @@ function vaultApp() {
               'font-size': 13,
               'font-weight': 700,
               'color': accent,
-              'min-zoomed-font-size': 0,            // always-on label
+              'text-opacity': 1,            // always-on label
               'text-margin-y': 8,
             }},
             // Edges — visible curved strokes, accent-tinted at low opacity.
@@ -2345,7 +2345,7 @@ function vaultApp() {
             }},
             // Hover state — bring up the label regardless of zoom
             { selector: 'node:active, node.hovered', style: {
-              'min-zoomed-font-size': 0,
+              'text-opacity': 1,
               'border-color': accent,
               'border-width': 2,
             }},
@@ -2363,14 +2363,14 @@ function vaultApp() {
             }},
             { selector: 'node.lit', style: {
               'opacity': 1,
-              'min-zoomed-font-size': 0,           // labels visible while neighborhood lit
+              'text-opacity': 1,           // labels visible while neighborhood lit
               'border-color': accent,
             }},
             // Tap-selected (cytoscape's :selected)
             { selector: 'node:selected', style: {
               'border-width': 3,
               'border-color': accent,
-              'min-zoomed-font-size': 0,
+              'text-opacity': 1,
             }},
           ],
           layout: this._graphLayoutOptions(small, nodeCount),
@@ -2395,9 +2395,11 @@ function vaultApp() {
             neighborhood.removeClass('dim').addClass('lit')
             node.addClass('hovered')
           })
+          updateLabels()
         })
         this._cy.on('mouseout', 'node', () => {
           dimAll()
+          updateLabels()
         })
 
         // After the FIRST layout completes, fit the viewport. Subsequent
@@ -2419,6 +2421,25 @@ function vaultApp() {
             { duration: 500, easing: 'ease-out' })
         })
 
+
+        // Zoom-aware label visibility. Only show non-center labels when the
+        // user has zoomed in enough; never let labels collide at default zoom.
+        const updateLabels = () => {
+          const z = this._cy.zoom()
+          const showAll = z >= 1.4
+          this._cy.batch(() => {
+            this._cy.nodes().forEach(n => {
+              if (n.data('isCenter')) return  // center always-on
+              if (n.hasClass('hovered') || n.hasClass('lit')) {
+                n.style('text-opacity', 1); return
+              }
+              n.style('text-opacity', showAll ? (n.data('refs') > 0 ? 1 : 0.7) : 0)
+            })
+          })
+        }
+        this._cy.on('zoom', updateLabels)
+        // Run once after initial settle (delayed so the fit animation finishes)
+        setTimeout(updateLabels, 1500)
 
         // Live reflow on drag — restart the cola simulation whenever the
         // user grabs a node, so the rest of the graph re-settles around it.
