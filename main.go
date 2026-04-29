@@ -1142,13 +1142,20 @@ func (s *server) handleShareView(w http.ResponseWriter, r *http.Request) {
 	e, ok := s.shares.get(token)
 	if !ok { http.Error(w, "Share link not found or expired.", http.StatusNotFound); return }
 
-	// Sub-path routing: /share/<token>/file?path=… serves an in-vault
-	// resource (image embed) using the share's own auth context. Stays
-	// under the /share/* prefix so reverse-proxy bypass rules cover it.
+	// Sub-path routing under /share/<token>/...:
+	//   /share/<token>/file?path=…   → in-vault image embed
+	//   /share/<token>/asset?name=…  → bundled JS/CSS for share-page
+	//                                  rendering (mermaid, katex)
+	// Both stay under the /share/* prefix so reverse-proxy bypass rules
+	// cover them. The /api/* namespace remains auth-gated.
 	if len(parts) == 2 {
 		sub := parts[1]
 		if sub == "file" || strings.HasPrefix(sub, "file") {
 			s.handleShareFile(w, r, e)
+			return
+		}
+		if sub == "asset" || strings.HasPrefix(sub, "asset") {
+			s.handleShareAsset(w, r)
 			return
 		}
 		http.NotFound(w, r)
@@ -1181,15 +1188,35 @@ func (s *server) handleShareView(w http.ResponseWriter, r *http.Request) {
 	// reverse-proxy /share/* bypass) instead of the gated /api namespace.
 	_, body := parseFrontmatter(raw)
 	body = expandEmbeds(body, e.Vault, e.Path, s.idx, s.vaultsDir)
-	var buf bytes.Buffer; _ = md.Convert([]byte(body), &buf)
-	rendered := rewriteShareImageURLs(buf.String(), token)
-	buf.Reset()
-	buf.WriteString(rendered)
+	var buf bytes.Buffer
+	_ = md.Convert([]byte(body), &buf)
+	renderedHTML := rewriteShareImageURLs(buf.String(), token)
 
 	expiresStr := "Never"
 	if e.ExpiresAt > 0 { expiresStr = time.Unix(e.ExpiresAt, 0).Format("2 Jan 2006 15:04") }
 	modeStr, modeCls := "Read-only", " ro"
 	if e.Writable { modeStr, modeCls = "Editable", "" }
+
+	// Conditionally include mermaid/katex assets only when the rendered
+	// HTML actually needs them. Both are big — mermaid ~3MB, katex+fonts
+	// ~1.5MB — so don't ship them with every share page.
+	wantsMermaid := strings.Contains(renderedHTML, "language-mermaid")
+	wantsMath := strings.Contains(renderedHTML, "$$") ||
+		strings.Contains(renderedHTML, "\\(") ||
+		strings.Contains(renderedHTML, "\\[")
+
+	headExtra := ""
+	bodyExtra := ""
+	if wantsMath {
+		headExtra += `<link rel="stylesheet" href="/share/` + token + `/asset?name=katex.min.css">`
+		bodyExtra += `<script src="/share/` + token + `/asset?name=katex.min.js"></script>` +
+			`<script src="/share/` + token + `/asset?name=katex-auto-render.min.js"></script>` +
+			`<script>document.addEventListener('DOMContentLoaded',function(){renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'\\(',right:'\\)',display:false},{left:'\\[',right:'\\]',display:true}],throwOnError:false});});</script>`
+	}
+	if wantsMermaid {
+		bodyExtra += `<script src="/share/` + token + `/asset?name=mermaid.min.js"></script>` +
+			`<script>document.addEventListener('DOMContentLoaded',async function(){if(typeof mermaid==='undefined')return;await mermaid.initialize({startOnLoad:false});const els=Array.from(document.querySelectorAll('pre code.language-mermaid'));for(const el of els){const code=el.textContent||'';const pre=el.closest('pre');if(!pre)continue;const div=document.createElement('div');div.className='mermaid';pre.replaceWith(div);try{const{svg}=await mermaid.render('shm-'+Date.now()+Math.random().toString(36).slice(2),code);div.innerHTML=svg;}catch(e){div.innerHTML='<pre style=\"color:#b91c1c\">'+e.message+'</pre>';}}});</script>`
+	}
 
 	page := fmt.Sprintf(`<!DOCTYPE html>
 <html lang="en"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -1208,18 +1235,80 @@ blockquote{border-left:3px solid var(--ac);padding-left:14px;color:var(--t2);mar
 ul,ol{padding-left:1.4em;margin:.5em 0}li{margin:.2em 0}
 table{border-collapse:collapse;width:100%%;margin:1em 0}th,td{border:1px solid var(--bd);padding:7px 11px}th{background:var(--bg2)}
 img{max-width:100%%}hr{border:none;border-top:1px solid var(--bd);margin:1.5em 0}
+.mermaid svg{display:block;margin:1em auto;max-width:100%%}
 .foot{text-align:center;padding:20px;font-size:12px;color:var(--t3);border-top:1px solid var(--bd)}.foot a{color:var(--t3);text-decoration:none}
-</style></head><body>
+</style>%s</head><body>
 <div class="bar"><strong>%s</strong><span class="badge%s">%s</span><span>Expires: %s</span>
 <span style="flex:1"></span><a href="https://notes.joao.date" style="color:var(--t3);font-size:11px">VaultReader</a></div>
 <div class="content">%s</div>
 <div class="foot">Shared via <a href="https://notes.joao.date">VaultReader</a></div>
-</body></html>`, title, title, modeCls, modeStr, expiresStr, buf.String())
+%s</body></html>`, title, headExtra, title, modeCls, modeStr, expiresStr, renderedHTML, bodyExtra)
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Write([]byte(page))
 }
 
+
+// handleShareAsset serves a bundled static asset (mermaid/katex JS or CSS,
+// fonts) under the share auth context. Strict allowlist prevents tokens
+// from being abused to fetch the SPA index.html or other private bits.
+var shareAssetAllowlist = map[string]string{
+	"mermaid.min.js":          "static/mermaid.min.js",
+	"katex.min.js":            "static/katex.min.js",
+	"katex.min.css":           "static/katex.min.css",
+	"katex-auto-render.min.js": "static/katex-auto-render.min.js",
+}
+
+func (s *server) handleShareAsset(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		errResponse(w, 405, "method not allowed")
+		return
+	}
+	name := r.URL.Query().Get("name")
+	// Need the token to rewrite KaTeX CSS font URLs back into asset URLs.
+	rest := strings.TrimPrefix(r.URL.Path, "/share/")
+	token := strings.SplitN(rest, "/", 2)[0]
+
+	embedPath, ok := shareAssetAllowlist[name]
+	if !ok {
+		// Allow KaTeX font files at the path "fonts/<file>"
+		if strings.HasPrefix(name, "fonts/") &&
+			(strings.HasSuffix(name, ".woff2") || strings.HasSuffix(name, ".woff") ||
+				strings.HasSuffix(name, ".ttf")) {
+			embedPath = "static/" + name
+		} else {
+			http.NotFound(w, r)
+			return
+		}
+	}
+	data, err := staticFiles.ReadFile(embedPath)
+	if err != nil {
+		http.NotFound(w, r)
+		return
+	}
+	// KaTeX CSS contains relative `url(fonts/X)` references; rewrite to
+	// absolute /share/TOKEN/asset?name=fonts/X URLs so the browser fetches
+	// them under the same share-auth bypass.
+	if name == "katex.min.css" {
+		data = []byte(strings.ReplaceAll(string(data),
+			"url(fonts/",
+			"url(/share/"+token+"/asset?name=fonts/"))
+	}
+	switch filepath.Ext(name) {
+	case ".js":
+		w.Header().Set("Content-Type", "application/javascript; charset=utf-8")
+	case ".css":
+		w.Header().Set("Content-Type", "text/css; charset=utf-8")
+	case ".woff2":
+		w.Header().Set("Content-Type", "font/woff2")
+	case ".woff":
+		w.Header().Set("Content-Type", "font/woff")
+	case ".ttf":
+		w.Header().Set("Content-Type", "font/ttf")
+	}
+	w.Header().Set("Cache-Control", "public, max-age=3600")
+	w.Write(data)
+}
 
 // handleShareFile serves a file embedded inside a shared note, using the
 // share's own auth context (i.e. anyone with the token). Scoped strictly
