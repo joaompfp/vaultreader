@@ -2974,10 +2974,23 @@ function vaultApp() {
     },
 
     // ── rename/move note ──────────────────────────
-    promptRenameNote(path) {
+    async promptRenameNote(path) {
       const oldName = path.split('/').pop().replace(/\.md$/, '')
       const dir = path.includes('/') ? path.substring(0, path.lastIndexOf('/')) : ''
-      this.openModal({
+
+      // Phase 1: check for incoming wikilinks. If any, surface a danger
+      // confirm so the user knows what's about to break.
+      let backlinks = []
+      try {
+        const r = await fetch('/api/backlinks?vault=' + encodeURIComponent(this.activeVault) +
+                              '&path=' + encodeURIComponent(path))
+        if (r.ok) {
+          const data = await r.json()
+          backlinks = data.backlinks || []
+        }
+      } catch(_) { /* network error → fall through, don't block rename */ }
+
+      const doRename = () => this.openModal({
         title: 'Rename note',
         value: oldName,
         placeholder: 'New name',
@@ -3000,6 +3013,25 @@ function vaultApp() {
           } catch(e) { this.modal.error = 'Network error.'; console.error('renameNote:', e) }
         }
       })
+
+      if (backlinks.length === 0) {
+        doRename()
+        return
+      }
+
+      // Build a short preview of the linking notes (cap 5).
+      const sample = backlinks.slice(0, 5).map(b => '• ' + (b.title || b.path)).join('\n')
+      const more = backlinks.length > 5 ? '\n• …and ' + (backlinks.length - 5) + ' more' : ''
+      this.modal = {
+        open: true,
+        title: 'Rename will break wikilinks',
+        body: backlinks.length + ' note(s) link to "' + oldName + '". Renaming will turn those into broken links — VaultReader does not auto-update them.\n\n' + sample + more,
+        value: '', placeholder: '', error: '',
+        confirmLabel: 'Rename anyway',
+        confirmOnly: true,
+        danger: true,
+        onConfirm: () => doRename(),
+      }
     },
 
     // ── create folder ─────────────────────────────

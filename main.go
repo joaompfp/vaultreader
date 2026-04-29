@@ -2010,6 +2010,27 @@ func (s *server) handleResolve(w http.ResponseWriter, r *http.Request) {
 	jsonResponse(w, ResolveResult{Vault: v, Path: p})
 }
 
+// handleBacklinks returns just the backlinks for a note, cheaply (no
+// disk read of the note itself). Used by rename/move flows to warn
+// about wikilinks that would break before the user confirms.
+func (s *server) handleBacklinks(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		errResponse(w, 405, "method not allowed")
+		return
+	}
+	vault := r.URL.Query().Get("vault")
+	path := r.URL.Query().Get("path")
+	if vault == "" || path == "" {
+		errResponse(w, 400, "vault and path required")
+		return
+	}
+	backlinks := s.idx.getBacklinks(vault, path)
+	if backlinks == nil {
+		backlinks = []BacklinkRef{}
+	}
+	jsonResponse(w, map[string]any{"backlinks": backlinks})
+}
+
 // ─── Stats handler ────────────────────────────────────────────────────────────
 
 type VaultStat struct {
@@ -2849,6 +2870,7 @@ func main() {
 	mux.HandleFunc("/api/folder", srv.handleFolder)
 	mux.HandleFunc("/api/search", srv.handleSearch)
 	mux.HandleFunc("/api/resolve", srv.handleResolve)
+	mux.HandleFunc("/api/backlinks", srv.handleBacklinks)
 	mux.HandleFunc("/api/stats", srv.handleStats)
 	mux.HandleFunc("/api/sync-status", srv.handleSyncStatus)
 	mux.HandleFunc("/api/vault-icon", srv.handleVaultIcon)
