@@ -61,6 +61,7 @@ type NoteResponse struct {
 	Frontmatter map[string]any `json:"frontmatter"`
 	Backlinks   []BacklinkRef  `json:"backlinks"`
 	MTime       int64          `json:"mtime"`
+	Size        int64          `json:"size"`
 }
 
 type BacklinkRef struct {
@@ -1581,9 +1582,10 @@ func (s *server) handleGetNote(w http.ResponseWriter, r *http.Request) {
 	}
 
 	info, _ := os.Stat(full)
-	var mtime int64
+	var mtime, size int64
 	if info != nil {
 		mtime = info.ModTime().Unix()
+		size = info.Size()
 	}
 
 	raw := string(data)
@@ -1607,6 +1609,7 @@ func (s *server) handleGetNote(w http.ResponseWriter, r *http.Request) {
 		Frontmatter: fm,
 		Backlinks:   backlinks,
 		MTime:       mtime,
+		Size:        size,
 	})
 }
 

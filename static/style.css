@@ -470,6 +470,31 @@ body.sidebar-resizing * {
   gap: 8px;
   font-size: 12px;
 }
+.fm-props {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 0 16px 8px;
+  font-size: 11px;
+}
+.fm-prop {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  color: var(--text3);
+  font-family: var(--mono);
+  cursor: default;
+}
+.fm-prop-label {
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  font-size: 10px;
+  opacity: .7;
+}
+.fm-prop-value {
+  color: var(--text2);
+  font-weight: 600;
+}
 .fm-key { color: var(--accent); font-weight: 600; font-family: var(--mono); flex-shrink: 0; }
 .fm-val { color: var(--text2); }
 .fm-val-object { font-family: var(--mono); font-size: 11px; }

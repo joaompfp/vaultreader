@@ -225,12 +225,23 @@
     <div id="content-area">
 
       <!-- Frontmatter bar -->
-      <div x-show="activePath && Object.keys(noteFrontmatter).length > 0" class="frontmatter-bar">
+      <div x-show="activePath && (Object.keys(noteFrontmatter).length > 0 || noteProps().length > 0)" class="frontmatter-bar">
         <button class="fm-toggle" @click="frontmatterOpen = !frontmatterOpen">
           <span x-text="frontmatterOpen ? '▼' : '▶'"></span>
-          frontmatter
-          <span x-text="'(' + Object.keys(noteFrontmatter).length + ' fields)'"></span>
+          <span x-show="Object.keys(noteFrontmatter).length > 0">
+            frontmatter <span x-text="'(' + Object.keys(noteFrontmatter).length + ' fields)'"></span>
+          </span>
+          <span x-show="Object.keys(noteFrontmatter).length === 0">properties</span>
         </button>
+        <!-- Properties strip (always shown, even when frontmatter collapsed) -->
+        <div class="fm-props" x-show="noteProps().length > 0">
+          <template x-for="p in noteProps()" :key="p.label">
+            <span class="fm-prop" :title="p.title || ''">
+              <span class="fm-prop-label" x-text="p.label"></span>
+              <span class="fm-prop-value" x-text="p.value"></span>
+            </span>
+          </template>
+        </div>
         <div x-show="frontmatterOpen" x-transition class="fm-content">
           <template x-for="[key, val] in Object.entries(noteFrontmatter)" :key="key">
             <div class="fm-field">
@@ -1054,6 +1065,8 @@ function vaultApp() {
     noteRaw: '',
     noteHtml: '',
     noteFrontmatter: {},
+    noteMTime: 0,
+    noteSize: 0,
     backlinks: [],
     mode: 'preview',
     sidebarOpen: true,
@@ -1557,6 +1570,8 @@ function vaultApp() {
         this.noteRaw = data.raw || ''
         this.noteHtml = data.html || ''
         this.noteFrontmatter = data.frontmatter || {}
+        this.noteMTime = data.mtime || 0
+        this.noteSize = data.size || 0
         this.backlinks = data.backlinks || []
         this.isDirty = false
         this.$nextTick(() => this.rerenderMermaid())
@@ -1605,6 +1620,8 @@ function vaultApp() {
         this.noteRaw = data.raw || ''
         this.noteHtml = data.html || ''
         this.noteFrontmatter = data.frontmatter || {}
+        this.noteMTime = data.mtime || 0
+        this.noteSize = data.size || 0
         this.backlinks = data.backlinks || []
         this.isDirty = false
         this.$nextTick(() => this.rerenderMermaid())
@@ -1647,6 +1664,8 @@ function vaultApp() {
         const data = await res.json()
         this.noteHtml = data.html || ''
         this.noteFrontmatter = data.frontmatter || {}
+        this.noteMTime = data.mtime || 0
+        this.noteSize = data.size || 0
         this.backlinks = data.backlinks || []
         this.$nextTick(() => this.rerenderMermaid())
       } catch(e) { /* ignore */ }
@@ -1673,6 +1692,60 @@ function vaultApp() {
           })
         })
       } catch(e) { console.error('mermaid:', e) }
+    },
+
+    // ── note properties ───────────────────────────
+    noteProps() {
+      // Returns [{label, value, title?}, ...] for the properties strip.
+      const out = []
+      if (this.noteSize > 0) {
+        out.push({ label: 'size', value: this._formatSize(this.noteSize) })
+      }
+      if (this.noteMTime > 0) {
+        const d = new Date(this.noteMTime * 1000)
+        out.push({
+          label: 'modified',
+          value: this._relativeTime(this.noteMTime),
+          title: d.toLocaleString(),
+        })
+      }
+      const wc = this._wordCount(this.noteRaw)
+      if (wc > 0) out.push({ label: 'words', value: wc.toLocaleString() })
+      const out_ = this._countOutgoingLinks(this.noteRaw)
+      if (out_ > 0) out.push({ label: 'outgoing', value: out_ })
+      if (this.backlinks && this.backlinks.length > 0) {
+        out.push({ label: 'backlinks', value: this.backlinks.length })
+      }
+      return out
+    },
+    _formatSize(bytes) {
+      if (bytes < 1024) return bytes + ' B'
+      if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB'
+      return (bytes / (1024 * 1024)).toFixed(1) + ' MB'
+    },
+    _relativeTime(unix) {
+      const diff = Math.floor(Date.now() / 1000) - unix
+      if (diff < 60) return 'just now'
+      if (diff < 3600) return Math.floor(diff / 60) + 'm ago'
+      if (diff < 86400) return Math.floor(diff / 3600) + 'h ago'
+      if (diff < 86400 * 7) return Math.floor(diff / 86400) + 'd ago'
+      if (diff < 86400 * 30) return Math.floor(diff / (86400 * 7)) + 'w ago'
+      if (diff < 86400 * 365) return Math.floor(diff / (86400 * 30)) + 'mo ago'
+      return Math.floor(diff / (86400 * 365)) + 'y ago'
+    },
+    _wordCount(raw) {
+      if (!raw) return 0
+      // Strip frontmatter, code fences, links — rough but good enough.
+      let body = raw.replace(/^---[\s\S]*?\n---\s*/m, '')
+      body = body.replace(/```[\s\S]*?```/g, '')
+      body = body.replace(/`[^`]*`/g, '')
+      const words = body.match(/\b[\w'-]+\b/g)
+      return words ? words.length : 0
+    },
+    _countOutgoingLinks(raw) {
+      if (!raw) return 0
+      const matches = raw.match(/\[\[[^\]\n]+\]\]/g)
+      return matches ? matches.length : 0
     },
 
     // ── outline (table of contents) ───────────────
