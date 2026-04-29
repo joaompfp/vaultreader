@@ -180,7 +180,7 @@
         </button>
       </template>
 
-      <button class="btn-icon" @click="openAdmin()" title="Admin (RW paths, restart)" :class="{ active: adminOpen }">
+      <button class="btn-icon" @click="openSettings('admin')" title="Admin (RW paths, restart)" :class="{ active: settingsOpen && settingsTab === 'admin' }">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <circle cx="12" cy="12" r="3"/>
           <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
@@ -651,84 +651,6 @@
 
 
   <!-- ─── Admin Panel ──────────────────────────── -->
-  <div id="admin-panel" x-show="adminOpen" @click.self="adminOpen=false"
-       x-transition:enter="transition ease-out duration-150"
-       x-transition:enter-start="opacity-0"
-       x-transition:enter-end="opacity-100"
-       x-transition:leave="transition ease-in duration-100"
-       x-transition:leave-start="opacity-100"
-       x-transition:leave-end="opacity-0"
-       style="display:none" x-ref="adminPanel">
-    <div class="admin-box" @click.stop>
-      <div class="admin-header">
-        <span class="admin-title">⚙ Admin</span>
-        <button class="btn-icon" @click="adminOpen=false" title="Close">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-        </button>
-      </div>
-
-      <div class="admin-section-title">Read-Write Paths</div>
-      <p class="admin-hint">Paths listed here allow editing. Format: <code>vault/folder</code> or just <code>vault</code> for the whole vault.</p>
-
-      <div class="admin-rw-list">
-        <template x-for="(p, i) in adminConfig.rw_paths" :key="i">
-          <div class="admin-rw-item">
-            <span class="admin-rw-path" x-text="p"></span>
-            <button class="admin-rw-remove" @click="adminRemovePath(i)" title="Remove">✕</button>
-          </div>
-        </template>
-        <template x-if="adminConfig.rw_paths.length === 0">
-          <div class="admin-rw-empty">No RW paths — all vaults are read-only.</div>
-        </template>
-      </div>
-
-      <div class="admin-add-row">
-        <input class="admin-add-input" type="text" placeholder="e.g. pessoal/agents/hermes/skills"
-               x-model="adminNewPath"
-               @keydown.enter="adminAddPath()"
-               autocomplete="off" spellcheck="false">
-        <button class="btn btn-primary admin-add-btn" @click="adminAddPath()">Add</button>
-      </div>
-
-      <div class="admin-divider"></div>
-
-      <div class="admin-section-title">Container</div>
-      <button class="btn btn-danger admin-restart-btn"
-              :disabled="adminRestarting"
-              @click="adminRestart()"
-              x-text="adminRestarting ? 'Restarting…' : 'Restart container'">
-      </button>
-      <p class="admin-hint">Docker will bring it back up automatically. Page will reload after 4s.</p>
-
-      <div class="admin-divider"></div>
-      <div class="admin-section-title">Active Share Links</div>
-      <div x-init="loadActiveShares()">
-        <template x-if="activeShares.length === 0">
-          <div class="admin-rw-empty">No active share links.</div>
-        </template>
-        <template x-for="s in activeShares" :key="s.token">
-          <div class="share-active-item">
-            <div class="share-active-meta">
-              <span class="share-active-path" x-text="s.vault + '/' + s.path.replace(/\.md$/, '')"></span>
-              <span class="share-active-badges">
-                <span class="share-tiny-badge" :class="s.writable ? 'editable' : 'ro'" x-text="s.writable ? 'edit' : 'ro'"></span>
-                <span class="share-tiny-badge expires" x-text="shareExpiry(s)"></span>
-              </span>
-              <span x-show="s.label" class="share-active-label" x-text="s.label"></span>
-            </div>
-            <div class="share-active-actions">
-              <button class="share-copy-btn" @click="navigator.clipboard.writeText('https://joao.date/notas/'+s.token)" title="Copy link">
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-              </button>
-              <button class="share-revoke-btn" @click="revokeShare(s.token)" title="Revoke">✕</button>
-            </div>
-          </div>
-        </template>
-      </div>
-    </div>
-  </div>
-
-
   <!-- ─── Wikilink autocomplete popup ───────────── -->
   <div id="wiki-popup"
        x-show="wikiPop.open"
@@ -770,7 +692,7 @@
        x-transition:leave="transition ease-in duration-100"
        x-transition:leave-start="opacity-100"
        x-transition:leave-end="opacity-0"
-       style="display:none">
+       style="display:none" x-ref="settingsPane">
     <div class="settings-box" @click.stop>
       <div class="settings-header">
         <span class="settings-title">VaultReader</span>
@@ -778,17 +700,149 @@
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
         </button>
       </div>
-      <div class="settings-row">
-        <span class="settings-label">Dark mode</span>
-        <button class="settings-toggle" :class="{on: darkMode}" @click="toggleDark()">
-          <span class="settings-toggle-knob"></span>
+
+      <!-- Tab strip -->
+      <div class="settings-tabs" role="tablist">
+        <button class="settings-tab" :class="{active: settingsTab === 'general'}" @click="openSettings('general')" role="tab">General</button>
+        <button class="settings-tab" :class="{active: settingsTab === 'shared'}" @click="openSettings('shared')" role="tab">
+          Shared
+          <span class="settings-tab-badge" x-show="activeShares.length > 0" x-text="activeShares.length"></span>
         </button>
+        <button class="settings-tab" :class="{active: settingsTab === 'trash'}" @click="openSettings('trash')" role="tab">
+          Trash
+          <span class="settings-tab-badge" x-show="trashItems.length > 0" x-text="trashItems.length"></span>
+        </button>
+        <button class="settings-tab" :class="{active: settingsTab === 'admin'}" @click="openSettings('admin')" role="tab">Admin</button>
+        <button class="settings-tab" :class="{active: settingsTab === 'about'}" @click="openSettings('about')" role="tab">About</button>
       </div>
-      <div class="settings-row" @click="settingsOpen=false; openTrash()" style="cursor:pointer">
-        <span class="settings-label">Open Trash</span>
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg>
+
+      <!-- General -->
+      <div class="settings-tab-body" x-show="settingsTab === 'general'">
+        <div class="settings-row">
+          <span class="settings-label">Dark mode</span>
+          <button class="settings-toggle" :class="{on: darkMode}" @click="toggleDark()">
+            <span class="settings-toggle-knob"></span>
+          </button>
+        </div>
+        <div class="settings-row">
+          <span class="settings-label">Sidebar width</span>
+          <button class="btn" @click="resetSidebarWidth()">Reset</button>
+        </div>
       </div>
-      <div class="settings-version">v1.7.0</div>
+
+      <!-- Shared Links -->
+      <div class="settings-tab-body" x-show="settingsTab === 'shared'">
+        <template x-if="activeShares.length === 0">
+          <div class="settings-empty">No active share links.</div>
+        </template>
+        <template x-if="activeShares.length > 0">
+          <div class="settings-action-row">
+            <span class="settings-hint" x-text="activeShares.length + ' active link' + (activeShares.length === 1 ? '' : 's')"></span>
+            <button class="btn btn-danger" @click="revokeAllShares()">Revoke all</button>
+          </div>
+        </template>
+        <div class="settings-list">
+          <template x-for="s in activeShares" :key="s.token">
+            <div class="share-active-item">
+              <div class="share-active-meta">
+                <span class="share-active-path" x-text="s.vault + '/' + s.path.replace(/\.md$/, '')"></span>
+                <span class="share-active-badges">
+                  <span class="share-tiny-badge" :class="s.writable ? 'editable' : 'ro'" x-text="s.writable ? 'edit' : 'ro'"></span>
+                  <span class="share-tiny-badge expires" x-text="shareExpiry(s)"></span>
+                </span>
+                <span x-show="s.label" class="share-active-label" x-text="s.label"></span>
+              </div>
+              <div class="share-active-actions">
+                <button class="share-copy-btn" @click="navigator.clipboard.writeText('https://joao.date/notas/'+s.token)" title="Copy link">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                </button>
+                <button class="share-revoke-btn" @click="revokeShare(s.token)" title="Revoke">✕</button>
+              </div>
+            </div>
+          </template>
+        </div>
+      </div>
+
+      <!-- Trash -->
+      <div class="settings-tab-body" x-show="settingsTab === 'trash'">
+        <template x-if="trashItems.length === 0">
+          <div class="settings-empty">Trash is empty.</div>
+        </template>
+        <template x-if="trashItems.length > 0">
+          <div class="settings-action-row">
+            <span class="settings-hint" x-text="trashItems.length + ' item' + (trashItems.length === 1 ? '' : 's')"></span>
+            <button class="btn btn-danger" @click="emptyTrash()">Empty all</button>
+          </div>
+        </template>
+        <div class="settings-list">
+          <template x-for="item in trashItems" :key="item.vault + ':' + item.path">
+            <div class="trash-item">
+              <div class="trash-item-meta">
+                <span class="trash-vault-tag" x-text="item.vault"></span>
+                <span class="trash-name" x-text="item.name"></span>
+              </div>
+              <div class="trash-actions">
+                <button class="btn" @click="restoreTrashItem(item.vault, item.path)">Restore</button>
+                <button class="btn btn-danger" @click="permanentlyDeleteTrashItem(item.vault, item.path)">Delete</button>
+              </div>
+            </div>
+          </template>
+        </div>
+      </div>
+
+      <!-- Admin -->
+      <div class="settings-tab-body" x-show="settingsTab === 'admin'">
+        <div class="settings-section-title">Read-write paths</div>
+        <p class="settings-hint">Paths listed here allow editing. Format: <code>vault/folder</code> or just <code>vault</code> for the whole vault.</p>
+        <div class="settings-list">
+          <template x-for="(p, i) in adminConfig.rw_paths" :key="i">
+            <div class="admin-rw-item">
+              <span class="admin-rw-path" x-text="p"></span>
+              <button class="admin-rw-remove" @click="adminRemovePath(i)" title="Remove">✕</button>
+            </div>
+          </template>
+          <template x-if="adminConfig.rw_paths.length === 0">
+            <div class="settings-empty">No RW paths — all vaults are read-only.</div>
+          </template>
+        </div>
+        <div class="admin-add-row">
+          <input class="admin-add-input" type="text" placeholder="e.g. pessoal/agents/hermes/skills"
+                 x-model="adminNewPath"
+                 @keydown.enter="adminAddPath()"
+                 autocomplete="off" spellcheck="false">
+          <button class="btn btn-primary admin-add-btn" @click="adminAddPath()">Add</button>
+        </div>
+
+        <div class="settings-divider"></div>
+
+        <div class="settings-section-title">Container</div>
+        <button class="btn btn-danger admin-restart-btn"
+                :disabled="adminRestarting"
+                @click="adminRestart()"
+                x-text="adminRestarting ? 'Restarting…' : 'Restart container'">
+        </button>
+        <p class="settings-hint">Docker will bring it back up automatically. Page will reload after 4s.</p>
+      </div>
+
+      <!-- About -->
+      <div class="settings-tab-body" x-show="settingsTab === 'about'">
+        <div class="settings-row">
+          <span class="settings-label">Version</span>
+          <span class="settings-hint">v1.8.0</span>
+        </div>
+        <div class="settings-row">
+          <span class="settings-label">Source</span>
+          <a href="https://github.com/joaompfp/vaultreader" target="_blank" rel="noopener" class="settings-link">github.com/joaompfp/vaultreader</a>
+        </div>
+        <div class="settings-row">
+          <span class="settings-label">Vaults</span>
+          <span class="settings-hint" x-text="vaults.length + ' loaded'"></span>
+        </div>
+        <div class="settings-row">
+          <span class="settings-label">Total notes</span>
+          <span class="settings-hint" x-text="totalNotes"></span>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -831,38 +885,6 @@
   </div>
 
   <!-- ─── Trash overlay ────────────────────────── -->
-  <div id="trash-overlay" x-show="trashOpen" @click.self="trashOpen=false"
-       @keydown.escape.window="trashOpen = false" x-ref="trashOverlay">
-    <div class="trash-box" @click.stop>
-      <div class="trash-header">
-        <span class="trash-title">Trash</span>
-        <button class="btn-icon" @click="trashOpen=false" title="Close">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-        </button>
-      </div>
-      <div class="trash-body">
-        <template x-if="trashItems.length === 0">
-          <p class="trash-empty">Trash is empty.</p>
-        </template>
-        <template x-if="trashItems.length > 0">
-          <div class="trash-list">
-            <template x-for="item in trashItems" :key="item.path">
-              <div class="trash-item">
-                <span class="trash-name" x-text="item.name"></span>
-                <div class="trash-actions">
-                  <button class="btn" @click="restoreTrashItem(item.path)">Restore</button>
-                  <button class="btn btn-danger" @click="permanentlyDeleteTrashItem(item.path)">Delete</button>
-                </div>
-              </div>
-            </template>
-          </div>
-        </template>
-      </div>
-      <div class="trash-footer" x-show="trashItems.length > 0">
-        <button class="btn btn-danger" @click="emptyTrash()">Empty trash</button>
-      </div>
-    </div>
-  </div>
 </div><!-- #app -->
 
 <!-- ─── CodeMirror 6 (local IIFE bundle) ─────── -->
@@ -1053,16 +1075,15 @@ function vaultApp() {
     _wikiPopAbort: null,
     // settings
     settingsOpen: false,
-    // admin panel
-    adminOpen: false,
+    settingsTab: 'general',  // general | shared | trash | admin | about
+    // admin tab data
     adminConfig: { rw_paths: [] },
     adminNewPath: '',
     adminRestarting: false,
     // shares
     shareModal: { open: false, vault: '', path: '', writable: false, ttl: 0, label: '', result: null, copying: false },
     activeShares: [],
-    // trash
-    trashOpen: false,
+    // trash tab data
     trashItems: [],
     // move picker modal
     movePicker: {
@@ -1169,8 +1190,7 @@ function vaultApp() {
       this.$watch('modal.open',       v => { if (v) this.trapFocus('modalOverlay');       else this.untrapFocus('modalOverlay') })
       this.$watch('movePicker.open',  v => { if (v) this.trapFocus('movePickerOverlay');  else this.untrapFocus('movePickerOverlay') })
       this.$watch('shareModal.open',  v => { if (v) this.trapFocus('shareModalOverlay');  else this.untrapFocus('shareModalOverlay') })
-      this.$watch('adminOpen',        v => { if (v) this.trapFocus('adminPanel');         else this.untrapFocus('adminPanel') })
-      this.$watch('trashOpen',        v => { if (v) this.trapFocus('trashOverlay');       else this.untrapFocus('trashOverlay') })
+      this.$watch('settingsOpen',     v => { if (v) this.trapFocus('settingsPane');       else this.untrapFocus('settingsPane') })
       this.$watch('shortcutsOpen',    v => { if (v) this.trapFocus('shortcutsOverlay');   else this.untrapFocus('shortcutsOverlay') })
       // one-time migration: move old global recents into per-vault buckets
       const legacyKey = 'vr-recent'
@@ -2398,12 +2418,102 @@ function vaultApp() {
 
     // ── admin ──────────────────────────────────────
     async openAdmin() {
-      this.adminOpen = !this.adminOpen
-      if (this.adminOpen) {
+      // Now an alias — admin is a tab inside the settings pane.
+      this.openSettings('admin')
+    },
+    async openSettings(tab) {
+      this.settingsTab = tab || this.settingsTab || 'general'
+      this.settingsOpen = true
+      // Lazy-load tab-specific data
+      if (this.settingsTab === 'admin') {
         try {
           const r = await fetch('/api/admin/config')
           if (r.ok) this.adminConfig = await r.json()
         } catch(e) { console.error('admin config fetch:', e) }
+      }
+      if (this.settingsTab === 'shared') {
+        await this.loadActiveShares()
+      }
+      if (this.settingsTab === 'trash') {
+        await this.loadTrashItems()
+      }
+    },
+    async loadTrashItems() {
+      // Trash is per-vault on the backend. Aggregate across all vaults
+      // and tag each item with its origin vault for the unified UI.
+      try {
+        const merged = []
+        for (const v of this.vaults) {
+          const r = await fetch('/api/trash?vault=' + encodeURIComponent(v))
+          if (!r.ok) continue
+          const data = await r.json()
+          for (const it of (data.items || [])) {
+            merged.push({ ...it, vault: v })
+          }
+        }
+        this.trashItems = merged
+      } catch(e) { console.error('trash fetch:', e); this.trashItems = [] }
+    },
+    async restoreTrashItem(vault, path) {
+      try {
+        const r = await fetch('/api/trash/restore?vault=' + encodeURIComponent(vault) +
+                              '&path=' + encodeURIComponent(path), { method: 'POST' })
+        if (!r.ok) throw new Error('HTTP ' + r.status)
+        await this.loadTrashItems()
+        this.refreshStats()
+      } catch(e) {
+        this.modal = { open: true, title: 'Restore failed', body: String(e), confirmOnly: true, confirmLabel: 'OK' }
+      }
+    },
+    async permanentlyDeleteTrashItem(vault, path) {
+      try {
+        const r = await fetch('/api/trash?vault=' + encodeURIComponent(vault) +
+                              '&path=' + encodeURIComponent(path), { method: 'DELETE' })
+        if (!r.ok) throw new Error('HTTP ' + r.status)
+        await this.loadTrashItems()
+      } catch(e) {
+        this.modal = { open: true, title: 'Delete failed', body: String(e), confirmOnly: true, confirmLabel: 'OK' }
+      }
+    },
+    async emptyTrash() {
+      this.modal = {
+        open: true,
+        title: 'Empty trash?',
+        body: 'This permanently deletes all trashed items across all vaults. Cannot be undone.',
+        value: '', placeholder: '', error: '',
+        confirmLabel: 'Empty trash',
+        confirmOnly: false,
+        danger: true,
+        onConfirm: async () => {
+          for (const v of this.vaults) {
+            try {
+              await fetch('/api/trash?vault=' + encodeURIComponent(v), { method: 'DELETE' })
+            } catch(e) { console.error('empty trash for', v, e) }
+          }
+          await this.loadTrashItems()
+        },
+      }
+    },
+    async revokeAllShares() {
+      // Confirm via existing modal flow
+      this.modal = {
+        open: true,
+        title: 'Revoke all share links?',
+        body: 'This will revoke ' + this.activeShares.length + ' active link(s). They will stop working immediately.',
+        value: '',
+        placeholder: '',
+        error: '',
+        confirmLabel: 'Revoke all',
+        confirmOnly: false,
+        danger: true,
+        onConfirm: async () => {
+          for (const s of [...this.activeShares]) {
+            try {
+              await fetch('/api/shares/revoke?token=' + encodeURIComponent(s.token), { method: 'POST' })
+            } catch(e) { console.error('revoke', s.token, e) }
+          }
+          await this.loadActiveShares()
+        },
       }
     },
 
