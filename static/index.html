@@ -258,23 +258,33 @@
     <!-- Content area -->
     <div id="content-area">
 
-      <!-- Frontmatter bar -->
+      <!-- Frontmatter bar — one compact row: toggle icon + props strip -->
       <div x-show="activePath && (Object.keys(noteFrontmatter).length > 0 || noteProps().length > 0)" class="frontmatter-bar">
-        <button class="fm-toggle" @click="frontmatterOpen = !frontmatterOpen">
-          <span x-text="frontmatterOpen ? '▼' : '▶'"></span>
-          <span x-show="Object.keys(noteFrontmatter).length > 0">
-            frontmatter <span x-text="'(' + Object.keys(noteFrontmatter).length + ' fields)'"></span>
-          </span>
-          <span x-show="Object.keys(noteFrontmatter).length === 0">properties</span>
-        </button>
-        <!-- Properties strip (always shown, even when frontmatter collapsed) -->
-        <div class="fm-props" x-show="noteProps().length > 0">
-          <template x-for="p in noteProps()" :key="p.label">
-            <span class="fm-prop" :title="p.title || ''">
-              <span class="fm-prop-label" x-text="p.label"></span>
-              <span class="fm-prop-value" x-text="p.value"></span>
-            </span>
-          </template>
+        <div class="fm-row">
+          <button class="fm-toggle"
+                  @click="frontmatterOpen = !frontmatterOpen"
+                  :title="(Object.keys(noteFrontmatter).length > 0 ? 'Frontmatter (' + Object.keys(noteFrontmatter).length + ' fields)' : 'Properties') + ' — click to ' + (frontmatterOpen ? 'collapse' : 'expand')"
+                  :class="{ open: frontmatterOpen }">
+            <!-- info / list icon -->
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="8" y1="6" x2="21" y2="6"/>
+              <line x1="8" y1="12" x2="21" y2="12"/>
+              <line x1="8" y1="18" x2="21" y2="18"/>
+              <circle cx="3.5" cy="6" r="1.5" fill="currentColor"/>
+              <circle cx="3.5" cy="12" r="1.5" fill="currentColor"/>
+              <circle cx="3.5" cy="18" r="1.5" fill="currentColor"/>
+            </svg>
+            <span class="fm-toggle-badge" x-show="Object.keys(noteFrontmatter).length > 0" x-text="Object.keys(noteFrontmatter).length"></span>
+          </button>
+          <!-- Properties strip (always shown when present, on the same row) -->
+          <div class="fm-props" x-show="noteProps().length > 0">
+            <template x-for="p in noteProps()" :key="p.label">
+              <span class="fm-prop" :title="p.title || ''">
+                <span class="fm-prop-label" x-text="p.label"></span>
+                <span class="fm-prop-value" x-text="p.value"></span>
+              </span>
+            </template>
+          </div>
         </div>
         <div x-show="frontmatterOpen" x-transition class="fm-content">
           <template x-for="[key, val] in Object.entries(noteFrontmatter)" :key="key">
@@ -972,19 +982,23 @@
       <!-- Attachments -->
       <div class="settings-tab-body" x-show="settingsTab === 'attachments'">
         <div class="settings-action-row">
-          <div style="display:flex;gap:8px;align-items:center">
-            <select class="admin-add-input" style="width:auto" x-model="attachmentsVault" @change="loadAttachments(attachmentsVault)">
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;flex:1">
+            <select class="admin-add-input" style="width:auto;flex-shrink:0" x-model="attachmentsVault" @change="loadAttachments(attachmentsVault)">
               <template x-for="v in vaults" :key="v">
                 <option :value="v" x-text="v"></option>
               </template>
             </select>
-            <select class="admin-add-input" style="width:auto" x-model="attachmentsFilter">
+            <select class="admin-add-input" style="width:auto;flex-shrink:0" x-model="attachmentsFilter">
               <option value="all">All</option>
               <option value="orphans">Orphans only</option>
             </select>
+            <input class="admin-add-input" style="flex:1;min-width:180px"
+                   type="text" placeholder="Filter by folder/name…"
+                   x-model="attachmentsFolderFilter"
+                   autocomplete="off" spellcheck="false">
           </div>
           <span class="settings-hint" x-show="!attachmentsLoading"
-                x-text="filteredAttachments().length + ' / ' + attachments.length + ' total'"></span>
+                x-text="filteredAttachments().length + ' / ' + attachments.length"></span>
           <span class="settings-hint" x-show="attachmentsLoading">Loading…</span>
         </div>
         <div class="settings-action-row" x-show="attachments.filter(a => a.refCount === 0).length > 0">
@@ -1331,6 +1345,7 @@ function vaultApp() {
     attachmentsLoading: false,
     attachmentsFilter: 'all',  // all | orphans
     attachmentsVault: '',
+    attachmentsFolderFilter: '',  // path-prefix substring filter (client-side)
     // admin tab data
     adminConfig: { rw_paths: [] },
     adminNewPath: '',
@@ -3438,10 +3453,18 @@ function vaultApp() {
       }
     },
     filteredAttachments() {
+      let out = this.attachments
       if (this.attachmentsFilter === 'orphans') {
-        return this.attachments.filter(a => a.refCount === 0)
+        out = out.filter(a => a.refCount === 0)
       }
-      return this.attachments
+      // Folder/path filter: substring match on the vault-relative path,
+      // case-insensitive. Lets you scope to a folder (e.g. "viagens/") or
+      // a partial filename ("london") without a backend change.
+      const q = (this.attachmentsFolderFilter || '').trim().toLowerCase()
+      if (q) {
+        out = out.filter(a => a.path.toLowerCase().includes(q))
+      }
+      return out
     },
     async deleteAttachment(item) {
       this.modal = {
@@ -3557,11 +3580,10 @@ function vaultApp() {
         confirmOnly: true,    // pure confirm — no input
         danger: true,
         onConfirm: async () => {
-          for (const s of [...this.activeShares]) {
-            try {
-              await fetch('/api/shares/revoke?token=' + encodeURIComponent(s.token), { method: 'POST' })
-            } catch(e) { console.error('revoke', s.token, e) }
-          }
+          // Single batch call — avoids per-token rate-limit hits.
+          try {
+            await fetch('/api/shares/revoke-all', { method: 'DELETE' })
+          } catch(e) { console.error('revoke-all', e) }
           await this.loadActiveShares()
         },
       }

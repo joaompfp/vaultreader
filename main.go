@@ -950,6 +950,13 @@ func (ss *ShareStore) revoke(token string) {
 	ss.mu.Lock(); delete(ss.entries, token); ss.mu.Unlock(); _ = ss.save()
 }
 
+// revokeAll clears every entry. Returns how many were removed.
+func (ss *ShareStore) revokeAll() int {
+	ss.mu.Lock(); n := len(ss.entries); ss.entries = map[string]*ShareEntry{}; ss.mu.Unlock()
+	_ = ss.save()
+	return n
+}
+
 func (ss *ShareStore) list() []*ShareEntry {
 	ss.mu.RLock(); defer ss.mu.RUnlock()
 	now := time.Now().Unix(); out := make([]*ShareEntry, 0)
@@ -982,6 +989,15 @@ func (s *server) handleShareRevoke(w http.ResponseWriter, r *http.Request) {
 	token := r.URL.Query().Get("token")
 	if token == "" { errResponse(w, 400, "token required"); return }
 	s.shares.revoke(token); jsonResponse(w, map[string]string{"status": "revoked"})
+}
+
+// handleShareRevokeAll deletes every active share in one call. Avoids the
+// rate-limit cliff the loop version hit (and the wrong-method 405 the
+// bulk frontend was sending pre-2026-04-29).
+func (s *server) handleShareRevokeAll(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodDelete { errResponse(w, 405, "method not allowed"); return }
+	count := s.shares.revokeAll()
+	jsonResponse(w, map[string]int{"revoked": count})
 }
 
 func (s *server) handleShareView(w http.ResponseWriter, r *http.Request) {
@@ -2676,6 +2692,7 @@ func main() {
 	mux.HandleFunc("/api/shares", srv.handleShareList)
 	mux.HandleFunc("/api/shares/create", srv.handleShareCreate)
 	mux.HandleFunc("/api/shares/revoke", srv.handleShareRevoke)
+	mux.HandleFunc("/api/shares/revoke-all", srv.handleShareRevokeAll)
 	mux.HandleFunc("/share/", srv.handleShareView)
 	mux.HandleFunc("/api/admin/restart", srv.handleAdminRestart)
 	mux.HandleFunc("/health", srv.handleHealth)
