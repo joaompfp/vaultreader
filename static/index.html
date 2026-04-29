@@ -11,6 +11,17 @@
   <script src="/katex.min.js"></script>
   <script src="/katex-auto-render.min.js" defer></script>
   <script src="/cytoscape.min.js" defer></script>
+  <!-- WebCola (live force simulation for cytoscape) — alias `cola` → `webcola`
+       so cytoscape-cola's UMD wrapper finds it. Both must load before the
+       Alpine app's renderGraph() runs. `defer` preserves order. -->
+  <script src="/cola.min.js" defer></script>
+  <script defer>window.webcola = window.cola;</script>
+  <script src="/cytoscape-cola.js" defer></script>
+  <script defer>
+    if (typeof cytoscape !== 'undefined' && typeof cytoscapeCola !== 'undefined') {
+      cytoscape.use(cytoscapeCola);
+    }
+  </script>
   <script defer src="/alpine.min.js"></script>
 </head>
 <body>
@@ -2169,6 +2180,55 @@ function vaultApp() {
         this._cy = null
       }
     },
+    _graphLayoutOptions(small, nodeCount) {
+      // Prefer cola — live continuous simulation, draggable nodes drag the
+      // whole graph. Fall back to cose if cola failed to load (e.g. CDN
+      // blocked, ad-blocker eating webcola).
+      const colaLoaded = typeof cytoscapeCola !== 'undefined' &&
+                         typeof window.cola !== 'undefined'
+      if (colaLoaded) {
+        return {
+          name: 'cola',
+          // Distance the simulation aims to keep between connected nodes.
+          edgeLength: edge => small ? 130 : 100,
+          // Extra spacing around node bounding boxes (prevents overlap).
+          nodeSpacing: () => small ? 30 : 18,
+          avoidOverlap: true,
+          // Continuous live simulation — every tick redraws.
+          animate: true,
+          // Refresh ticks per frame: lower = smoother, higher = faster settle.
+          // For < 60 nodes, 1 (smoothest); for big graphs, more ticks per
+          // frame so it converges before the user gives up.
+          refresh: nodeCount < 80 ? 1 : 3,
+          maxSimulationTime: nodeCount < 80 ? 4000 : 6000,
+          // Drag a node mid-simulation? Keep going from the new position.
+          ungrabifyWhileSimulating: false,
+          // Final fit happens via our own layoutstop handler, not here.
+          fit: false,
+          padding: 50,
+          // Random start (matches cose behavior — feels like layout settling
+          // from chaos, which is the visual "alive" cue).
+          randomize: true,
+          // Cola defaults to gridding the unconnected components; setting
+          // `flow` would force directional layout — leave off for our case.
+        }
+      }
+      // Fallback: cose, no live simulation but spreads OK with new params.
+      return {
+        name: 'cose',
+        idealEdgeLength: small ? 130 : 100,
+        nodeRepulsion: small ? 25000 : 15000,
+        edgeElasticity: 80,
+        gravity: small ? 25 : 50,
+        numIter: 1500,
+        animate: nodeCount <= 250,
+        animationDuration: 900,
+        animationEasing: 'ease-out',
+        randomize: true,
+        fit: false,
+        padding: 50,
+      }
+    },
     async renderGraph() {
       if (typeof cytoscape === 'undefined') {
         // Cytoscape lazy-loaded with `defer` — wait briefly.
@@ -2313,20 +2373,7 @@ function vaultApp() {
               'min-zoomed-font-size': 0,
             }},
           ],
-          layout: {
-            name: 'cose',
-            idealEdgeLength: small ? 110 : 90,
-            nodeRepulsion: small ? 18000 : 9000,
-            edgeElasticity: 80,
-            gravity: small ? 30 : 60,
-            numIter: 1200,
-            animate,
-            animationDuration: 900,
-            animationEasing: 'ease-out',
-            randomize: true,
-            fit: true,
-            padding: 60,
-          },
+          layout: this._graphLayoutOptions(small, nodeCount),
           minZoom: 0.08,
           maxZoom: 6,
           wheelSensitivity: 0.18,
