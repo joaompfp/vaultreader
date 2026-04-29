@@ -1,6 +1,8 @@
 vaultreader
 *.tmp-vaultreader
 
-# User customisations — not part of the open-source distribution
-appdata/
+# User customisations — not part of the open-source distribution.
+# Anchored to repo root so it doesn't catch examples/appdata/ (the
+# starter scaffolding that ships in the public repo).
+/appdata/
 .worktrees/
