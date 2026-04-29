@@ -362,6 +362,24 @@
         </template>
       </span>
 
+      <!-- Copy path button — copies "vault/path/to/note.md" so the path
+           can be pasted into agent conversations or scripts. Lives in
+           the breadcrumb row to stay close to the path it copies. The
+           breadcrumb segments themselves keep their navigation behavior
+           untouched. -->
+      <button class="tb-copypath" :class="{ copied: copyPathDone }"
+              x-show="activeVault"
+              @click="copyNotePath()"
+              :title="copyPathDone ? 'Copied!' : 'Copy ' + (activePath ? 'note' : 'vault') + ' path (vault/path)'">
+        <svg x-show="!copyPathDone" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <rect x="9" y="9" width="13" height="13" rx="2"/>
+          <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+        </svg>
+        <svg x-show="copyPathDone" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round">
+          <polyline points="20 6 9 17 4 12"/>
+        </svg>
+      </button>
+
       <!-- fm-toggle on the right — only when a note is open and has props or fm fields -->
       <button class="fm-toggle inline"
               x-show="activePath && (Object.keys(noteFrontmatter).length > 0 || noteProps().length > 0)"
@@ -1533,6 +1551,7 @@ function vaultApp() {
     setFolderSort(v) { const m = this._loadSort(); m[this.activeVault] = v; this._saveSort(m) },
     // copy link
     copyLinkDone: false,
+    copyPathDone: false,
     // modal dialog
     modal: { open: false, title: '', body: '', value: '', placeholder: '', error: '', confirmLabel: 'OK', confirmOnly: false, danger: false, onConfirm: null, secondaryLabel: '', onSecondary: null },
     _conflictDiskRaw: '',
@@ -3300,6 +3319,34 @@ function vaultApp() {
       }
       this.copyLinkDone = true
       setTimeout(() => { this.copyLinkDone = false }, 2000)
+    },
+
+    // ── copy note path ────────────────────────────
+    // Format: "vault/path/to/note.md" — vault-rooted, includes extension.
+    // For agent conversations and scripts. When no note is open, copies
+    // just the active vault name + cwd (folder you're browsing).
+    async copyNotePath() {
+      let path
+      if (this.activePath) {
+        path = this.activeVault + '/' + this.activePath
+      } else if (this.activeVault && this.cwd) {
+        path = this.activeVault + '/' + this.cwd
+      } else {
+        path = this.activeVault || ''
+      }
+      try {
+        await navigator.clipboard.writeText(path)
+      } catch(e) {
+        const ta = document.createElement('textarea')
+        ta.value = path
+        ta.style.position = 'fixed'; ta.style.opacity = '0'
+        document.body.appendChild(ta)
+        ta.focus(); ta.select()
+        document.execCommand('copy')
+        document.body.removeChild(ta)
+      }
+      this.copyPathDone = true
+      setTimeout(() => { this.copyPathDone = false }, 2000)
     },
 
     // ── status bar context ────────────────────────

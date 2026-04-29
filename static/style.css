@@ -466,8 +466,32 @@ body.sidebar-resizing * {
   text-overflow: ellipsis;
 }
 .fm-toggle.inline {
+  flex-shrink: 0;
+}
+
+/* Copy-path button on the breadcrumb row. Sits left of fm-toggle, both
+   pushed to the right edge by margin-left: auto on the first one. */
+.tb-copypath {
   margin-left: auto;
   flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--text3);
+  padding: 4px 6px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background .12s, color .12s, border-color .12s;
+}
+.tb-copypath:hover {
+  background: var(--bg3);
+  color: var(--text);
+}
+.tb-copypath.copied {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) #breadcrumb-row { background: #16182a; }

@@ -4,6 +4,10 @@ All notable changes to VaultReader. Versioning is loose — there are no formal 
 
 Most-recent first.
 
+## 2026-04-29 — Copy-path button on the breadcrumb row
+
+- **Small copy button on the breadcrumb row** (left of the frontmatter toggle, right edge of the row). Click → copies `vault/path/to/note.md` to the clipboard for pasting into agent conversations or scripts. When no note is open, copies the active vault + current folder (`vault/path/to/folder`). Tick + crimson confirmation for 2s. Doesn't touch the breadcrumb segment click handlers — those still navigate.
+
 ## 2026-04-29 — `examples/` scaffold for first-clone experience
 
 - **`examples/vaults/demo/`** — a 9-note sample vault that ships in the repo. Includes a Welcome page, a syntax showcase covering every renderer feature, a wikilinks-in-tables demo (regression cover for the alias-pipe fix), a daily note, four cross-linked notes for the graph view, a meeting template, two SVG image assets, and a vault icon. Notes are intentionally Obsidian-compatible — drop them into Obsidian and they'll render the same.
