@@ -1030,28 +1030,35 @@
         </div>
       </div>
 
-      <!-- Admin -->
+      <!-- Vaults — overview + container ops -->
       <div class="settings-tab-body" x-show="settingsTab === 'admin'">
-        <div class="settings-section-title">Read-write paths</div>
-        <p class="settings-hint">Paths listed here allow editing. Format: <code>vault/folder</code> or just <code>vault</code> for the whole vault.</p>
+        <div class="settings-section-title">Vaults</div>
+        <p class="settings-hint">All vaults found under the mounted <code>/vaults</code> directory. Click any to open.</p>
         <div class="settings-list">
-          <template x-for="(p, i) in adminConfig.rw_paths" :key="i">
-            <div class="admin-rw-item">
-              <span class="admin-rw-path" x-text="p"></span>
-              <button class="admin-rw-remove" @click="adminRemovePath(i)" title="Remove">✕</button>
+          <template x-for="v in vaultStats" :key="v.name">
+            <div class="vault-row" @click="enterDir(v.name, ''); settingsOpen = false">
+              <div class="vault-row-icon" x-html="vaultIcon(v.name)"></div>
+              <div class="vault-row-meta">
+                <div class="vault-row-name" x-text="v.name"></div>
+                <div class="vault-row-sub">
+                  <span x-text="v.noteCount + ' notes'"></span>
+                  <span class="vault-row-sep" x-show="vaultIsWritable(v.name)">·</span>
+                  <span class="vault-row-tag" x-show="vaultIsWritable(v.name)">writable</span>
+                </div>
+              </div>
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="color:var(--text3)"><polyline points="9 18 15 12 9 6"/></svg>
             </div>
           </template>
-          <template x-if="adminConfig.rw_paths.length === 0">
-            <div class="settings-empty">No RW paths configured. Add a vault name (e.g. <code>pessoal</code>) or a vault-relative folder (e.g. <code>pessoal/agents</code>) to allow edits there.</div>
+          <template x-if="vaultStats.length === 0">
+            <div class="settings-empty">No vaults found under /vaults.</div>
           </template>
         </div>
-        <div class="admin-add-row">
-          <input class="admin-add-input" type="text" placeholder="e.g. pessoal/agents/hermes/skills"
-                 x-model="adminNewPath"
-                 @keydown.enter="adminAddPath()"
-                 autocomplete="off" spellcheck="false">
-          <button class="btn btn-primary admin-add-btn" @click="adminAddPath()">Add</button>
-        </div>
+
+        <p class="settings-hint" style="margin-top: 12px">
+          Writable paths are configured in <code>appdata/config.json</code> via the <code>rw_paths</code> array.
+          A vault's name (e.g. <code>pessoal</code>) makes the whole vault writable; a path
+          (e.g. <code>pessoal/agents/hermes/skills</code>) opens up just that subtree.
+        </p>
 
         <div class="settings-divider"></div>
 
@@ -3624,9 +3631,16 @@ function vaultApp() {
     // isWritable: true if current vault+path is under an RW path
     isWritable(vault, path) {
       const full = vault + '/' + (path || '')
-      return this.adminConfig.rw_paths.some(rw => {
+      return (this.adminConfig.rw_paths || []).some(rw => {
         rw = rw.replace(/\/$/, '')
         return rw === vault || full.startsWith(rw + '/') || full === rw
+      })
+    },
+    vaultIsWritable(vault) {
+      // True if the entire vault is writable, or if any rw_path starts within it.
+      return (this.adminConfig.rw_paths || []).some(rw => {
+        rw = rw.replace(/\/$/, '')
+        return rw === vault || rw.startsWith(vault + '/')
       })
     },
 
