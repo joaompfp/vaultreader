@@ -1016,9 +1016,11 @@ function vaultApp() {
     _CHIP_KEYS: ['tags', 'tag', 'aliases', 'alias', 'category', 'categories', 'topic', 'topics', 'status', 'project'],
     _isChipKey(key) { return this._CHIP_KEYS.includes(String(key).toLowerCase()) },
     chipSearch(value) {
-      this.searchQuery = String(value)
+      // Open the overlay first — its $watch resets searchQuery, so set
+      // the query in $nextTick (after the reset has run).
       this.searchOpen = true
       this.$nextTick(() => {
+        this.searchQuery = String(value)
         if (this.$refs.searchInput) this.$refs.searchInput.focus()
         this.doSearch()
       })
