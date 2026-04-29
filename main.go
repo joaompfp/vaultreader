@@ -77,6 +77,7 @@ type SearchResult struct {
 	Path    string `json:"path"`
 	Title   string `json:"title"`
 	Excerpt string `json:"excerpt"`
+	Kind    string `json:"kind,omitempty"` // "" or "note" for notes; "image" for image attachments
 }
 
 type ResolveResult struct {
@@ -721,8 +722,53 @@ func searchVault(vaultPath, vaultName, query string) []SearchResult {
 		return nil
 	})
 
-	// Sort: score desc; ties broken by mtime via score (recency already baked in)
-	// then by path asc for stability.
+	// Image attachments — second pass over the same vault. Scores image
+	// matches lower than note matches so a query like "caffeine" surfaces
+	// the note before any image whose filename contains caffeine.
+	_ = filepath.Walk(vaultPath, func(path string, info os.FileInfo, err error) error {
+		if err != nil || info.IsDir() {
+			return nil
+		}
+		// Skip dotfile-prefixed top-level dirs (.trash, .obsidian, etc).
+		rel, _ := filepath.Rel(vaultPath, path)
+		first := strings.SplitN(rel, string(os.PathSeparator), 2)[0]
+		if strings.HasPrefix(first, ".") {
+			return nil
+		}
+		ext := strings.ToLower(filepath.Ext(info.Name()))
+		if !imageExtensions[ext] {
+			return nil
+		}
+		base := strings.ToLower(info.Name())
+		if !strings.Contains(base, query) {
+			return nil
+		}
+		score := 3.0 // base — half what a body match in a note gets
+		if strings.HasPrefix(base, query) {
+			score += 1
+		}
+		// Recency boost (same scale as notes)
+		ageDays := float64(now-info.ModTime().Unix()) / 86400
+		if ageDays < 0 {
+			ageDays = 0
+		}
+		if ageDays < 30 {
+			score += 1.5 * (1.0 - ageDays/30.0)
+		}
+		hits = append(hits, scored{
+			r: SearchResult{
+				Vault:   vaultName,
+				Path:    rel,
+				Title:   info.Name(),
+				Excerpt: "",
+				Kind:    "image",
+			},
+			score: score,
+		})
+		return nil
+	})
+
+	// Sort: score desc; ties broken by path asc for stability.
 	sort.SliceStable(hits, func(i, j int) bool {
 		if hits[i].score != hits[j].score {
 			return hits[i].score > hits[j].score
@@ -2036,6 +2082,51 @@ func (s *server) handleResolve(w http.ResponseWriter, r *http.Request) {
 	jsonResponse(w, ResolveResult{Vault: v, Path: p})
 }
 
+// handleTemplates lists `.md` files under <vault>/templates/. Each entry
+// returns its path, display name (basename without .md), and body. The
+// frontend reads the body, runs variable expansion ({{date}}, etc.), and
+// POSTs a new note with the result.
+func (s *server) handleTemplates(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		errResponse(w, 405, "method not allowed")
+		return
+	}
+	vault := r.URL.Query().Get("vault")
+	vp, ok := s.vaultPath(vault)
+	if !ok {
+		errResponse(w, 400, "invalid vault")
+		return
+	}
+	tplDir := filepath.Join(vp, "templates")
+	type tplEntry struct {
+		Path string `json:"path"`
+		Name string `json:"name"`
+		Body string `json:"body"`
+	}
+	out := []tplEntry{}
+	_ = filepath.Walk(tplDir, func(p string, info os.FileInfo, err error) error {
+		if err != nil || info.IsDir() {
+			return nil
+		}
+		if !strings.HasSuffix(info.Name(), ".md") {
+			return nil
+		}
+		rel, _ := filepath.Rel(vp, p)
+		data, err := os.ReadFile(p)
+		if err != nil {
+			return nil
+		}
+		out = append(out, tplEntry{
+			Path: rel,
+			Name: strings.TrimSuffix(info.Name(), ".md"),
+			Body: string(data),
+		})
+		return nil
+	})
+	sort.SliceStable(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	jsonResponse(w, map[string]any{"templates": out})
+}
+
 // handleBacklinks returns just the backlinks for a note, cheaply (no
 // disk read of the note itself). Used by rename/move flows to warn
 // about wikilinks that would break before the user confirms.
@@ -2897,6 +2988,7 @@ func main() {
 	mux.HandleFunc("/api/search", srv.handleSearch)
 	mux.HandleFunc("/api/resolve", srv.handleResolve)
 	mux.HandleFunc("/api/backlinks", srv.handleBacklinks)
+	mux.HandleFunc("/api/templates", srv.handleTemplates)
 	mux.HandleFunc("/api/stats", srv.handleStats)
 	mux.HandleFunc("/api/sync-status", srv.handleSyncStatus)
 	mux.HandleFunc("/api/vault-icon", srv.handleVaultIcon)

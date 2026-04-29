@@ -75,15 +75,16 @@
         <span class="fl-name">..</span>
       </div>
 
-      <!-- Dirs first — draggable AND a drop target -->
+      <!-- Dirs first — draggable AND a drop target. Click logic supports
+           Cmd/Ctrl-toggle and Shift-range bulk selection. -->
       <template x-for="item in currentDirs()" :key="item.path">
-        <div class="fl-item fl-dir"
+        <div class="fl-item fl-dir" :class="{ selected: isSelected(item.path) }"
              draggable="true"
              @dragstart="handleSidebarDragStart($event, item)"
              @dragover.prevent="$event.dataTransfer.dropEffect = 'move'; $event.currentTarget.classList.add('drop-target')"
              @dragleave="$event.currentTarget.classList.remove('drop-target')"
              @drop.prevent="$event.currentTarget.classList.remove('drop-target'); handleSidebarDrop($event, item.path)"
-             @click="enterDir(activeVault, item.path)"
+             @click="handleSidebarRowClick($event, item, true)"
              @contextmenu.prevent="openCtxMenu($event, item)">
           <svg class="fl-icon fl-icon-dir" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
           <span class="fl-name" x-text="item.name"></span>
@@ -92,10 +93,11 @@
 
       <!-- Files — draggable -->
       <template x-for="item in currentFiles()" :key="item.path">
-        <div class="fl-item fl-file" :class="{ active: item.path === activePath }"
+        <div class="fl-item fl-file"
+             :class="{ active: item.path === activePath, selected: isSelected(item.path) }"
              draggable="true"
              @dragstart="handleSidebarDragStart($event, item)"
-             @click="openNote(activeVault, item.path)"
+             @click="handleSidebarRowClick($event, item, false)"
              @contextmenu.prevent="openCtxMenu($event, item)">
           <svg class="fl-icon fl-icon-file" width="12" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
           <span class="fl-name" x-text="item.name.replace(/\.md$/, '')"></span>
@@ -109,6 +111,14 @@
           <button class="btn btn-primary" style="font-size:12px;padding:4px 10px" @click="promptCreateNote()">+ New note</button>
         </div>
       </template>
+    </div>
+
+    <!-- Bulk action bar — appears at bottom of sidebar when items are selected -->
+    <div class="bulk-bar" x-show="bulkSelected.length > 0">
+      <span class="bulk-count" x-text="bulkSelected.length + ' selected'"></span>
+      <button class="bulk-btn" @click="bulkMove()" title="Move selected">Move…</button>
+      <button class="bulk-btn bulk-btn-danger" @click="bulkDelete()" title="Delete selected">Delete</button>
+      <button class="bulk-btn-x" @click="clearSelection()" title="Clear">✕</button>
     </div>
   </div>
 
@@ -155,6 +165,10 @@
             <button class="new-dropdown-item" @click="newMenuOpen=false; promptCreateFolder()">
               <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
               New folder
+            </button>
+            <button class="new-dropdown-item" @click="newMenuOpen=false; openTemplatePicker()">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+              From template…
             </button>
           </div>
         </div>
@@ -521,6 +535,37 @@
     </div>
   </div>
 
+  <!-- ─── Template picker ───────────────────────── -->
+  <div id="tpl-overlay" x-show="tplPicker.open" @click.self="tplPicker.open = false"
+       @keydown.escape.window="tplPicker.open = false" x-ref="tplOverlay" style="display:none">
+    <div class="tpl-box" @click.stop>
+      <div class="tpl-header">
+        <span class="tpl-title">From template</span>
+        <button class="btn-icon" @click="tplPicker.open = false" title="Close">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+        </button>
+      </div>
+      <template x-if="tplPicker.list.length === 0 && !tplPicker.loading">
+        <div class="settings-empty">
+          No templates found in <code x-text="activeVault + '/templates/'"></code>.
+          <br><br>
+          Create a <code>templates/</code> folder in this vault and drop <code>.md</code> files into it.
+          Use placeholders like <code>{{date}}</code>, <code>{{time}}</code>, <code>{{title}}</code>, or
+          <code>{{date:YYYY-MM-DD}}</code> in the body.
+        </div>
+      </template>
+      <span class="spinner-row" x-show="tplPicker.loading"><span class="spinner"></span> Loading…</span>
+      <div class="tpl-list">
+        <template x-for="t in tplPicker.list" :key="t.path">
+          <button class="tpl-item" @click="useTemplate(t)">
+            <span class="tpl-name" x-text="t.name"></span>
+            <span class="tpl-preview" x-text="(t.body || '').replace(/^---[\\s\\S]*?\\n---\\n*/, '').replace(/\\s+/g, ' ').slice(0, 80) + '…'"></span>
+          </button>
+        </template>
+      </div>
+    </div>
+  </div>
+
   <!-- ─── Tags overlay ──────────────────────────── -->
   <div id="tags-overlay" x-show="tagsOpen" @click.self="closeTags()"
        @keydown.escape.window="closeTags()" x-ref="tagsOverlay" style="display:none">
@@ -694,12 +739,15 @@
         <template x-if="searchQuery && searchResults.length === 0">
           <div class="search-empty">No results for "<span x-text="searchQuery"></span>"</div>
         </template>
-        <template x-for="(r, i) in searchResults" :key="r.vault + ':' + r.path">
+        <template x-for="(r, i) in searchResults" :key="r.vault + ':' + r.path + ':' + (r.kind || 'note')">
           <div class="search-result"
-               :class="{ focused: searchFocus === i }"
+               :class="{ focused: searchFocus === i, 'sr-image': r.kind === 'image' }"
                @click="openSearchResult(i)"
                @mouseenter="searchFocus = i">
-            <div class="sr-path" x-text="r.vault + ' / ' + r.path"></div>
+            <div class="sr-path">
+              <span class="sr-kind" x-show="r.kind === 'image'" title="Image attachment">🖼</span>
+              <span x-text="r.vault + ' / ' + r.path"></span>
+            </div>
             <div class="sr-title" x-text="r.title || r.path"></div>
             <div class="sr-excerpt" x-show="r.excerpt" x-html="highlightMatch(r.excerpt, searchQuery)"></div>
           </div>
@@ -746,8 +794,15 @@
     <div class="move-picker-box" @click.stop>
       <div class="move-picker-header">
         <span class="move-picker-title">
-          Move <strong x-text="movePicker.isDir ? 'folder' : 'note'"></strong>:
-          <em x-text="movePicker.fromPath.split('/').pop().replace(/\.md$/, '')"></em>
+          <template x-if="movePicker.bulk && movePicker.bulk.length > 0">
+            <span>Move <strong x-text="movePicker.bulk.length + ' items'"></strong></span>
+          </template>
+          <template x-if="!movePicker.bulk || movePicker.bulk.length === 0">
+            <span>
+              Move <strong x-text="movePicker.isDir ? 'folder' : 'note'"></strong>:
+              <em x-text="movePicker.fromPath.split('/').pop().replace(/\.md$/, '')"></em>
+            </span>
+          </template>
         </span>
         <button class="btn-icon" @click="movePicker.open = false" title="Cancel">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
@@ -1191,6 +1246,23 @@
     </div>
   </div>
 
+  <!-- ─── Undo toasts (bottom-right stack) ───────── -->
+  <div id="toast-stack">
+    <template x-for="t in toasts" :key="t.id">
+      <div class="toast"
+           x-transition:enter="toast-enter"
+           x-transition:enter-start="toast-enter-start"
+           x-transition:enter-end="toast-enter-end"
+           x-transition:leave="toast-leave"
+           x-transition:leave-start="toast-leave-start"
+           x-transition:leave-end="toast-leave-end">
+        <span class="toast-msg" x-text="t.message"></span>
+        <button class="toast-undo" @click="undoToast(t.id)">Undo</button>
+        <button class="toast-close" @click="dismissToast(t.id)" title="Dismiss">✕</button>
+      </div>
+    </template>
+  </div>
+
 </div><!-- #app -->
 
 <!-- ─── CodeMirror 6 (local IIFE bundle) ─────── -->
@@ -1346,6 +1418,13 @@ function vaultApp() {
     tagsList: [],
     tagsFilter: '',
     savedSearches: [],  // [{name, query}, ...] persisted globally
+    // Templates picker
+    tplPicker: { open: false, loading: false, list: [] },
+    // Undo toasts: [{id, message, vault, trashPath, originalPath, timer}]
+    toasts: [],
+    // Bulk-select in sidebar — set of paths (note paths or folder paths) currently in cwd
+    bulkSelected: [],   // sequenced order; last entry is the anchor for shift-click
+    _lastSelectedPath: '',
     frontmatterOpen: false,
     searchQuery: '',
     searchResults: [],
@@ -1506,6 +1585,7 @@ function vaultApp() {
           this.ctxMenu.open = false
           this.newMenuOpen = false
           this.settingsOpen = false
+          if (this.bulkSelected.length > 0) this.clearSelection()
         }
         if (e.key === '/' && !e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey) {
           const tag = document.activeElement?.tagName
@@ -1704,6 +1784,9 @@ function vaultApp() {
     // ── file commander navigation ──────────────────
     async enterDir(vault, path) {
       const vaultChanged = vault !== this.activeVault
+      // Clear bulk selection when navigating folders — selections only make
+      // sense within the current view.
+      if (this.bulkSelected.length > 0) this.clearSelection()
       this.activeVault = vault
       this.cwd = path
       this.allNodes = []
@@ -1910,6 +1993,236 @@ function vaultApp() {
     },
 
     // ── open note ─────────────────────────────────
+    // ── note templates ────────────────────────────
+    async openTemplatePicker() {
+      if (!this.activeVault) return
+      this.tplPicker = { open: true, loading: true, list: [] }
+      try {
+        const r = await fetch('/api/templates?vault=' + encodeURIComponent(this.activeVault))
+        if (r.ok) {
+          const d = await r.json()
+          this.tplPicker.list = d.templates || []
+        }
+      } catch(e) { console.error('templates:', e) }
+      finally { this.tplPicker.loading = false }
+    },
+    _expandTemplate(body, ctx) {
+      // Supported placeholders:
+      //   {{date}}          → YYYY-MM-DD
+      //   {{date:FMT}}      → custom (subset: YYYY MM DD HH mm ss)
+      //   {{time}}          → HH:mm
+      //   {{title}}         → user-supplied note name
+      const d = new Date()
+      const pad = n => String(n).padStart(2, '0')
+      const yyyy = d.getFullYear()
+      const mm = pad(d.getMonth() + 1)
+      const dd = pad(d.getDate())
+      const hh = pad(d.getHours())
+      const mi = pad(d.getMinutes())
+      const ss = pad(d.getSeconds())
+      const fmt = (s) => s
+        .replace(/YYYY/g, yyyy).replace(/MM/g, mm).replace(/DD/g, dd)
+        .replace(/HH/g, hh).replace(/mm/g, mi).replace(/ss/g, ss)
+      return body
+        .replace(/\{\{date:([^}]+)\}\}/g, (_, f) => fmt(f))
+        .replace(/\{\{date\}\}/g, `${yyyy}-${mm}-${dd}`)
+        .replace(/\{\{time\}\}/g, `${hh}:${mi}`)
+        .replace(/\{\{title\}\}/g, ctx.title || '')
+    },
+    useTemplate(tpl) {
+      // Close the picker, then prompt for the new note name. The template
+      // body is expanded after the user names the note.
+      this.tplPicker.open = false
+      const prefix = this.cwd ? this.cwd + '/' : ''
+      this.openModal({
+        title: 'New note from "' + tpl.name + '"',
+        placeholder: 'Note name',
+        confirmLabel: 'Create',
+        onConfirm: async (name) => {
+          const path = prefix + name + (name.endsWith('.md') ? '' : '.md')
+          const body = this._expandTemplate(tpl.body, { title: name })
+          try {
+            const res = await fetch('/api/note?vault=' + encodeURIComponent(this.activeVault) +
+                                    '&path=' + encodeURIComponent(path), {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ raw: body }),
+            })
+            if (res.status === 409) { this.modal.error = 'Already exists.'; return }
+            if (!res.ok) { this.modal.error = 'Error creating.'; return }
+            this.modal.open = false
+            await this.openNote(this.activeVault, path)
+            // Drop into edit mode at end of file — the user is already
+            // in template-creation mode, they'll want to fill in.
+            this.setMode('edit')
+            this.$nextTick(() => {
+              const view = window.__cmAPI?.getView()
+              if (view) {
+                view.dispatch({ selection: { anchor: view.state.doc.length } })
+                view.focus()
+              }
+            })
+          } catch(e) { this.modal.error = 'Network error.'; console.error('useTemplate:', e) }
+        },
+      })
+    },
+
+    // ── bulk selection in sidebar ─────────────────
+    isSelected(path) { return this.bulkSelected.includes(path) },
+    toggleSelect(path) {
+      const i = this.bulkSelected.indexOf(path)
+      if (i === -1) this.bulkSelected.push(path)
+      else this.bulkSelected.splice(i, 1)
+      this._lastSelectedPath = path
+    },
+    rangeSelect(path) {
+      // Walk currentDirs() + currentFiles() (in display order) and add every
+      // path between the anchor and the new one.
+      const anchor = this._lastSelectedPath
+      const items = [...this.currentDirs(), ...this.currentFiles()].map(it => it.path)
+      const a = items.indexOf(anchor)
+      const b = items.indexOf(path)
+      if (a === -1 || b === -1) {
+        if (!this.bulkSelected.includes(path)) this.bulkSelected.push(path)
+        this._lastSelectedPath = path
+        return
+      }
+      const [lo, hi] = a <= b ? [a, b] : [b, a]
+      for (let k = lo; k <= hi; k++) {
+        if (!this.bulkSelected.includes(items[k])) this.bulkSelected.push(items[k])
+      }
+      this._lastSelectedPath = path
+    },
+    handleSidebarRowClick(e, item, isFolder) {
+      // Cmd/Ctrl: toggle selection, don't open.
+      if (e.ctrlKey || e.metaKey) {
+        e.preventDefault(); e.stopPropagation()
+        this.toggleSelect(item.path)
+        return
+      }
+      // Shift: range-select.
+      if (e.shiftKey && this._lastSelectedPath) {
+        e.preventDefault(); e.stopPropagation()
+        this.rangeSelect(item.path)
+        return
+      }
+      // Plain click — clear selection and open/enter.
+      this.bulkSelected = []
+      this._lastSelectedPath = ''
+      if (isFolder) this.enterDir(this.activeVault, item.path)
+      else this.openNote(this.activeVault, item.path)
+    },
+    clearSelection() {
+      this.bulkSelected = []
+      this._lastSelectedPath = ''
+    },
+    async bulkDelete() {
+      const items = [...this.bulkSelected]
+      if (items.length === 0) return
+      this.modal = {
+        open: true, danger: true, confirmOnly: true,
+        title: 'Delete ' + items.length + ' item(s)?',
+        body: 'Move ' + items.length + ' item(s) to .trash/. They can be recovered.',
+        confirmLabel: 'Delete ' + items.length,
+        onConfirm: async () => {
+          const vault = this.activeVault
+          // Determine note vs folder by checking allNodes — folders have isDir.
+          const dirs = new Set(this.currentDirs().map(d => d.path))
+          let movedToList = []
+          for (const p of items) {
+            const isFolder = dirs.has(p)
+            const url = (isFolder ? '/api/folder' : '/api/note') +
+                        '?vault=' + encodeURIComponent(vault) +
+                        '&path=' + encodeURIComponent(p)
+            try {
+              const res = await fetch(url, { method: 'DELETE' })
+              if (res.ok) {
+                const d = await res.json().catch(() => ({}))
+                if (d.movedTo) movedToList.push({ originalPath: p, trashPath: d.movedTo, isFolder, name: p.split('/').pop().replace(/\.md$/, '') })
+              }
+            } catch(e) { console.error('bulk delete:', p, e) }
+          }
+          this.bulkSelected = []
+          this._lastSelectedPath = ''
+          if (this.activePath && items.includes(this.activePath)) {
+            this.activePath = ''; this.noteRaw = ''; this.noteHtml = ''; this.noteFrontmatter = {}; this.backlinks = []
+          }
+          await this.enterDir(vault, this.cwd)
+          // Single combined toast.
+          if (movedToList.length > 0) {
+            const id = ++this._toastSeq
+            const t = {
+              id,
+              message: 'Deleted ' + movedToList.length + ' item(s)',
+              vault,
+              _bulk: movedToList,
+              timer: setTimeout(() => this.dismissToast(id), 6500),
+            }
+            this.toasts.push(t)
+          }
+        },
+      }
+    },
+    async bulkMove() {
+      const items = [...this.bulkSelected]
+      if (items.length === 0) return
+      // Reuse the move-picker but with a multi-target bag.
+      this.movePicker = {
+        open: true,
+        bulk: items,
+        fromPath: items.length === 1 ? items[0] : '',  // for the breadcrumb display
+        isDir: false,
+        vault: this.activeVault,
+        pickerVault: this.activeVault,
+        pickerCwd: '',
+        pickerNodes: [],
+      }
+      try {
+        const r = await fetch('/api/tree?vault=' + encodeURIComponent(this.activeVault))
+        if (r.ok) this.movePicker.pickerNodes = await r.json()
+      } catch(e) { console.error('bulk move tree:', e) }
+    },
+
+    // ── undo toasts ───────────────────────────────
+    _toastSeq: 0,
+    showUndoToast(message, vault, trashPath, originalPath) {
+      const id = ++this._toastSeq
+      const timer = setTimeout(() => this.dismissToast(id), 6500)
+      this.toasts.push({ id, message, vault, trashPath, originalPath, timer })
+    },
+    dismissToast(id) {
+      const i = this.toasts.findIndex(t => t.id === id)
+      if (i === -1) return
+      clearTimeout(this.toasts[i].timer)
+      this.toasts.splice(i, 1)
+    },
+    async undoToast(id) {
+      const t = this.toasts.find(x => x.id === id)
+      if (!t) return
+      try {
+        // Bulk: restore each item in the bag.
+        if (t._bulk && t._bulk.length > 0) {
+          for (const e of t._bulk) {
+            try {
+              await fetch('/api/trash/restore?vault=' + encodeURIComponent(t.vault) +
+                '&path=' + encodeURIComponent(e.trashPath), { method: 'POST' })
+            } catch(err) { console.error('bulk undo:', e.trashPath, err) }
+          }
+        } else {
+          const res = await fetch('/api/trash/restore?vault=' + encodeURIComponent(t.vault) +
+            '&path=' + encodeURIComponent(t.trashPath), { method: 'POST' })
+          if (!res.ok) {
+            this.modal = { open: true, title: 'Undo failed', body: 'HTTP ' + res.status,
+              confirmOnly: true, confirmLabel: 'OK' }
+            return
+          }
+        }
+        await this.enterDir(this.activeVault, this.cwd)
+      } finally {
+        this.dismissToast(id)
+      }
+    },
+
     // ── sidebar drag-and-drop ─────────────────────
     _parentDirOfCwd() {
       // Return the parent of the current cwd (e.g. cwd=foo/bar → "foo").
@@ -2984,6 +3297,13 @@ function vaultApp() {
       const r = this.searchResults[idx]
       if (!r) return
       this.searchOpen = false
+      // Image attachments open in a new tab (raw file). Notes open normally.
+      if (r.kind === 'image') {
+        const url = '/api/file?vault=' + encodeURIComponent(r.vault) +
+                    '&path=' + encodeURIComponent(r.path)
+        window.open(url, '_blank')
+        return
+      }
       this.openNote(r.vault, r.path)
     },
 
@@ -3101,13 +3421,15 @@ function vaultApp() {
         onConfirm: async () => {
           this.modal.open = false
           try {
-            const res = await fetch('/api/note?vault=' + encodeURIComponent(this.activeVault) +
+            const vault = this.activeVault
+            const res = await fetch('/api/note?vault=' + encodeURIComponent(vault) +
               '&path=' + encodeURIComponent(path), { method: 'DELETE' })
             if (!res.ok) {
               const msg = await res.text().catch(() => 'Delete failed')
               alert('Error: ' + msg)
               return
             }
+            const data = await res.json().catch(() => ({}))
             if (this.activePath === path) {
               this.activePath = ''
               this.noteRaw = ''
@@ -3115,12 +3437,16 @@ function vaultApp() {
               this.noteFrontmatter = {}
               this.backlinks = []
             }
-            await this.enterDir(this.activeVault, this.cwd)
+            await this.enterDir(vault, this.cwd)
             // remove from recents
-            const key = 'vr-recent-' + this.activeVault
+            const key = 'vr-recent-' + vault
             const recent = JSON.parse(localStorage.getItem(key) || '[]').filter(r => r.path !== path)
             localStorage.setItem(key, JSON.stringify(recent))
             this.recentFiles = recent
+            // Surface an undo toast — backend returned the trash path.
+            if (data.movedTo) {
+              this.showUndoToast('Deleted "' + name + '"', vault, data.movedTo, path)
+            }
           } catch(e) { console.error('deleteNote:', e); alert('Delete failed: ' + e.message) }
         }
       })
@@ -3219,21 +3545,26 @@ function vaultApp() {
         confirmLabel: 'Delete',
         onConfirm: async () => {
           try {
-            const res = await fetch('/api/folder?vault=' + encodeURIComponent(this.activeVault) +
+            const vault = this.activeVault
+            const res = await fetch('/api/folder?vault=' + encodeURIComponent(vault) +
               '&path=' + encodeURIComponent(path), { method: 'DELETE' })
             if (!res.ok) {
               const msg = await res.text().catch(() => 'Delete failed')
               alert('Error: ' + msg)
               return
             }
+            const data = await res.json().catch(() => ({}))
             if (this.cwd === path || this.cwd.startsWith(path + '/')) {
               const parent = path.includes('/') ? path.substring(0, path.lastIndexOf('/')) : ''
-              await this.enterDir(this.activeVault, parent)
+              await this.enterDir(vault, parent)
             } else {
-              await this.enterDir(this.activeVault, this.cwd)
+              await this.enterDir(vault, this.cwd)
             }
             if (this.activePath && (this.activePath.startsWith(path + '/') || this.activePath === path)) {
               this.activePath = ''; this.noteRaw = ''; this.noteHtml = ''; this.noteFrontmatter = {}; this.backlinks = []
+            }
+            if (data.movedTo) {
+              this.showUndoToast('Deleted folder "' + name + '"', vault, data.movedTo, path)
             }
           } catch(e) { console.error('deleteFolder:', e); alert('Delete failed: ' + e.message) }
         }
@@ -4031,11 +4362,33 @@ function vaultApp() {
     },
 
     async pickerConfirmMove() {
-      const { fromPath, isDir, vault, pickerCwd } = this.movePicker
-      // destination: pickerCwd + basename of the item being moved
+      const { fromPath, isDir, vault, pickerCwd, bulk } = this.movePicker
+
+      // Bulk move — iterate over the selected items.
+      if (bulk && bulk.length > 0) {
+        let movedActive = null
+        for (const p of bulk) {
+          const basename = p.split('/').pop()
+          const toPath = pickerCwd ? pickerCwd + '/' + basename : basename
+          if (toPath === p) continue
+          try {
+            const res = await fetch('/api/move?vault=' + encodeURIComponent(vault) +
+                                    '&from=' + encodeURIComponent(p) +
+                                    '&to=' + encodeURIComponent(toPath), { method: 'POST' })
+            if (res.ok && this.activePath === p) movedActive = toPath
+          } catch(e) { console.error('bulk move:', p, e) }
+        }
+        this.movePicker.open = false
+        this.bulkSelected = []
+        this._lastSelectedPath = ''
+        await this.enterDir(vault, this.cwd)
+        if (movedActive) await this.openNote(vault, movedActive)
+        return
+      }
+
+      // Single-item move (original flow).
       const basename = fromPath.split('/').pop()
       const toPath = pickerCwd ? pickerCwd + '/' + basename : basename
-
       if (toPath === fromPath) {
         this.movePicker.open = false
         return
@@ -4048,9 +4401,7 @@ function vaultApp() {
         if (res.status === 409) { alert('A file/folder with that name already exists at the destination.'); return }
         if (!res.ok) { alert('Move failed.'); return }
         this.movePicker.open = false
-        // refresh
         await this.enterDir(vault, this.cwd)
-        // if we moved the open note, open at new path
         if (!isDir && fromPath === this.activePath) {
           const data = await res.json()
           await this.openNote(vault, data.newPath)
