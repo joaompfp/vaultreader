@@ -446,7 +446,10 @@
       <div id="preview"
            x-show="activePath && mode === 'preview'"
            x-html="noteHtml"
-           @click="handlePreviewClick($event)">
+           tabindex="-1"
+           @click="handlePreviewClick($event)"
+           @dragover.prevent="$event.dataTransfer.dropEffect = 'copy'"
+           @drop.prevent="handlePreviewDrop($event)">
       </div>
 
       <!-- Editor mode -->
@@ -1499,6 +1502,21 @@ function vaultApp() {
         }
       })
       window.addEventListener('click', () => { this.ctxMenu.open = false })
+      // Preview-mode paste — when the user pastes an image while in preview
+      // (no editor open), upload it and append the embed at end of note.
+      window.addEventListener('paste', (e) => {
+        if (this.mode !== 'preview') return                          // editor handles its own paste
+        if (!this.activePath) return
+        const tag = document.activeElement?.tagName
+        if (tag === 'INPUT' || tag === 'TEXTAREA') return            // user is in a form input somewhere
+        const items = e.clipboardData?.items || []
+        for (const it of items) {
+          if (it.kind === 'file' && it.type.startsWith('image/')) {
+            const f = it.getAsFile()
+            if (f) { e.preventDefault(); this.uploadImageToPreview(f); return }
+          }
+        }
+      })
       window.addEventListener('beforeunload', (e) => {
         if (this.isDirty) {
           e.preventDefault()
@@ -3309,6 +3327,78 @@ function vaultApp() {
           confirmOnly: true,
           confirmLabel: 'OK',
           onConfirm: null,
+        }
+      }
+    },
+
+    // Preview-mode paste/drop: upload the image, append the embed at the
+    // end of the note, save, re-render. Lets the user drop screenshots
+    // into a note while reading without switching to edit mode.
+    async uploadImageToPreview(file) {
+      if (!this.activePath) return
+      // Block if the note isn't writable — same gate as the editor.
+      if (!this.isWritable(this.activeVault, this.activePath)) {
+        this.modal = {
+          open: true, title: 'Cannot paste image',
+          body: "This note's path isn't in the writable list. Add it from Settings → Admin or paste in a writable note.",
+          confirmOnly: true, confirmLabel: 'OK',
+        }
+        return
+      }
+      this.saveStatus = 'saving'
+      try {
+        const fd = new FormData()
+        fd.append('vault', this.activeVault)
+        fd.append('notePath', this.activePath)
+        fd.append('file', file)
+        const res = await fetch('/api/upload', { method: 'POST', body: fd })
+        if (!res.ok) {
+          const txt = await res.text().catch(() => '')
+          throw new Error('HTTP ' + res.status + ' ' + txt)
+        }
+        const data = await res.json()
+        const embed = '![[' + data.path + ']]'
+        // Append to noteRaw with two newlines for spacing, then PUT.
+        const newRaw = this.noteRaw.replace(/\s*$/, '') + '\n\n' + embed + '\n'
+        const putRes = await fetch('/api/note?vault=' + encodeURIComponent(this.activeVault) +
+          '&path=' + encodeURIComponent(this.activePath) +
+          (this.noteMTime ? '&ifMTime=' + this.noteMTime : ''),
+          { method: 'PUT', headers: { 'Content-Type': 'text/plain; charset=utf-8' }, body: newRaw })
+        if (putRes.status === 409) {
+          // Conflict during preview-paste: surface to user.
+          this.saveStatus = ''
+          this.modal = {
+            open: true, title: 'Note changed on disk',
+            body: 'The note was modified elsewhere. Reload it (e.g. switch to edit mode and back) and try pasting again.',
+            confirmOnly: true, confirmLabel: 'OK',
+          }
+          return
+        }
+        if (!putRes.ok) throw new Error('HTTP ' + putRes.status)
+        try {
+          const body = await putRes.json()
+          if (body && typeof body.mtime === 'number') this.noteMTime = body.mtime
+        } catch(_) {}
+        this.noteRaw = newRaw
+        this.saveStatus = 'saved'
+        setTimeout(() => { if (this.saveStatus === 'saved') this.saveStatus = '' }, 2000)
+        // Re-render the preview so the new image shows
+        await this.rerenderPreview()
+      } catch (e) {
+        this.saveStatus = 'error'
+        this.modal = {
+          open: true, title: 'Upload failed', body: String(e.message || e),
+          confirmOnly: true, confirmLabel: 'OK',
+        }
+      }
+    },
+    handlePreviewDrop(e) {
+      if (this.mode !== 'preview' || !this.activePath) return
+      const files = e.dataTransfer?.files || []
+      for (const f of files) {
+        if (f.type.startsWith('image/')) {
+          this.uploadImageToPreview(f)
+          return
         }
       }
     },
