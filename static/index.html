@@ -195,6 +195,17 @@
         <span x-show="backlinks.length > 0" class="bl-badge" x-text="backlinks.length"></span>
       </button>
 
+      <button class="btn-icon" :class="{ active: outlineOpen }" @click="outlineOpen = !outlineOpen" :title="outlineOpen ? 'Hide outline' : 'Show outline'" x-show="activePath && outlineItems().length > 0">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="8" y1="6" x2="21" y2="6"/>
+          <line x1="8" y1="12" x2="21" y2="12"/>
+          <line x1="8" y1="18" x2="21" y2="18"/>
+          <circle cx="3.5" cy="6" r="1.5" fill="currentColor"/>
+          <circle cx="3.5" cy="12" r="1.5" fill="currentColor"/>
+          <circle cx="3.5" cy="18" r="1.5" fill="currentColor"/>
+        </svg>
+      </button>
+
       <button class="btn-icon" @click="toggleDark()" :title="darkMode ? 'Light mode' : 'Dark mode'" style="padding:6px">
         <!-- Sun (shown in dark mode, click for light) -->
         <svg x-show="darkMode" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -413,6 +424,29 @@
 
     </div>
   </div>
+
+  <!-- ─── Outline (right rail) ──────────────────── -->
+  <aside id="outline" x-show="outlineOpen && activePath && outlineItems().length > 0"
+         x-transition:enter="transition ease-out duration-150"
+         x-transition:enter-start="opacity-0"
+         x-transition:enter-end="opacity-100"
+         style="display:none">
+    <div class="outline-header">
+      <span class="outline-title">Outline</span>
+      <button class="btn-icon" @click="outlineOpen = false" title="Close">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+      </button>
+    </div>
+    <div class="outline-list">
+      <template x-for="h in outlineItems()" :key="h.id + ':' + h.text">
+        <a class="outline-item"
+           :class="['outline-h' + h.level, { active: outlineActiveId === h.id }]"
+           :href="'#' + h.id"
+           @click.prevent="scrollToHeading(h.id)"
+           x-text="h.text"></a>
+      </template>
+    </div>
+  </aside>
 
   <!-- ─── Backlinks backdrop ───────────────────── -->
   <div class="bl-backdrop" x-show="backlinksOpen" @click="backlinksOpen = false"
@@ -1024,6 +1058,8 @@ function vaultApp() {
     mode: 'preview',
     sidebarOpen: true,
     backlinksOpen: false,
+    outlineOpen: false,
+    outlineActiveId: '',
     frontmatterOpen: false,
     searchQuery: '',
     searchResults: [],
@@ -1192,6 +1228,11 @@ function vaultApp() {
       this.$watch('shareModal.open',  v => { if (v) this.trapFocus('shareModalOverlay');  else this.untrapFocus('shareModalOverlay') })
       this.$watch('settingsOpen',     v => { if (v) this.trapFocus('settingsPane');       else this.untrapFocus('settingsPane') })
       this.$watch('shortcutsOpen',    v => { if (v) this.trapFocus('shortcutsOverlay');   else this.untrapFocus('shortcutsOverlay') })
+      // Re-bind outline scroll-spy whenever the rendered note changes.
+      this.$watch('noteHtml', () => {
+        this.outlineActiveId = ''
+        this.$nextTick(() => this._initOutlineScrollSpy())
+      })
       // one-time migration: move old global recents into per-vault buckets
       const legacyKey = 'vr-recent'
       const legacy = JSON.parse(localStorage.getItem(legacyKey) || '[]')
@@ -1236,6 +1277,11 @@ function vaultApp() {
           document.documentElement.style.setProperty('--sidebar-w', wSaved + 'px')
         }
       }
+
+      // restore outline-pane state
+      const olSaved = localStorage.getItem('vr-outline')
+      if (olSaved !== null) this.outlineOpen = olSaved === '1'
+      this.$watch('outlineOpen', v => localStorage.setItem('vr-outline', v ? '1' : '0'))
 
       try {
         const res = await fetch('/api/vaults')
@@ -1627,6 +1673,56 @@ function vaultApp() {
           })
         })
       } catch(e) { console.error('mermaid:', e) }
+    },
+
+    // ── outline (table of contents) ───────────────
+    outlineItems() {
+      // Parse rendered noteHtml for h1-h3, return [{level, text, id}, ...].
+      // Goldmark's WithAutoHeadingID gives every heading an id attribute.
+      if (!this.noteHtml) return []
+      const tmp = document.createElement('div')
+      tmp.innerHTML = this.noteHtml
+      const items = []
+      tmp.querySelectorAll('h1, h2, h3').forEach(h => {
+        items.push({
+          level: parseInt(h.tagName.slice(1), 10),
+          text: h.textContent.trim(),
+          id: h.id || '',
+        })
+      })
+      return items
+    },
+    scrollToHeading(id) {
+      if (!id) return
+      const el = document.querySelector('#preview #' + CSS.escape(id))
+      if (!el) return
+      el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      this.outlineActiveId = id
+      // Mobile: close the outline so the user can read
+      if (window.innerWidth <= 700) this.outlineOpen = false
+    },
+    _initOutlineScrollSpy() {
+      // Highlight the heading currently nearest the top of the preview pane.
+      // Re-bind whenever noteHtml changes.
+      const preview = document.getElementById('preview')
+      if (!preview) return
+      if (this._outlineSpyHandler) {
+        preview.removeEventListener('scroll', this._outlineSpyHandler)
+      }
+      const handler = () => {
+        const headings = preview.querySelectorAll('h1, h2, h3')
+        const top = preview.getBoundingClientRect().top + 80
+        let active = ''
+        for (const h of headings) {
+          const r = h.getBoundingClientRect()
+          if (r.top <= top) active = h.id
+          else break
+        }
+        if (active && active !== this.outlineActiveId) this.outlineActiveId = active
+      }
+      this._outlineSpyHandler = handler
+      preview.addEventListener('scroll', handler, { passive: true })
+      handler() // run once to set initial active
     },
 
     // ── auto-save ─────────────────────────────────
