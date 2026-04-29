@@ -6,7 +6,10 @@
   <title>VaultReader</title>
   <link rel="icon" href="/obsidian.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/style.css">
+  <link rel="stylesheet" href="/katex.min.css">
   <script src="/mermaid.min.js"></script>
+  <script src="/katex.min.js"></script>
+  <script src="/katex-auto-render.min.js" defer></script>
   <script defer src="/alpine.min.js"></script>
 </head>
 <body>
@@ -1594,7 +1597,7 @@ function vaultApp() {
         this.noteSize = data.size || 0
         this.backlinks = data.backlinks || []
         this.isDirty = false
-        this.$nextTick(() => this.rerenderMermaid())
+        this.$nextTick(() => { this.rerenderMermaid(); this.rerenderMath() })
         this._recordRecent(vault, path, this.noteTitle())
       } catch(e) { console.error('_routeHash:', e) }
     },
@@ -1644,7 +1647,7 @@ function vaultApp() {
         this.noteSize = data.size || 0
         this.backlinks = data.backlinks || []
         this.isDirty = false
-        this.$nextTick(() => this.rerenderMermaid())
+        this.$nextTick(() => { this.rerenderMermaid(); this.rerenderMath() })
         this.saveStatus = ''
         if (window.__cmAPI) window.__cmAPI.destroy()
         this._recordRecent(vault, path, this.noteTitle())
@@ -1687,8 +1690,28 @@ function vaultApp() {
         this.noteMTime = data.mtime || 0
         this.noteSize = data.size || 0
         this.backlinks = data.backlinks || []
-        this.$nextTick(() => this.rerenderMermaid())
+        this.$nextTick(() => { this.rerenderMermaid(); this.rerenderMath() })
       } catch(e) { /* ignore */ }
+    },
+
+    rerenderMath() {
+      // KaTeX auto-render walks the DOM and replaces $...$ / $$...$$ in-place.
+      // It uses safe heuristics that avoid matching standalone currency.
+      if (typeof renderMathInElement !== 'function') return
+      const el = document.getElementById('preview')
+      if (!el) return
+      try {
+        renderMathInElement(el, {
+          delimiters: [
+            { left: '$$', right: '$$', display: true },
+            { left: '$', right: '$', display: false },
+            { left: '\\(', right: '\\)', display: false },
+            { left: '\\[', right: '\\]', display: true },
+          ],
+          throwOnError: false,
+          errorColor: 'var(--accent)',
+        })
+      } catch(e) { console.error('katex:', e) }
     },
 
     async rerenderMermaid() {
