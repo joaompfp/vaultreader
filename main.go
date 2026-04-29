@@ -1131,18 +1131,25 @@ func (s *server) handleShareFile(w http.ResponseWriter, r *http.Request, e *Shar
 // rewriteShareImageURLs replaces inline `<img src="/api/file?...">` URLs
 // emitted by goldmark with `/share/<token>/file?path=...` so embeds load
 // under the share's auth context instead of the gated /api namespace.
+//
+// Goldmark HTML-escapes the `&` between query args to `&amp;`, so the
+// attribute looks like: src="/api/file?vault=X&amp;path=Y". The regex
+// matches that variant.
 func rewriteShareImageURLs(html, token string) string {
-	// Goldmark wraps embed URLs in `src="/api/file?vault=X&path=Y"`. We
-	// extract the path query param and rewrite to /share/<token>/file?path=Y.
 	re := regexp.MustCompile(`src="(/api/file\?[^"]+)"`)
 	return re.ReplaceAllStringFunc(html, func(match string) string {
-		// Extract URL between the quotes
 		quoted := strings.TrimPrefix(match, `src="`)
 		quoted = strings.TrimSuffix(quoted, `"`)
-		u, err := url.Parse(quoted)
-		if err != nil { return match }
+		// Decode HTML entities (just `&amp;` → `&` is enough here).
+		unescaped := strings.ReplaceAll(quoted, "&amp;", "&")
+		u, err := url.Parse(unescaped)
+		if err != nil {
+			return match
+		}
 		p := u.Query().Get("path")
-		if p == "" { return match }
+		if p == "" {
+			return match
+		}
 		return fmt.Sprintf(`src="/share/%s/file?path=%s"`, token, urlEscape(p))
 	})
 }
