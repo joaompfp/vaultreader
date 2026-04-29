@@ -2093,6 +2093,159 @@ func (s *server) handleTrashEmpty(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// AttachmentItem is one image file in a vault, with metadata + reference count.
+type AttachmentItem struct {
+	Vault    string `json:"vault"`
+	Path     string `json:"path"`
+	Name     string `json:"name"`
+	Size     int64  `json:"size"`
+	MTime    int64  `json:"mtime"`
+	Ext      string `json:"ext"`
+	RefCount int    `json:"refCount"`
+}
+
+var imageExtensions = map[string]bool{
+	".png": true, ".jpg": true, ".jpeg": true,
+	".gif": true, ".webp": true, ".svg": true,
+}
+
+// handleAttachments lists all image files in a vault with reference counts.
+// GET /api/attachments?vault=X
+// DELETE /api/attachments?vault=X&path=Y → moves to .trash/
+func (s *server) handleAttachments(w http.ResponseWriter, r *http.Request) {
+	vault := r.URL.Query().Get("vault")
+	vp, ok := s.vaultPath(vault)
+	if !ok {
+		errResponse(w, 400, "invalid vault")
+		return
+	}
+
+	if r.Method == http.MethodDelete {
+		path := r.URL.Query().Get("path")
+		full, ok := s.safePath(vp, path)
+		if !ok {
+			errResponse(w, 400, "invalid path")
+			return
+		}
+		if !s.isWritable(vault, path) {
+			errResponse(w, 403, "path is not writable")
+			return
+		}
+		// Move to .trash/ following the existing trash convention:
+		// flatten path with `__` and append `_<unix>`.
+		trashDir := filepath.Join(vp, ".trash")
+		if err := os.MkdirAll(trashDir, 0755); err != nil {
+			errResponse(w, 500, "mkdir failed")
+			return
+		}
+		flat := strings.ReplaceAll(path, "/", "__")
+		trashName := fmt.Sprintf("%s_%d", flat, time.Now().Unix())
+		if err := os.Rename(full, filepath.Join(trashDir, trashName)); err != nil {
+			errResponse(w, 500, "rename failed: "+err.Error())
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+
+	if r.Method != http.MethodGet {
+		errResponse(w, 405, "method not allowed")
+		return
+	}
+
+	// Walk the vault, collect images, and tally references.
+	items := []AttachmentItem{}
+	imagePaths := []string{}
+	imageInfo := map[string]os.FileInfo{}
+	mdContents := map[string]string{}
+
+	_ = filepath.Walk(vp, func(p string, info os.FileInfo, err error) error {
+		if err != nil || info.IsDir() {
+			return nil
+		}
+		// Skip .trash, .obsidian, hidden dirs
+		rel, _ := filepath.Rel(vp, p)
+		first := strings.SplitN(rel, string(os.PathSeparator), 2)[0]
+		if strings.HasPrefix(first, ".") {
+			return nil
+		}
+		ext := strings.ToLower(filepath.Ext(info.Name()))
+		if imageExtensions[ext] {
+			imagePaths = append(imagePaths, rel)
+			imageInfo[rel] = info
+		} else if ext == ".md" {
+			data, err := os.ReadFile(p)
+			if err == nil {
+				mdContents[rel] = string(data)
+			}
+		}
+		return nil
+	})
+
+	// Count references. A reference to an image can be ![[name.png]] (basename),
+	// ![[path/to/name.png]] (full path), or ![alt](url) where url is a file path
+	// (often relative). Use basename as the cheap, vault-wide match unit.
+	refByImage := map[string]int{}
+	for imgRel := range imageInfo {
+		base := filepath.Base(imgRel)
+		baseNoExt := strings.TrimSuffix(base, filepath.Ext(base))
+		// Patterns: ![[base]] or ![[base.ext]] or ![[full/path]] or ![[full/path.ext]]
+		patterns := []string{
+			"![[" + base + "]]",
+			"![[" + baseNoExt + "]]",
+			"![[" + imgRel + "]]",
+			"![[" + strings.TrimSuffix(imgRel, filepath.Ext(imgRel)) + "]]",
+		}
+		count := 0
+		for _, content := range mdContents {
+			for _, pat := range patterns {
+				if strings.Contains(content, pat) {
+					count++
+					break
+				}
+			}
+		}
+		refByImage[imgRel] = count
+	}
+
+	for _, rel := range imagePaths {
+		info := imageInfo[rel]
+		items = append(items, AttachmentItem{
+			Vault:    vault,
+			Path:     rel,
+			Name:     filepath.Base(rel),
+			Size:     info.Size(),
+			MTime:    info.ModTime().Unix(),
+			Ext:      strings.ToLower(filepath.Ext(rel)),
+			RefCount: refByImage[rel],
+		})
+	}
+
+	// Sort: orphans first (refCount==0), then by mtime desc.
+	sort.SliceStable(items, func(i, j int) bool {
+		if (items[i].RefCount == 0) != (items[j].RefCount == 0) {
+			return items[i].RefCount == 0
+		}
+		return items[i].MTime > items[j].MTime
+	})
+
+	jsonResponse(w, map[string]any{
+		"items":  items,
+		"total":  len(items),
+		"orphan": len(items) - countWithRefs(items),
+	})
+}
+
+func countWithRefs(items []AttachmentItem) int {
+	n := 0
+	for _, it := range items {
+		if it.RefCount > 0 {
+			n++
+		}
+	}
+	return n
+}
+
 func (s *server) handleIndex(w http.ResponseWriter, r *http.Request) {
 	data, err := fs.ReadFile(staticFiles, "static/index.html")
 	if err != nil {
@@ -2222,6 +2375,7 @@ func main() {
 	mux.HandleFunc("/api/trash", srv.handleTrashList)
 	mux.HandleFunc("/api/trash/restore", srv.handleTrashRestore)
 	mux.HandleFunc("/api/trash/empty", srv.handleTrashEmpty)
+	mux.HandleFunc("/api/attachments", srv.handleAttachments)
 
 	addr := ":" + *port
 	httpServer := &http.Server{

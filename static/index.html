@@ -763,6 +763,9 @@
           Trash
           <span class="settings-tab-badge" x-show="trashItems.length > 0" x-text="trashItems.length"></span>
         </button>
+        <button class="settings-tab" :class="{active: settingsTab === 'attachments'}" @click="openSettings('attachments')" role="tab">
+          Attachments
+        </button>
         <button class="settings-tab" :class="{active: settingsTab === 'admin'}" @click="openSettings('admin')" role="tab">Admin</button>
         <button class="settings-tab" :class="{active: settingsTab === 'about'}" @click="openSettings('about')" role="tab">About</button>
       </div>
@@ -836,6 +839,53 @@
                 <button class="btn" @click="restoreTrashItem(item.vault, item.path)">Restore</button>
                 <button class="btn btn-danger" @click="permanentlyDeleteTrashItem(item.vault, item.path)">Delete</button>
               </div>
+            </div>
+          </template>
+        </div>
+      </div>
+
+      <!-- Attachments -->
+      <div class="settings-tab-body" x-show="settingsTab === 'attachments'">
+        <div class="settings-action-row">
+          <div style="display:flex;gap:8px;align-items:center">
+            <select class="admin-add-input" style="width:auto" x-model="attachmentsVault" @change="loadAttachments(attachmentsVault)">
+              <template x-for="v in vaults" :key="v">
+                <option :value="v" x-text="v"></option>
+              </template>
+            </select>
+            <select class="admin-add-input" style="width:auto" x-model="attachmentsFilter">
+              <option value="all">All</option>
+              <option value="orphans">Orphans only</option>
+            </select>
+          </div>
+          <span class="settings-hint" x-show="!attachmentsLoading"
+                x-text="filteredAttachments().length + ' / ' + attachments.length + ' total'"></span>
+          <span class="settings-hint" x-show="attachmentsLoading">Loading…</span>
+        </div>
+        <div class="settings-action-row" x-show="attachments.filter(a => a.refCount === 0).length > 0">
+          <span class="settings-hint" style="color: var(--accent)"
+                x-text="attachments.filter(a => a.refCount === 0).length + ' orphan(s)'"></span>
+          <button class="btn btn-danger" @click="deleteOrphans()">Delete all orphans</button>
+        </div>
+        <template x-if="!attachmentsLoading && filteredAttachments().length === 0">
+          <div class="settings-empty" x-text="attachmentsFilter === 'orphans' ? 'No orphans 🎉' : 'No attachments in this vault.'"></div>
+        </template>
+        <div class="settings-list">
+          <template x-for="a in filteredAttachments()" :key="a.path">
+            <div class="att-item" :class="{ orphan: a.refCount === 0 }">
+              <img class="att-thumb" :src="'/api/file?vault=' + encodeURIComponent(a.vault) + '&path=' + encodeURIComponent(a.path)" loading="lazy" alt="">
+              <div class="att-meta">
+                <div class="att-path" x-text="a.path"></div>
+                <div class="att-sub">
+                  <span x-text="_formatSize(a.size)"></span>
+                  <span class="att-dot">·</span>
+                  <span x-text="_relativeTime(a.mtime)"></span>
+                  <span class="att-dot">·</span>
+                  <span x-show="a.refCount > 0" class="att-refs" x-text="a.refCount + ' ref' + (a.refCount === 1 ? '' : 's')"></span>
+                  <span x-show="a.refCount === 0" class="att-orphan-tag">orphan</span>
+                </div>
+              </div>
+              <button class="att-del" @click="deleteAttachment(a)" title="Delete">✕</button>
             </div>
           </template>
         </div>
@@ -1139,7 +1189,11 @@ function vaultApp() {
     _wikiPopAbort: null,
     // settings
     settingsOpen: false,
-    settingsTab: 'general',  // general | shared | trash | admin | about
+    settingsTab: 'general',  // general | shared | trash | attachments | admin | about
+    attachments: [],
+    attachmentsLoading: false,
+    attachmentsFilter: 'all',  // all | orphans
+    attachmentsVault: '',
     // admin tab data
     adminConfig: { rw_paths: [] },
     adminNewPath: '',
@@ -2762,7 +2816,76 @@ function vaultApp() {
       if (this.settingsTab === 'trash') {
         await this.loadTrashItems()
       }
+      if (this.settingsTab === 'attachments') {
+        await this.loadAttachments()
+      }
     },
+    async loadAttachments(vault) {
+      this.attachmentsLoading = true
+      this.attachmentsVault = vault || this.activeVault || (this.vaults[0] || '')
+      try {
+        const r = await fetch('/api/attachments?vault=' + encodeURIComponent(this.attachmentsVault))
+        if (!r.ok) { this.attachments = []; return }
+        const data = await r.json()
+        this.attachments = data.items || []
+      } catch(e) {
+        console.error('attachments fetch:', e)
+        this.attachments = []
+      } finally {
+        this.attachmentsLoading = false
+      }
+    },
+    filteredAttachments() {
+      if (this.attachmentsFilter === 'orphans') {
+        return this.attachments.filter(a => a.refCount === 0)
+      }
+      return this.attachments
+    },
+    async deleteAttachment(item) {
+      this.modal = {
+        open: true,
+        title: 'Delete attachment?',
+        body: item.refCount > 0
+          ? `${item.name} is referenced by ${item.refCount} note(s). Move to trash anyway?`
+          : `${item.name} is an orphan (no notes reference it). Move to trash?`,
+        value: '', placeholder: '', error: '',
+        confirmLabel: 'Move to trash',
+        confirmOnly: true,
+        danger: true,
+        onConfirm: async () => {
+          try {
+            await fetch('/api/attachments?vault=' + encodeURIComponent(item.vault) +
+                        '&path=' + encodeURIComponent(item.path), { method: 'DELETE' })
+            await this.loadAttachments(item.vault)
+          } catch(e) {
+            console.error('delete attachment:', e)
+          }
+        },
+      }
+    },
+    async deleteOrphans() {
+      const orphans = this.attachments.filter(a => a.refCount === 0)
+      if (orphans.length === 0) return
+      this.modal = {
+        open: true,
+        title: 'Delete all orphan attachments?',
+        body: `${orphans.length} attachment(s) have no references in any note. Move all to trash?`,
+        value: '', placeholder: '', error: '',
+        confirmLabel: 'Move ' + orphans.length + ' to trash',
+        confirmOnly: true,
+        danger: true,
+        onConfirm: async () => {
+          for (const item of orphans) {
+            try {
+              await fetch('/api/attachments?vault=' + encodeURIComponent(item.vault) +
+                          '&path=' + encodeURIComponent(item.path), { method: 'DELETE' })
+            } catch(e) { console.error('delete orphan', item.path, e) }
+          }
+          await this.loadAttachments()
+        },
+      }
+    },
+
     async loadTrashItems() {
       // Trash is per-vault on the backend. Aggregate across all vaults
       // and tag each item with its origin vault for the unified UI.
@@ -2792,7 +2915,7 @@ function vaultApp() {
     },
     async permanentlyDeleteTrashItem(vault, path) {
       try {
-        const r = await fetch('/api/trash?vault=' + encodeURIComponent(vault) +
+        const r = await fetch('/api/trash/empty?vault=' + encodeURIComponent(vault) +
                               '&path=' + encodeURIComponent(path), { method: 'DELETE' })
         if (!r.ok) throw new Error('HTTP ' + r.status)
         await this.loadTrashItems()
@@ -2807,12 +2930,12 @@ function vaultApp() {
         body: 'This permanently deletes all trashed items across all vaults. Cannot be undone.',
         value: '', placeholder: '', error: '',
         confirmLabel: 'Empty trash',
-        confirmOnly: false,
+        confirmOnly: true,
         danger: true,
         onConfirm: async () => {
           for (const v of this.vaults) {
             try {
-              await fetch('/api/trash?vault=' + encodeURIComponent(v), { method: 'DELETE' })
+              await fetch('/api/trash/empty?vault=' + encodeURIComponent(v), { method: 'DELETE' })
             } catch(e) { console.error('empty trash for', v, e) }
           }
           await this.loadTrashItems()
