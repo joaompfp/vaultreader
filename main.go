@@ -1001,10 +1001,27 @@ func (s *server) handleShareRevokeAll(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) handleShareView(w http.ResponseWriter, r *http.Request) {
-	token := strings.TrimPrefix(r.URL.Path, "/share/")
+	// Strip leading /share/ then split off any sub-path (e.g. /share/TOKEN/file).
+	rest := strings.TrimPrefix(r.URL.Path, "/share/")
+	if rest == "" { http.NotFound(w, r); return }
+	parts := strings.SplitN(rest, "/", 2)
+	token := parts[0]
 	if token == "" { http.NotFound(w, r); return }
 	e, ok := s.shares.get(token)
 	if !ok { http.Error(w, "Share link not found or expired.", http.StatusNotFound); return }
+
+	// Sub-path routing: /share/<token>/file?path=… serves an in-vault
+	// resource (image embed) using the share's own auth context. Stays
+	// under the /share/* prefix so reverse-proxy bypass rules cover it.
+	if len(parts) == 2 {
+		sub := parts[1]
+		if sub == "file" || strings.HasPrefix(sub, "file") {
+			s.handleShareFile(w, r, e)
+			return
+		}
+		http.NotFound(w, r)
+		return
+	}
 
 	if r.Method == http.MethodPut {
 		if !e.Writable { errResponse(w, 403, "read-only share"); return }
@@ -1026,9 +1043,16 @@ func (s *server) handleShareView(w http.ResponseWriter, r *http.Request) {
 
 	raw := string(data)
 	title := extractTitle(raw, e.Path)
-	// Strip YAML frontmatter (--- ... ---) before rendering
+	// Strip YAML frontmatter, expand image embeds, render markdown, and rewrite
+	// the embed image URLs from /api/file?... to /share/<token>/file?path=...
+	// so they're served under the share's auth context (covered by the
+	// reverse-proxy /share/* bypass) instead of the gated /api namespace.
 	_, body := parseFrontmatter(raw)
+	body = expandEmbeds(body, e.Vault, e.Path, s.idx, s.vaultsDir)
 	var buf bytes.Buffer; _ = md.Convert([]byte(body), &buf)
+	rendered := rewriteShareImageURLs(buf.String(), token)
+	buf.Reset()
+	buf.WriteString(rendered)
 
 	expiresStr := "Never"
 	if e.ExpiresAt > 0 { expiresStr = time.Unix(e.ExpiresAt, 0).Format("2 Jan 2006 15:04") }
@@ -1064,6 +1088,64 @@ img{max-width:100%%}hr{border:none;border-top:1px solid var(--bd);margin:1.5em 0
 	w.Write([]byte(page))
 }
 
+
+// handleShareFile serves a file embedded inside a shared note, using the
+// share's own auth context (i.e. anyone with the token). Scoped strictly
+// to the share's vault; honors safePath to block traversal.
+func (s *server) handleShareFile(w http.ResponseWriter, r *http.Request, e *ShareEntry) {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		errResponse(w, 405, "method not allowed")
+		return
+	}
+	path := r.URL.Query().Get("path")
+	if path == "" {
+		http.Error(w, "missing path", http.StatusBadRequest)
+		return
+	}
+	vp, ok := s.vaultPath(e.Vault)
+	if !ok { http.NotFound(w, r); return }
+	full, ok := s.safePath(vp, path)
+	if !ok { http.NotFound(w, r); return }
+	info, err := os.Stat(full)
+	if err != nil || info.IsDir() { http.NotFound(w, r); return }
+	// Defensive: only image / pdf / common-attachment types. A leaked share
+	// token shouldn't yield arbitrary file reads from the vault — even
+	// though safePath already keeps us inside the vault.
+	ext := strings.ToLower(filepath.Ext(full))
+	allowed := map[string]bool{
+		".png": true, ".jpg": true, ".jpeg": true, ".gif": true,
+		".webp": true, ".svg": true, ".bmp": true, ".avif": true,
+		".pdf": true, ".mp3": true, ".wav": true, ".m4a": true,
+		".mp4": true, ".webm": true, ".mov": true,
+	}
+	if !allowed[ext] {
+		http.Error(w, "file type not served via share", http.StatusForbidden)
+		return
+	}
+	if ct := mime.TypeByExtension(ext); ct != "" {
+		w.Header().Set("Content-Type", ct)
+	}
+	http.ServeFile(w, r, full)
+}
+
+// rewriteShareImageURLs replaces inline `<img src="/api/file?...">` URLs
+// emitted by goldmark with `/share/<token>/file?path=...` so embeds load
+// under the share's auth context instead of the gated /api namespace.
+func rewriteShareImageURLs(html, token string) string {
+	// Goldmark wraps embed URLs in `src="/api/file?vault=X&path=Y"`. We
+	// extract the path query param and rewrite to /share/<token>/file?path=Y.
+	re := regexp.MustCompile(`src="(/api/file\?[^"]+)"`)
+	return re.ReplaceAllStringFunc(html, func(match string) string {
+		// Extract URL between the quotes
+		quoted := strings.TrimPrefix(match, `src="`)
+		quoted = strings.TrimSuffix(quoted, `"`)
+		u, err := url.Parse(quoted)
+		if err != nil { return match }
+		p := u.Query().Get("path")
+		if p == "" { return match }
+		return fmt.Sprintf(`src="/share/%s/file?path=%s"`, token, urlEscape(p))
+	})
+}
 
 // handleFile serves an arbitrary file from inside a vault. Used by image
 // embeds (`![[...]]` rewritten to `/api/file?vault=X&path=Y`) but also

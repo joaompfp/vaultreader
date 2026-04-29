@@ -113,27 +113,8 @@
     <div id="toolbar">
       <button class="btn-icon" @click="sidebarOpen = !sidebarOpen" title="Toggle sidebar">☰</button>
 
-      <div class="toolbar-title">
-        <template x-if="activePath">
-          <span class="toolbar-breadcrumb">
-            <span class="tb-vault" @click="enterDir(activeVault, ''); activePath = ''" x-text="activeVault"></span>
-            <template x-for="(seg, i) in activeBreadcrumbs()" :key="i">
-              <span>
-                <span class="tb-sep">/</span>
-                <span class="tb-seg" @click="navigateToSegment(i)" x-text="seg"></span>
-              </span>
-            </template>
-            <span class="tb-sep">/</span>
-            <strong class="tb-note" x-text="noteTitle()"></strong>
-          </span>
-        </template>
-        <template x-if="!activePath && activeVault">
-          <span class="tb-vault" @click="enterDir(activeVault, '')" x-text="activeVault" style="cursor:default;opacity:.7"></span>
-        </template>
-        <template x-if="!activePath && !activeVault">
-          <span style="color:var(--text3)">Select a vault</span>
-        </template>
-      </div>
+      <!-- Spacer pushes the icons + saveStatus to the right -->
+      <div class="toolbar-spacer"></div>
 
       <span x-show="saveStatus"
             x-transition:enter="save-status-anim"
@@ -262,15 +243,39 @@
       </button>
     </div>
 
+    <!-- Breadcrumb row — its own line below the toolbar. Only when meaningful. -->
+    <div id="breadcrumb-row" x-show="activeVault || activePath">
+      <span class="toolbar-breadcrumb">
+        <template x-if="activePath">
+          <span>
+            <span class="tb-vault" @click="enterDir(activeVault, ''); activePath = ''" x-text="activeVault"></span>
+            <template x-for="(seg, i) in activeBreadcrumbs()" :key="i">
+              <span>
+                <span class="tb-sep">/</span>
+                <span class="tb-seg" @click="navigateToSegment(i)" x-text="seg"></span>
+              </span>
+            </template>
+            <span class="tb-sep">/</span>
+            <strong class="tb-note" x-text="noteTitle()"></strong>
+          </span>
+        </template>
+        <template x-if="!activePath && activeVault">
+          <span class="tb-vault" @click="enterDir(activeVault, '')" x-text="activeVault" style="cursor:default;opacity:.7"></span>
+        </template>
+      </span>
+    </div>
+
     <!-- Content area -->
     <div id="content-area">
 
-      <!-- Frontmatter bar — one compact row: toggle icon + props strip -->
+      <!-- Frontmatter bar — collapsed by default. Click the toggle to reveal
+           the stats strip + frontmatter fields. Save vertical space when
+           reading. -->
       <div x-show="activePath && (Object.keys(noteFrontmatter).length > 0 || noteProps().length > 0)" class="frontmatter-bar">
         <div class="fm-row">
           <button class="fm-toggle"
                   @click="frontmatterOpen = !frontmatterOpen"
-                  :title="(Object.keys(noteFrontmatter).length > 0 ? 'Frontmatter (' + Object.keys(noteFrontmatter).length + ' fields)' : 'Properties') + ' — click to ' + (frontmatterOpen ? 'collapse' : 'expand')"
+                  :title="(Object.keys(noteFrontmatter).length > 0 ? 'Frontmatter + stats — ' + Object.keys(noteFrontmatter).length + ' fields' : 'Stats') + ' — click to ' + (frontmatterOpen ? 'hide' : 'show')"
                   :class="{ open: frontmatterOpen }">
             <!-- info / list icon -->
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -283,15 +288,6 @@
             </svg>
             <span class="fm-toggle-badge" x-show="Object.keys(noteFrontmatter).length > 0" x-text="Object.keys(noteFrontmatter).length"></span>
           </button>
-          <!-- Properties strip (always shown when present, on the same row) -->
-          <div class="fm-props" x-show="noteProps().length > 0">
-            <template x-for="p in noteProps()" :key="p.label">
-              <span class="fm-prop" :title="p.title || ''">
-                <span class="fm-prop-label" x-text="p.label"></span>
-                <span class="fm-prop-value" x-text="p.value"></span>
-              </span>
-            </template>
-          </div>
         </div>
         <div x-show="frontmatterOpen"
              x-transition:enter="fm-anim-enter"
@@ -301,6 +297,15 @@
              x-transition:leave-start="fm-anim-leave-start"
              x-transition:leave-end="fm-anim-leave-end"
              class="fm-content">
+          <!-- Stats strip — moved here from the always-visible bar -->
+          <div class="fm-props" x-show="noteProps().length > 0">
+            <template x-for="p in noteProps()" :key="p.label">
+              <span class="fm-prop" :title="p.title || ''">
+                <span class="fm-prop-label" x-text="p.label"></span>
+                <span class="fm-prop-value" x-text="p.value"></span>
+              </span>
+            </template>
+          </div>
           <template x-for="[key, val] in Object.entries(noteFrontmatter)" :key="key">
             <div class="fm-field">
               <span class="fm-key" x-text="key + ':'"></span>
