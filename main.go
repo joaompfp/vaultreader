@@ -625,7 +625,13 @@ func buildTree(root, current string) ([]*TreeNode, error) {
 
 func searchVault(vaultPath, vaultName, query string) []SearchResult {
 	query = strings.ToLower(query)
-	var results []SearchResult
+	type scored struct {
+		r     SearchResult
+		score float64
+	}
+	var hits []scored
+
+	now := time.Now().Unix()
 
 	_ = filepath.Walk(vaultPath, func(path string, info os.FileInfo, err error) error {
 		if err != nil || info.IsDir() || shouldSkip(info.Name()) {
@@ -634,12 +640,10 @@ func searchVault(vaultPath, vaultName, query string) []SearchResult {
 		if !strings.HasSuffix(info.Name(), ".md") {
 			return nil
 		}
-		if len(results) >= 20 {
-			return nil
-		}
 
 		rel, _ := filepath.Rel(vaultPath, path)
-		nameMatch := strings.Contains(strings.ToLower(info.Name()), query)
+		baseLower := strings.ToLower(info.Name())
+		nameMatch := strings.Contains(baseLower, query)
 
 		data, err := os.ReadFile(path)
 		if err != nil {
@@ -649,14 +653,48 @@ func searchVault(vaultPath, vaultName, query string) []SearchResult {
 		contentLower := strings.ToLower(content)
 		contentMatch := strings.Contains(contentLower, query)
 
-		if !nameMatch && !contentMatch {
+		_, body := parseFrontmatter(content)
+		title := extractTitle(body, rel)
+		titleMatch := strings.Contains(strings.ToLower(title), query)
+
+		if !nameMatch && !contentMatch && !titleMatch {
 			return nil
 		}
 
-		_, body := parseFrontmatter(content)
-		title := extractTitle(body, rel)
+		// Scoring:
+		//   exact title (whole-string)         → +20
+		//   substring in title (first H1)      → +10
+		//   substring in filename basename     →  +5
+		//   substring in body                  →  +1 (× count up to 5)
+		//   recency boost                      →  +0..3 (modified within 30d)
+		score := 0.0
+		titleLower := strings.ToLower(title)
+		if titleLower == query {
+			score += 20
+		} else if titleMatch {
+			score += 10
+		}
+		if nameMatch {
+			score += 5
+		}
+		if contentMatch {
+			// Count up to 5 occurrences in body to reward repeated mentions.
+			n := strings.Count(contentLower, query)
+			if n > 5 {
+				n = 5
+			}
+			score += float64(n)
+		}
+		// Recency: 0 days old → +3, 30+ days → 0.
+		ageDays := float64(now-info.ModTime().Unix()) / 86400
+		if ageDays < 0 {
+			ageDays = 0
+		}
+		if ageDays < 30 {
+			score += 3.0 * (1.0 - ageDays/30.0)
+		}
 
-		// build excerpt around first match
+		// Build excerpt around first content match (or skip if title-only).
 		excerpt := ""
 		if contentMatch {
 			pos := strings.Index(contentLower, query)
@@ -671,15 +709,36 @@ func searchVault(vaultPath, vaultName, query string) []SearchResult {
 			excerpt = "..." + strings.ReplaceAll(content[start:end], "\n", " ") + "..."
 		}
 
-		results = append(results, SearchResult{
-			Vault:   vaultName,
-			Path:    rel,
-			Title:   title,
-			Excerpt: excerpt,
+		hits = append(hits, scored{
+			r: SearchResult{
+				Vault:   vaultName,
+				Path:    rel,
+				Title:   title,
+				Excerpt: excerpt,
+			},
+			score: score,
 		})
 		return nil
 	})
-	return results
+
+	// Sort: score desc; ties broken by mtime via score (recency already baked in)
+	// then by path asc for stability.
+	sort.SliceStable(hits, func(i, j int) bool {
+		if hits[i].score != hits[j].score {
+			return hits[i].score > hits[j].score
+		}
+		return hits[i].r.Path < hits[j].r.Path
+	})
+
+	// Cap at 20 top hits per vault.
+	if len(hits) > 20 {
+		hits = hits[:20]
+	}
+	out := make([]SearchResult, len(hits))
+	for i, h := range hits {
+		out[i] = h.r
+	}
+	return out
 }
 
 // ─── Save ─────────────────────────────────────────────────────────────────────
