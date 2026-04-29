@@ -243,7 +243,9 @@
       </button>
     </div>
 
-    <!-- Breadcrumb row — its own line below the toolbar. Only when meaningful. -->
+    <!-- Breadcrumb row — its own line below the toolbar. Only when meaningful.
+         The fm-toggle (stats + frontmatter) lives at the right edge of this
+         row so we don't waste a whole row on a small button. -->
     <div id="breadcrumb-row" x-show="activeVault || activePath">
       <span class="toolbar-breadcrumb">
         <template x-if="activePath">
@@ -263,32 +265,34 @@
           <span class="tb-vault" @click="enterDir(activeVault, '')" x-text="activeVault" style="cursor:default;opacity:.7"></span>
         </template>
       </span>
+
+      <!-- fm-toggle on the right — only when a note is open and has props or fm fields -->
+      <button class="fm-toggle inline"
+              x-show="activePath && (Object.keys(noteFrontmatter).length > 0 || noteProps().length > 0)"
+              @click="frontmatterOpen = !frontmatterOpen"
+              :title="(Object.keys(noteFrontmatter).length > 0 ? 'Frontmatter + stats — ' + Object.keys(noteFrontmatter).length + ' fields' : 'Stats') + ' — click to ' + (frontmatterOpen ? 'hide' : 'show')"
+              :class="{ open: frontmatterOpen }">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="8" y1="6" x2="21" y2="6"/>
+          <line x1="8" y1="12" x2="21" y2="12"/>
+          <line x1="8" y1="18" x2="21" y2="18"/>
+          <circle cx="3.5" cy="6" r="1.5" fill="currentColor"/>
+          <circle cx="3.5" cy="12" r="1.5" fill="currentColor"/>
+          <circle cx="3.5" cy="18" r="1.5" fill="currentColor"/>
+        </svg>
+        <span class="fm-toggle-badge" x-show="Object.keys(noteFrontmatter).length > 0" x-text="Object.keys(noteFrontmatter).length"></span>
+      </button>
     </div>
 
     <!-- Content area -->
     <div id="content-area">
 
-      <!-- Frontmatter bar — collapsed by default. Click the toggle to reveal
-           the stats strip + frontmatter fields. Save vertical space when
-           reading. -->
-      <div x-show="activePath && (Object.keys(noteFrontmatter).length > 0 || noteProps().length > 0)" class="frontmatter-bar">
-        <div class="fm-row">
-          <button class="fm-toggle"
-                  @click="frontmatterOpen = !frontmatterOpen"
-                  :title="(Object.keys(noteFrontmatter).length > 0 ? 'Frontmatter + stats — ' + Object.keys(noteFrontmatter).length + ' fields' : 'Stats') + ' — click to ' + (frontmatterOpen ? 'hide' : 'show')"
-                  :class="{ open: frontmatterOpen }">
-            <!-- info / list icon -->
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <line x1="8" y1="6" x2="21" y2="6"/>
-              <line x1="8" y1="12" x2="21" y2="12"/>
-              <line x1="8" y1="18" x2="21" y2="18"/>
-              <circle cx="3.5" cy="6" r="1.5" fill="currentColor"/>
-              <circle cx="3.5" cy="12" r="1.5" fill="currentColor"/>
-              <circle cx="3.5" cy="18" r="1.5" fill="currentColor"/>
-            </svg>
-            <span class="fm-toggle-badge" x-show="Object.keys(noteFrontmatter).length > 0" x-text="Object.keys(noteFrontmatter).length"></span>
-          </button>
-        </div>
+      <!-- Frontmatter bar — toggle lives in the breadcrumb row at the top
+           right; this section is just the collapsible content (renders
+           only while `frontmatterOpen` is true so the bar's borders also
+           collapse with it). -->
+      <div x-show="activePath && frontmatterOpen && (Object.keys(noteFrontmatter).length > 0 || noteProps().length > 0)"
+           class="frontmatter-bar">
         <div x-show="frontmatterOpen"
              x-transition:enter="fm-anim-enter"
              x-transition:enter-start="fm-anim-enter-start"
