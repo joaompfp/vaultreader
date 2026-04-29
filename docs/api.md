@@ -57,8 +57,8 @@ Full directory tree for a vault. Skips `.trash/`, `.obsidian/`, hidden dirs.
 ]
 ```
 
-### `GET /api/vault-icon?name=<vault>`
-Serves the vault's icon file from `appdata/icons/<vault>.<ext>`. Returns `image/*`. 404 if missing — frontend falls back to a generic SVG.
+### `GET /api/vault-icon?vault=<name>`
+Serves the vault's icon file from `appdata/icons/<vault>.<ext>`. Extension lookup order: `.png`, `.svg`, `.jpg`, `.webp` — first match wins. Returns `image/*`. 204 No Content if missing — frontend falls back to a generic SVG.
 
 ---
 

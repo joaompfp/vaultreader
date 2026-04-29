@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 280" width="480" height="280" role="img" aria-label="VaultReader request flow">
+  <defs>
+    <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#b91c1c"/>
+    </marker>
+  </defs>
+  <style>
+    .lbl { font-family: system-ui, sans-serif; font-size: 13px; fill: #1a1a1a; }
+    .sub { font-family: system-ui, sans-serif; font-size: 10px; fill: #555; }
+    .box { fill: #fff; stroke: #b91c1c; stroke-width: 1.5; }
+    .arr { stroke: #b91c1c; stroke-width: 1.5; fill: none; }
+  </style>
+  <rect class="box" x="20" y="20" width="120" height="60" rx="6"/>
+  <text class="lbl" x="80" y="48" text-anchor="middle">Browser</text>
+  <text class="sub" x="80" y="64" text-anchor="middle">Alpine SPA</text>
+
+  <rect class="box" x="180" y="20" width="120" height="60" rx="6"/>
+  <text class="lbl" x="240" y="48" text-anchor="middle">Reverse proxy</text>
+  <text class="sub" x="240" y="64" text-anchor="middle">Authelia / oauth2</text>
+
+  <rect class="box" x="340" y="20" width="120" height="60" rx="6"/>
+  <text class="lbl" x="400" y="48" text-anchor="middle">VaultReader</text>
+  <text class="sub" x="400" y="64" text-anchor="middle">Go server</text>
+
+  <rect class="box" x="180" y="180" width="120" height="60" rx="6"/>
+  <text class="lbl" x="240" y="208" text-anchor="middle">/vaults/</text>
+  <text class="sub" x="240" y="224" text-anchor="middle">filesystem</text>
+
+  <rect class="box" x="340" y="180" width="120" height="60" rx="6"/>
+  <text class="lbl" x="400" y="208" text-anchor="middle">/appdata/</text>
+  <text class="sub" x="400" y="224" text-anchor="middle">config + shares</text>
+
+  <line class="arr" x1="140" y1="50" x2="180" y2="50" marker-end="url(#arr)"/>
+  <line class="arr" x1="300" y1="50" x2="340" y2="50" marker-end="url(#arr)"/>
+  <line class="arr" x1="380" y1="80" x2="260" y2="180" marker-end="url(#arr)"/>
+  <line class="arr" x1="420" y1="80" x2="420" y2="180" marker-end="url(#arr)"/>
+
+  <text class="sub" x="160" y="44">HTTP</text>
+  <text class="sub" x="320" y="44">forward-auth</text>
+  <text class="sub" x="295" y="135">read .md</text>
+  <text class="sub" x="430" y="135">RW</text>
+</svg>

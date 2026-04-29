@@ -4,6 +4,14 @@ All notable changes to VaultReader. Versioning is loose — there are no formal 
 
 Most-recent first.
 
+## 2026-04-29 — `examples/` scaffold for first-clone experience
+
+- **`examples/vaults/demo/`** — a 9-note sample vault that ships in the repo. Includes a Welcome page, a syntax showcase covering every renderer feature, a wikilinks-in-tables demo (regression cover for the alias-pipe fix), a daily note, four cross-linked notes for the graph view, a meeting template, two SVG image assets, and a vault icon. Notes are intentionally Obsidian-compatible — drop them into Obsidian and they'll render the same.
+- **`examples/appdata/`** — seed `config.json` (empty admin token + `rw_paths: ["demo"]`), empty `shares.json`, and `icons/demo.svg`. Lets a fresh clone boot to a working install with a single `docker run` (bind-mount `examples/vaults` and `examples/appdata`).
+- **`examples/README.md`** — what's there, how to use it, how to pivot to your own vaults. Top-level README's Quick Start now points at the demo seed.
+- **Compatibility fix:** `renderWikilinks` and `renderWikilinksPlain` now strip a trailing `\` from the wikilink name. Obsidian's manual `\|` escape inside table cells (used by some users to work around the alias-pipe collision) was leaving `name\` as the lookup key, breaking resolution. The escape is no longer necessary (the `protectWikilinkPipes` pre-pass handles it) but is now backwards-compatible.
+- Synced docs: `docs/features.md` (toolbar share button + popover entry), `docs/syntax.md` (wikilinks-in-tables explainer), `docs/configuration.md` + `docs/api.md` (corrected `/api/vault-icon` query param: `?vault=` not `?name=`), README.md (Quick Start, share-button bullet, callouts bullet).
+
 ## 2026-04-29 — Share-from-toolbar + wikilink/table fix
 
 - **Share button on the main toolbar** (next to copy-wikilink) with a per-note popover. When the active note has any active share, the button turns crimson and shows a small badge with the count; the popover lists each link with one-click Copy / Open / Revoke. When unshared, the popover offers three quick-share options (read-only · no expiry / read-only · 7 days / editable · no expiry) plus a "More options…" link to the full create-share modal. No more digging through Settings → Shared to find out which open note is shared.

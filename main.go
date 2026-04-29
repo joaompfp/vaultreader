@@ -472,7 +472,13 @@ func renderWikilinks(htmlStr string, currentVault, currentNotePath string, idx *
 		if sub == nil {
 			return match
 		}
-		name := sub[1]
+		// Strip a trailing backslash that the regex picks up when the
+		// source uses Obsidian's `\|` escape (`[[name\|alias]]`). The
+		// escape is unnecessary here because protectWikilinkPipes already
+		// shields the alias pipe from goldmark's table parser, but we
+		// still want to render correctly when users carry escaped forms
+		// over from Obsidian.
+		name := strings.TrimRight(sub[1], `\`)
 		alias := sub[2]
 		if alias == "" {
 			alias = name
@@ -508,7 +514,7 @@ func renderWikilinksPlain(htmlStr string) string {
 		if sub == nil {
 			return match
 		}
-		name := sub[1]
+		name := strings.TrimRight(sub[1], `\`)
 		alias := sub[2]
 		if alias == "" {
 			alias = name

@@ -38,6 +38,22 @@ Resolution order:
 
 Normalization: lowercase, strip `.md` extension.
 
+### Wikilinks inside tables
+
+`[[name|alias]]` works inside markdown table cells without escaping. The renderer pre-swaps the alias `|` for a sentinel before goldmark parses the table, then restores it after rendering — so goldmark's table parser never sees a "stray" pipe.
+
+```
+| Field | Value |
+|---|---|
+| File | [[Welcome|the welcome page]] |  ← works as written
+```
+
+Obsidian's escape syntax (`\|`) is also accepted for compatibility, though it's no longer needed:
+
+```
+| File | [[Welcome\|the welcome page]] |  ← also works
+```
+
 ## Image embeds
 
 ```

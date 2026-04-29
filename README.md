@@ -31,6 +31,7 @@ It is not a sync engine, not a multi-user collaboration platform, not a Notion r
 - Frontmatter rendered with array-typed and tag-like keys as clickable chips
 - Mermaid v11 diagrams (`flowchart`, `sequence`, `gantt`, `pie`, `block`, …)
 - KaTeX math (`$$…$$` block, `\(…\)` inline; bare `$` deliberately not consumed to avoid currency conflicts)
+- Obsidian-style callouts (`> [!info] Title`) rendered with a single accent style; type preserved as `data-callout="<type>"` for custom CSS
 - Mobile-friendly layout with sliding sidebar
 - Dark mode (auto + manual toggle)
 
@@ -60,6 +61,7 @@ It is not a sync engine, not a multi-user collaboration platform, not a Notion r
 
 ### Sharing
 - Read-only share links with optional expiration (`/share/<token>`)
+- **Toolbar share button + popover** — crimson active state when the open note has any link, badge with count, popover lists each share with one-click Copy / Open / Revoke and three quick-create options (RO/no-expiry, RO/7-day, editable). No more digging through Settings → Shared.
 - **Mermaid + KaTeX render in shared notes** via a tightly-scoped asset route under the share-bypass (no extra Authelia config needed)
 - Active-shares management with bulk revoke (single-call backend endpoint)
 - Custom share URL prefix supported via reverse proxy (e.g. `notes.example.com/notas/<token>`)
@@ -101,14 +103,29 @@ It is not a sync engine, not a multi-user collaboration platform, not a Notion r
 
 ## Quick start
 
+The repo ships with `examples/vaults/demo/` (a sample vault) and `examples/appdata/` (config + icon) so you can boot to a working installation without preparing anything:
+
 ```bash
-docker run --rm -p 8080:8080 \
-  -v /path/to/your/vaults:/vaults:rw \
-  -v $PWD/appdata:/appdata:rw \
+git clone https://github.com/joaompfp/vaultreader.git
+cd vaultreader
+docker run -d --name vaultreader -p 8080:8080 \
+  -v "$PWD/examples/vaults:/vaults:rw" \
+  -v "$PWD/examples/appdata:/appdata:rw" \
   ghcr.io/joaompfp/vaultreader:latest
 ```
 
-Open <http://localhost:8080>. The first subdirectory inside `/vaults` becomes the active vault.
+Open <http://localhost:8080> — you'll land in the **demo vault**, which contains a syntax showcase, a small graph of cross-linked notes, a sample template, and instructions for pivoting to your real vaults. See [examples/README.md](examples/README.md) for the full layout.
+
+When you're ready to use VaultReader for real, swap the bind-mounts to point at your own vault directory and a fresh `appdata/`:
+
+```bash
+docker run -d --name vaultreader -p 8080:8080 \
+  -v /path/to/your/vaults:/vaults:rw \
+  -v /path/to/your/appdata:/appdata:rw \
+  ghcr.io/joaompfp/vaultreader:latest
+```
+
+Each top-level subdirectory under `/vaults` becomes a separate vault in the sidebar. See [docs/configuration.md](docs/configuration.md) for `appdata/config.json` (admin token, RW paths) and [docs/security.md](docs/security.md) for the security model before exposing the service publicly.
 
 ## Docker Compose
 

@@ -106,7 +106,7 @@ Drop image files named after each vault. Supported extensions: `.png`, `.svg`, `
 
 If no icon exists, a generic folder SVG is shown.
 
-Icons are served live (no restart) via `/api/vault-icon?name=<vault>`.
+Icons are served live (no restart) via `/api/vault-icon?vault=<name>`.
 
 ## Per-vault conventions
 

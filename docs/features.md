@@ -216,8 +216,17 @@ To unpin: remove the frontmatter line.
 
 ## Sharing
 
+### Toolbar share button
+Next to the copy-wikilink icon on the toolbar. Two modes:
+
+- **Note has no active share** → button is grey; click → popover opens with three quick-create options (read-only / no expiry, read-only / 7-day, editable / no expiry — the last only when `rw_paths` covers the note's path) plus "More options…" which opens the full modal for custom labels and TTLs. Picking any quick option creates the share, copies the URL to clipboard, and pops a brief toast. No second click needed for the common case.
+
+- **Note already has one or more active shares** → button turns **crimson** with a small badge showing the count. Click → popover lists each link with: a `RO`/`RW` mode chip, the label (or creation date), the expiry (when set), and three inline buttons: **Copy** (clipboard), **Open** (new tab), **Revoke**. The "New link" section below the list lets you create another link without going to Settings.
+
+The popover refreshes its data on every open, so revoking a link in one tab is reflected in another tab as soon as you reopen the popover. Revocations also update the toolbar's active-state colour live (the button reverts to grey when the last link is revoked).
+
 ### Share modal
-Right-click a note in the sidebar → "Share" (or use the toolbar share icon when the note is open). Pick an expiration (1h / 24h / 7d / 30d / never) and an optional label, then "Generate link". Toggle "Allow editing" to make the share writable (rare).
+Right-click a note in the sidebar → "Share" (or click "More options…" in the toolbar share popover). Pick an expiration (1h / 24h / 7d / 30d / never) and an optional label, then "Generate link". Toggle "Allow editing" to make the share writable (rare).
 
 The link is signed with a per-server admin token and looks like:
 ```
