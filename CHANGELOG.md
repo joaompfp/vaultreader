@@ -4,6 +4,71 @@ All notable changes to VaultReader. Versioning is loose — there are no formal 
 
 Most-recent first.
 
+## 2026-04-29/30 — Polish wave (Tiers 1–4)
+
+A second wave of work driven by daily-use feedback. Twenty-plus features and fixes across a single user session, mostly small and ergonomic. Rolled out in four "tiers" (the planning rationale is captured in commit messages).
+
+### Graph view — visual + interaction overhaul
+- **Switched layout from `cose` (compute-then-place) to `cola` (live force simulation)** via `cytoscape-cola`. The graph now visibly settles from chaos over a few seconds; dragging a node ripples through the rest of the graph in real time. Bundle: +78KB cola + 22KB cytoscape-cola.
+- **Live reflow on drag** — `grab`/`free` events restart cola for 1.5s, so the graph keeps wobbling for a couple of seconds after you let go. Inertia, basically.
+- **Moebio-inspired visual polish**: smaller nodes (5–14px) with text-opacity hidden by default, curved bezier edges that are visible against dark backgrounds, hover-to-light-up-neighborhood with rest-fade-to-0.12, center node rendered as an outlined accent ring instead of a solid red blob.
+- **Three scope modes** with a clickable scope-breadcrumb: all-vaults, single-vault, **folder-scoped** (`?folder=…`), **ego graph** (`?center=vault:path&depth=N`, 1–5 hops via outbound + inbound). Toolbar graph icon picks the smallest meaningful scope based on what's open.
+- **Per-graph depth ± controls** when in ego mode. Shift-click any node to re-center the graph there; Cmd/Ctrl-click opens the note in a new tab.
+- **Zoom-aware label visibility** — labels hidden until rendered font ≥ ~14px so default-zoom views are geometry-only, hover/lit nodes always show labels.
+- **Smaller fonts (8/11) + longer simulation** (7–9s initial, 3.5s post-drag) for a weighty feel.
+
+### Editor UX (Tier 1)
+- **Search ranking** — title-match (×20) > filename-match (×5) > body-occurrence (×1, capped 5), plus 0–3 recency boost over 30 days. Top 20 by score per vault. Old behavior kept the first 20 in filesystem order; recently touched notes used to sink under stale archives.
+- **Alt+← / Alt+→** for back/forward through visited notes (wraps `window.history.back/forward`). Skipped in text inputs / editor.
+- **Paste/drop image in preview mode** — uploads + appends `![[…]]` at end of note + saves with conflict detection + re-renders. No edit-mode switch needed. Honors `isWritable`.
+- **Rename warning** — new `/api/backlinks` endpoint; `promptRenameNote` checks before showing the rename input. If any notes link to it, surface a danger modal listing up to 5 affected titles + "Rename anyway".
+
+### Editor UX (Tier 2)
+- **Right-click on `[[wikilink]]`** in preview → context menu: Open · Open in new tab · Reveal in sidebar · Copy wikilink · Copy URL. Missing-link spans get "Create" + "Copy as text" instead.
+- **Reveal in sidebar** via `Ctrl+Shift+L` or context menu. Switches to the note's vault, navigates `cwd` to its parent folder, smooth-scrolls the row into view.
+- **Daily note opens in edit mode** with cursor at EOF when freshly created (existing dailies open in preview as before).
+- **Whitespace normalization on save** — backend `saveNote` strips trailing space/tab per line and ensures exactly one trailing newline. Reduces git-diff noise when the same vault is edited from multiple tools.
+- **Drag-and-drop sidebar items** to move into folders. File rows + folder rows are draggable; folder rows + the `..↑` row are drop targets with a dashed-accent outline on hover.
+
+### Editor UX (Tier 3)
+- **Undo toast for delete** — bottom-right toast for 6.5s after soft-delete. Click Undo → restores from `.trash/`. Bulk-aware (one combined toast for the whole batch).
+- **Search across attachment names** — `/api/search` includes image filenames as `kind: "image"` results, scored lower than note matches. UI shows 🖼 prefix; click opens in a new tab.
+- **Bulk select + bulk ops** — Cmd/Ctrl-click toggles, Shift-click range-selects, Esc clears. Bulk Move (reuses tree picker) + Bulk Delete (one combined toast). Selection clears on folder change.
+- **Note templates** — `<vault>/templates/*.md` enumerated via new `/api/templates`. "+ New" → "From template…" picker. Placeholders `{{date}}`, `{{date:FMT}}` (custom YYYY/MM/DD/HH/mm/ss), `{{time}}`, `{{title}}` expand on creation. Drops user into edit mode at end of file.
+
+### Editor UX (Tier 4)
+- **Search operators**: `tag:foo` / `path:foo` / `title:foo` / `modified:>7d` / `modified:<2026-01-01`. AND together. Plain text after operators acts as the body substring filter as before. Operator-only queries (e.g. `tag:work modified:>7d`) return everything matching, sorted by recency.
+- **Mermaid + KaTeX in shared notes** — both were previously not rendered at all (handleShareView didn't load the libs, AND Authelia would have blocked `/static/` even if it had). Fixed via new `/share/<token>/asset?name=…` route under the existing share-bypass; conditional script-tag injection (only if the page actually contains `language-mermaid` or math delimiters); KaTeX CSS font URLs rewritten to absolute share-asset URLs. Strict allowlist + extension check prevents leaked tokens from fetching arbitrary static files.
+- **Skipped**: auto-link suggestions while typing (needs a clearer spec); WebDAV write-mode (Syncthing/Obsidian Sync handle this better); folder reorder (alphabetical only).
+
+### Layout / look
+- **Two-row toolbar** — buttons on row 1, full breadcrumb on row 2. Long paths now legible (segment max-width 240px, note-title max-width 480px).
+- **Frontmatter toggle moved to right edge of breadcrumb row** with the count badge. Stats strip moved into the collapsible content. The dedicated stats row is gone.
+- **Sidebar breadcrumb wraps over multiple lines** with a smaller, denser font (11px) and the last segment bolded — current location reads at a glance even on deep paths.
+- **Properties strip back-references** — for non-orphan attachments, the Attachments tab shows up to 8 referencing notes as clickable chips (with H1-extracted titles).
+- **Subtle CSS animations** — pop-in scale on modal/overlay/settings boxes (140ms), max-height transition on frontmatter expand (220ms), gentle 250ms fade on save-status indicator, CSS spinner replacing "Loading…" text in async tabs (attachments, graph, tags).
+
+### Settings
+- **Drop "Read-write paths" admin UI**, replace with a Vaults overview list. Each row shows icon, name, note count, and a "writable" tag if any rw_paths cover it. The hint at the bottom points at `appdata/config.json` for power users. `isWritable` and config gating remain unchanged at the backend.
+- **Attachments tab gains a folder/name filter** — substring match, client-side.
+- **Properties strip is now collapsible** — hidden by default behind the fm-toggle icon. Frees up vertical reading space.
+- **Compact props row** — toggle is an icon with a count badge instead of "frontmatter (8 fields)" eating a whole row.
+
+### Bugfixes
+- **Trash naming overhaul (`VRTRASH_<base64>_<unix>` scheme)** — legacy `__→/` round-trip corrupted any file whose original basename contained `__` or started with `_`. New scheme encodes the full vault-relative path in base64-url, eliminating the entire class of round-trip bugs. Legacy entries keep working via `legacyDecodeTrashName` fallback.
+- **Modal z-index 500 → 1100**, was rendering behind settings (`800`), making the "Revoke all share links?" confirm invisible.
+- **`revokeAllShares` had `confirmOnly: false`** so the input box was visible on a pure-confirm danger modal — tab-to-confirm enforced "Name cannot be empty". Set to `confirmOnly: true`.
+- **Bulk revoke** was using `POST` against a `DELETE`-only handler; replaced with batch endpoint `DELETE /api/shares/revoke-all` (no per-token rate-limit hits either).
+- **Misleading "all vaults are read-only"** copy when `rw_paths` was empty — replaced with a hint that suggests what to add.
+- **Goldmark HTML-escapes `&` to `&amp;`** in attribute values, breaking the regex that rewrote `/api/file?…` URLs to `/share/…/file?…` for share images. Now decodes the entity before parsing.
+- **Tag-operator strict matching** — `tag:london` initially didn't catch `london-2026`; relaxed to substring match (still respects exact + hierarchical descendant rules first).
+- **Outline class binding** rendered `[object Object]` because Alpine's `:class="[a, {b: c}]"` array+object form silently degrades in this Alpine version. Switched to string concat.
+- **Frontmatter chip click race** — clicking a chip set `searchQuery` then opened the overlay, but the `$watch('searchOpen', …)` reset `searchQuery = ''` on open. Reordered: open first, set query in `$nextTick`.
+- **Wikilink popup label visibility** in the cola layout regressed because `min-zoomed-font-size` was unreliable post-cola; switched to a JS zoom-event handler.
+
+### Documentation
+This entry. Plus refresh of README, ROADMAP, and the existing `docs/`.
+
 ## 2026-04-29 — Big feature wave
 
 A two-day burst that took VaultReader from "polished reader with basic edits" to "Obsidian-flavored web client". Sequenced one feature at a time with browser smoke-tests after each commit.

@@ -110,8 +110,35 @@ This applies to:
 ### Atomic config write
 `appdata/config.json` and `appdata/shares.json` are written via tempfile + `os.Rename` — never partial-write a corrupted config. Crash during write leaves the previous version intact.
 
+### Trash naming
+Soft-deleted files use the `VRTRASH_<base64url(originalPath)>_<unix><ext>` scheme. The base64-encoded full path makes restore exact for any filename — no round-trip ambiguity, even for paths containing `__` or starting with `_`. The legacy `__→/` flatten scheme is still readable for entries created before this change (via `legacyDecodeTrashName`) but new entries use the safer scheme.
+
+This isn't an authorization boundary — anything in `.trash/` was already deletable by the user — but it's a correctness property: undo via the toast UI relies on the original path being recoverable.
+
+### Save normalization
+Every write through `saveNote` runs `normalizeMarkdown`: strip trailing whitespace per line, ensure exactly one trailing newline. This is a quality-of-life behavior for git diffs (round-tripping cleanly between editors), not a security control.
+
 ### Directory listing
 `http.FileServer` over the embedded FS doesn't allow directory listings (Go's default behavior emits 404 for missing paths but lists for collections). For the **WebDAV** mount, listing IS exposed via `PROPFIND` — that's the protocol's whole point.
+
+### Share-asset allowlist
+The `/share/<token>/asset?name=<X>` route serves bundled JS/CSS/fonts so shared notes can render mermaid + KaTeX. The allowlist is **strict by name**:
+
+```go
+var shareAssetAllowlist = map[string]string{
+    "mermaid.min.js":           "static/mermaid.min.js",
+    "katex.min.js":             "static/katex.min.js",
+    "katex.min.css":            "static/katex.min.css",
+    "katex-auto-render.min.js": "static/katex-auto-render.min.js",
+}
+```
+
+Plus a regex-equivalent allow for `fonts/<name>.{woff2,woff,ttf}`. Anything else returns 404 — even files that exist in the embedded FS (`index.html`, `style.css`, `obsidian.svg`, etc.). A leaked share token cannot be used to fetch the SPA shell or any other private static file via this route.
+
+### Share-file scoping
+The `/share/<token>/file?path=<X>` route (used by image embeds in shared notes) enforces **two layers**:
+1. `safePath` against the share's vault — blocks path traversal.
+2. **File-extension allowlist** — only images, PDF, common audio + video formats. Notes (`.md`) and arbitrary other files return 403, so a leaked token can't be used to read other notes via this route.
 
 ## Headers
 

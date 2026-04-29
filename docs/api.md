@@ -100,8 +100,8 @@ If `ifMTime` is supplied and the on-disk file is newer (with 1-second slop), ret
 The client uses this to render the conflict-resolution modal.
 
 ### `DELETE /api/note?vault=<vault>&path=<path>`
-Move to `<vault>/.trash/`. Soft delete, recoverable via `/api/trash/restore`.
-**Response:** `204 No Content`.
+Move to `<vault>/.trash/` using the `VRTRASH_<base64url(originalPath)>_<unix><ext>` naming scheme. Soft delete, recoverable via `/api/trash/restore`.
+**Response:** `{"status": "deleted", "movedTo": ".trash/VRTRASH_…<unix>.md"}`. The `movedTo` value is what to pass to `/api/trash/restore` to undo (used by the undo-toast flow).
 
 ### `POST /api/upload`
 Image upload. Multipart form. Cap: 10MB.
@@ -121,21 +121,51 @@ Create folder.
 **Response:** `201 Created`.
 
 ### `DELETE /api/folder?vault=<vault>&path=<path>`
-Move folder to trash.
+Move folder to trash. Same `VRTRASH_<base64>_<unix>` naming as note delete.
+**Response:** `{"status": "deleted", "movedTo": ".trash/VRTRASH_…<unix>"}`.
 
 ---
 
 ## Search & resolution
 
 ### `GET /api/search?vault=<vault>&q=<query>[&allVaults=true]`
-Substring search (case-insensitive) against filename + content. Capped at 20 results per vault.
+Search over notes + image attachments in the vault. Results scored and sorted; capped at 20 per vault.
+
+**Query language:**
+
+Plain text (`my note`) does substring matching against filename + title + body. Add operators to filter:
+
+| Operator | Behavior |
+|---|---|
+| `tag:foo` | Frontmatter tags contain `foo` (substring + hierarchical match) |
+| `path:bar` | Vault-relative path contains `bar` |
+| `title:baz` | First-H1 title contains `baz` |
+| `modified:>7d` | Modified within last N days/weeks/months/years (`d`/`w`/`m`/`y`) |
+| `modified:<2026-01-01` | Modified before this absolute date |
+| `modified:>2026-01-01` | Modified after this absolute date |
+| `modified:=2026-04-29` | Modified on this date |
+
+Operators AND together. Plain text after operators acts as the body substring filter. Operator-only queries (`tag:work modified:>7d`) return everything matching, sorted by recency.
+
+**Scoring** for note hits (kind="note" or omitted):
+- exact title equals query: +20
+- title substring: +10
+- filename substring: +5
+- per body occurrence (capped 5): +1
+- recency (linear over 30 days): +0–3
+
+**Image attachment hits** (kind="image"): scored at 3 base + 1 if filename starts with the query + recency boost. Strictly lower than note matches so notes rank first when the query matches both.
+
 **Response:**
 ```json
 [
   {"vault": "pessoal", "path": "leituras/Caffeine.md", "title": "Caffeine", "excerpt": "…"},
+  {"vault": "pessoal", "path": "misc/screenshot-x.png", "title": "screenshot-x.png", "excerpt": "", "kind": "image"},
   …
 ]
 ```
+
+The `kind` field is only set for image results; notes omit it (or set it to `"note"`).
 
 ### `GET /api/resolve?vault=<vault>&name=<wikilink-target>`
 Resolve a wikilink target to `{vault, path}`.
@@ -144,6 +174,29 @@ Resolve a wikilink target to `{vault, path}`.
 {"vault": "pessoal", "path": "leituras/Caffeine.md"}
 ```
 404 if no match.
+
+### `GET /api/backlinks?vault=<vault>&path=<path>`
+Backlinks for a single note. Reads the in-memory inverted index — no disk read of the note itself, much cheaper than a full `GET /api/note` when you only need the link list (used by the rename-warning flow).
+**Response:**
+```json
+{
+  "backlinks": [
+    {"vault": "pessoal", "path": "leituras/Coffee.md", "title": "Coffee", "excerpt": "…"}
+  ]
+}
+```
+
+### `GET /api/templates?vault=<vault>`
+List `.md` files under `<vault>/templates/` for the "From template…" picker.
+**Response:**
+```json
+{
+  "templates": [
+    {"path": "templates/Meeting.md", "name": "Meeting", "body": "---\\ndate: {{date}}\\n---\\n\\n# {{title}}\\n"}
+  ]
+}
+```
+Empty array if the templates folder doesn't exist.
 
 ### `GET /api/file?vault=<vault>&path=<path>`
 Serves any file in the vault verbatim. Used by image embeds — the renderer rewrites `![[image.png]]` to `<img src="/api/file?vault=…&path=…">`.
@@ -210,13 +263,30 @@ TTL is in seconds; `0` = never expires.
 List all active (non-expired) shares.
 **Response:** array of `ShareEntry { token, vault, path, writable, created_at, expires_at, label }`.
 
-### `POST /api/shares/revoke?token=<token>`
-Delete a share.
-**Response:** `204 No Content`.
+### `DELETE /api/shares/revoke?token=<token>`
+Delete a single share.
+**Response:** `{"status": "revoked"}`.
+
+### `DELETE /api/shares/revoke-all`
+Bulk-revoke every active share in one call. Returns `{"revoked": <count>}`. Avoids the rate-limit cliff that a per-token loop would hit on 100+ shares.
 
 ### `GET /share/<token>`
-Public share-link page. Returns the rendered note with no editor, no sidebar, no navigation. If the token is expired or revoked → 404.
-If `writable: true`, the page includes a CodeMirror editor with autosave (uses `PUT /api/note` with the share token as auth).
+Public share-link page. Returns the rendered note with no editor, no sidebar, no navigation. If the token is expired or revoked → 404. Includes:
+- Inline image embeds (rewritten to `/share/<token>/file?…` URLs).
+- Mermaid diagrams + KaTeX math, lazy-loaded from `/share/<token>/asset?…` only when the page actually contains them.
+
+If `writable: true`, the page also includes a CodeMirror editor with autosave (uses `PUT /share/<token>` with the share token as auth).
+
+### `GET /share/<token>/file?path=<path>`
+Serves a file inside the shared note's vault. Used by image embeds; the URL rewrite happens server-side in `handleShareView`. Strict checks: `safePath` against the share's vault, **file-extension allowlist** (images / PDF / common audio + video). Anything else returns 403 / 404 — a leaked token cannot be used to read arbitrary `.md` files.
+
+### `GET /share/<token>/asset?name=<name>`
+Serves a bundled static asset for the share-page renderer. Strict allowlist:
+- `mermaid.min.js`
+- `katex.min.js`, `katex.min.css`, `katex-auto-render.min.js`
+- `fonts/<KaTeX font>.woff2|woff|ttf`
+
+The KaTeX CSS is post-processed at-serve-time to rewrite relative `url(fonts/…)` to absolute `/share/<token>/asset?name=fonts/…` so fonts load under the same auth context. Anything outside the allowlist → 404, even if it exists in the embedded static bundle.
 
 ---
 
@@ -224,10 +294,12 @@ If `writable: true`, the page includes a CodeMirror editor with autosave (uses `
 
 ### `GET /api/trash?vault=<vault>`
 List trash entries for a single vault.
-**Response:** `{"items": [{"name": "foo.md", "path": ".trash/foo_<unix>", "isDir": "false"}]}`.
+**Response:** `{"items": [{"name": "<original-path>", "path": ".trash/VRTRASH_<b64>_<unix>.md", "isDir": "false"}]}`.
+
+The `name` field is the decoded original vault-relative path (display-friendly). The `path` field is the actual trash entry (use this for restore / delete).
 
 ### `POST /api/trash/restore?vault=<vault>&path=<path>`
-Move a trash item back to its original location (best-effort: strips the `_<unix>` suffix and `__→/` flattening).
+Move a trash item back to its original location, decoded from the `VRTRASH_<base64>_<unix>` filename. Falls back to the legacy `__→/` decoder for entries created before that scheme existed.
 **Response:** `204 No Content`.
 
 ### `DELETE /api/trash/empty?vault=<vault>[&path=<path>]`

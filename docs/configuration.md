@@ -108,6 +108,33 @@ If no icon exists, a generic folder SVG is shown.
 
 Icons are served live (no restart) via `/api/vault-icon?name=<vault>`.
 
+## Per-vault conventions
+
+These aren't configured globally — they're conventions VaultReader looks for inside each vault directory.
+
+### `<vault>/templates/*.md`
+
+Any `.md` file under a vault's `templates/` folder appears in the toolbar's `+ New` → "From template…" picker. The picker shows each template's name (basename without `.md`) plus a one-line preview of the body.
+
+Selecting a template prompts for a new note name; the template's body is then expanded with these placeholders before creation:
+
+| Placeholder | Replaced with |
+|---|---|
+| `{{date}}` | Today as `YYYY-MM-DD` (local time) |
+| `{{date:FMT}}` | Custom format using `YYYY MM DD HH mm ss` tokens |
+| `{{time}}` | `HH:mm` |
+| `{{title}}` | The new note's name (sans `.md`) |
+
+Obsidian's Templater syntax (`<% tp.date.now(...) %>`) renders literally — VaultReader doesn't parse it. Use the placeholder syntax above for cross-tool-aware templates if you want the same file to work in both VaultReader and Obsidian (Templater will run its own pass on top).
+
+### `<vault>/.trash/`
+
+Soft-deleted files land here under `VRTRASH_<base64url(originalPath)>_<unix><ext>` filenames. Auto-managed; safe to delete the whole directory if you want to reclaim space and don't need restore.
+
+### `<vault>/<note-dir>/attachments/`
+
+Pasted/dropped images go here per-note. E.g. pasting into `notes/foo.md` creates `notes/attachments/foo-<unix>.<ext>`. Matches Obsidian's default attachment convention.
+
 ## Reverse proxy notes
 
 ### Authelia / forward-auth

@@ -17,7 +17,11 @@ A Go web app serving Obsidian vaults. ~2700-line `main.go` + 3000-line `static/i
 | Alpine state | `static/index.html` ~L1010 (`function vaultApp()`) |
 | The `__cmAPI` (CodeMirror wrapper) | `static/index.html` second `<script>` block, ~L944 |
 | Stylesheet | `static/style.css` (1500+ lines, organized by section comments) |
-| Asset bundles | `static/{codemirror.bundle,mermaid.min,katex.min,cytoscape.min,alpine.min}.js` + `static/fonts/` |
+| Asset bundles | `static/{codemirror.bundle,mermaid.min,katex.min,cytoscape.min,cola.min,cytoscape-cola,alpine.min}.js` + `static/fonts/` |
+| Search ranking + operators | `main.go` — `parseSearchQuery` + `searchVault` |
+| Trash naming scheme | `main.go` — `makeTrashName` / `decodeTrashName` / `legacyDecodeTrashName` |
+| Share-asset allowlist | `main.go` — `shareAssetAllowlist` map + `handleShareAsset` |
+| Graph layout config | `static/index.html` — `_graphLayoutOptions` (cola or cose fallback) |
 | Dockerfile | Already does `go mod tidy` in builder, so adding a Go dep is a one-file change |
 
 ## Standing rules
@@ -26,6 +30,8 @@ A Go web app serving Obsidian vaults. ~2700-line `main.go` + 3000-line `static/i
 - **The shell aliases `mv` to `mv -i`** in this user's profile. `mv` will hang on overwrite prompts. Use `/bin/mv -f` to force or use `Edit`/`Write` tools.
 - **`appdata/` is gitignored.** It contains `config.json` (admin token!), `shares.json`, and `icons/`. Never commit it.
 - **`.worktrees/` is gitignored.** Past multi-agent design sessions left litter; the gitignore prevents recurrence.
+- **Multi-line bash commands can lose CWD** when something earlier crashes mid-pipeline (saw it after a `git commit -m "$(cat <<EOF…)"` failed). When a follow-up command says "fatal: not a git repository", `cd /home/joao/docker/stacks/office/images/vaultreader && …` to recover.
+- **Every JS edit must pass `node --check` against the inline `<script>`** before commit. Pattern is in this file's "Verification" section. A broken inline JS = blank-page SPA on next deploy.
 
 ### Container ops
 - **Deploy:** from `~/docker`, `bash -lic 'dc-office-up -d --build vaultreader'`. The `-lic` is required — the shell aliases (`dc-*`) are loaded from `~/.bashrc`.
@@ -51,11 +57,29 @@ A Go web app serving Obsidian vaults. ~2700-line `main.go` + 3000-line `static/i
 - **`isWritable` returns false when `rw_paths` is empty.** Default-deploy has empty `rw_paths`, so writes 403 until the user adds entries. The empty-state copy now hints at this; previously said "all vaults are read-only" which was technically right but misleading.
 - **`safePath` blocks `..`, absolute paths, Windows-style `\…`.** Every endpoint that takes a path must call this.
 - **PUT `/api/note` returns 200 + JSON `{"mtime"}` now**, not 204. Old clients that ignore the body still work.
+- **DELETE `/api/note` and `/api/folder` return `{"movedTo": ".trash/VRTRASH_<b64>_<unix>…"}`.** The `movedTo` value is what the undo-toast flow passes to `/api/trash/restore`. Don't change the response shape without updating the frontend's `_showUndoToast` flow.
+- **Trash naming uses base64-url-encoded original path** (`VRTRASH_<b64>_<unix><ext>`). Decoded by `decodeTrashName` with a `legacyDecodeTrashName` fallback for entries from before that scheme. The legacy `__→/` flatten was bug-prone for paths containing `__` or starting with `_`.
 - **Conflict detection lives only in PUT.** POST `/api/note` (create) returns 409 if file exists; that's a different conflict semantics.
+- **`saveNote` runs `normalizeMarkdown`** — strips trailing whitespace per line, ensures one trailing newline. Applies to every save path (note PUT, share PUT, paste-image-append). Don't bypass it; reduces git-diff noise.
+- **Search has operators**: `tag:`, `path:`, `title:`, `modified:>Nd / <YYYY-MM-DD`. Parsed by `parseSearchQuery`. Plain text after operators acts as the body substring filter. Image attachments only honor `path:` and `modified:` (no frontmatter) and only when `plain != ""`.
+- **The `/share/<token>/...` namespace has sub-routes**: `/file?path=…` (image embeds, ext allowlist) and `/asset?name=…` (mermaid/katex/fonts, name allowlist). Both depend on the reverse-proxy bypassing `/share/*`. Adding more sub-routes? Update `handleShareView`'s `if len(parts) == 2` switch.
 
 ### Routing gotchas
 - **`/api/trash` is GET-only**, returns 405 on DELETE. Use `/api/trash/empty` for delete (with optional `?path=` for single item).
+- **`/api/shares/revoke` is DELETE-only** and takes `?token=`. For bulk-revoke, use `/api/shares/revoke-all` (also DELETE) — single call, no rate-limit cliff. Don't loop over `/revoke` for bulk.
 - **WebDAV at `/webdav/` is read-only via method allowlist.** The `OPTIONS` response still advertises mutating verbs in the `Allow:` header (because `webdav.Handler` writes it before the wrapper can intercept) — cosmetic, not functional.
+
+### Goldmark output gotcha
+- **Goldmark HTML-escapes `&` to `&amp;`** in attribute values. When post-processing rendered HTML for URL rewrites (e.g. `rewriteShareImageURLs`), decode entities before parsing as URL. Lost a deploy cycle to this.
+
+## Recently shipped (2026-04-29/30)
+
+Don't re-implement these — they exist. Most live behind specific commits cited in CHANGELOG.md and ROADMAP.md (see "Recently shipped" section there for the full list).
+
+Quick summary of what's there now: cola live-simulation graph (with ego/folder/vault scopes), search operators (`tag:`, `path:`, `modified:>7d`), undo toasts, bulk select + bulk move/delete, drag-and-drop in sidebar, paste-in-preview, rename warning, daily-note edit-mode, save normalization, attachment back-references, mermaid+katex in shared notes (via `/share/<token>/asset?…`), unambiguous trash naming, two-row toolbar, collapsible properties strip, reveal-in-sidebar (`Ctrl+Shift+L`), Alt+←/→ history.
+
+For *what* exists user-facing, point at `docs/features.md`.
+For *how* it's wired, the sections in this file are still the agent-friendly map.
 
 ## Standing hooks for future work
 

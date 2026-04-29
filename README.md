@@ -38,28 +38,37 @@ It is not a sync engine, not a multi-user collaboration platform, not a Notion r
 - CodeMirror 6 editor with markdown syntax highlighting
 - Toolbar (14 buttons): bold, italic, strikethrough, heading-cycle, lists, task, quote, inline/block code, table, link, wikilink, mermaid (with 5 starter dropdowns)
 - `[[` autocomplete from `/api/search`
-- Paste/drop image upload to `<note-dir>/attachments/`
+- Paste/drop image upload to `<note-dir>/attachments/` — works in **both edit mode and preview mode** (paste while reading appends `![[…]]` at end of note)
 - Autosave with conflict detection (mtime check; resolution modal on collision)
+- Backend save normalization — strips trailing whitespace, ensures one trailing newline, so notes round-trip cleanly between Obsidian / vim / VaultReader
+- Note templates from `<vault>/templates/*.md` with `{{date}}`, `{{date:FMT}}`, `{{time}}`, `{{title}}` placeholders
+- Rename warning when a note has incoming wikilinks
 - Admin-managed writable paths (configure vaults / subfolders that allow editing in `appdata/config.json` → `rw_paths`)
 
 ### Browsing & discovery
-- Search overlay (`Ctrl+K` or `/`)
+- Search overlay (`Ctrl+K` or `/`) with **operators**: `tag:foo`, `path:bar`, `title:baz`, `modified:>7d`, `modified:<2026-01-01`. Plain text matches name/title/body. Results ranked by title-match × recency.
+- **Search across attachment names** (image filenames surface as `🖼` results)
 - Saved searches (per-browser localStorage)
 - Tag pane (frontmatter `tags:` aggregated across all vaults)
-- Graph view via Cytoscape — click any node to jump to that note
-- Daily-note shortcut (`Ctrl+D` opens or creates `daily/YYYY-MM-DD.md`)
+- Graph view via Cytoscape + cola live force simulation — three scopes (all / vault / folder / **ego graph** rooted at a note, depth 1–5). Drag any node to ripple the graph; shift-click to re-center. Toolbar icon picks the smallest meaningful scope automatically.
+- Right-click a `[[wikilink]]` in preview → context menu (Open / new tab / Reveal in sidebar / Copy)
+- **Reveal in sidebar** (`Ctrl+Shift+L`) — scroll the sidebar to the active note
+- **Alt+← / Alt+→** for back/forward through visited notes
+- Daily-note shortcut (`Ctrl+D` opens or creates `daily/YYYY-MM-DD.md`, drops you into edit mode for fresh ones)
 - Pinned notes via `pinned: true` frontmatter — float to top of recents
-- Sidebar with folder browser, sort options, file-commander UI; resizable
+- Sidebar with folder browser, sort options, file-commander UI; resizable; **drag-to-move**, **bulk select** (Cmd/Ctrl-click, Shift-range), **bulk delete/move** with combined undo toast
 
 ### Sharing
 - Read-only share links with optional expiration (`/share/<token>`)
-- Active-shares management with bulk revoke
+- **Mermaid + KaTeX render in shared notes** via a tightly-scoped asset route under the share-bypass (no extra Authelia config needed)
+- Active-shares management with bulk revoke (single-call backend endpoint)
 - Custom share URL prefix supported via reverse proxy (e.g. `notes.example.com/notas/<token>`)
 
 ### File operations
 - Create / rename / delete / move notes and folders
-- Soft-delete to `.trash/` (per vault); restore or permanently delete from the Trash tab
-- Attachment manager — list all images per vault, find orphans (no `![[…]]` references), bulk delete
+- **Undo toast** for soft-deletes (6.5s window with one-click restore)
+- Soft-delete to `.trash/` (per vault) using a base64-encoded path scheme that round-trips safely for any filename. Restore or permanently delete from the Trash tab.
+- Attachment manager — list all images per vault, find orphans (no `![[…]]` references), filter by folder/name, see which notes reference each, bulk delete
 
 ### Integration
 - Read-only WebDAV at `/webdav/` (point Obsidian Mobile or any WebDAV client at it)
@@ -78,13 +87,17 @@ It is not a sync engine, not a multi-user collaboration platform, not a Notion r
 |---|---|
 | `Ctrl/⌘ + K` or `/` | Open search |
 | `Ctrl/⌘ + N` | New note |
-| `Ctrl/⌘ + D` | Open today's daily note (creates if missing) |
+| `Ctrl/⌘ + D` | Open today's daily note (creates if missing, opens fresh ones in edit mode) |
 | `Ctrl/⌘ + Shift + C` | Copy wikilink for current note |
+| `Ctrl/⌘ + Shift + L` | Reveal current note in sidebar |
+| `Alt + ←` / `Alt + →` | Back / forward through visited notes |
 | `E` | Toggle preview/edit |
 | `?` | Show shortcuts overlay |
-| `Esc` | Close any modal / menu |
+| `Esc` | Close any modal / menu / clear bulk selection |
 | In editor: `Ctrl/⌘ + B / I / E / K / L` | Bold, italic, inline code, link, wikilink |
 | In editor: `[[` | Trigger wikilink autocomplete |
+| In sidebar: Cmd/Ctrl-click | Toggle row in bulk selection |
+| In sidebar: Shift-click | Range-select |
 
 ## Quick start
 

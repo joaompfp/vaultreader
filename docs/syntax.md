@@ -140,6 +140,59 @@ Bad math renders in the accent color rather than throwing.
 
 KaTeX v0.16.11 is bundled (~1.5MB total: 269KB JS, 23KB CSS, ~1.2MB fonts across TTF/WOFF/WOFF2 variants).
 
+## Search query language
+
+In the search overlay (`Ctrl+K` or `/`), plain text matches name + title + body via substring. Add operators to filter:
+
+| Operator | Example | Meaning |
+|---|---|---|
+| `tag:` | `tag:work` | Frontmatter tags contain `work`. Substring + hierarchical match (`tag:london` catches `london-2026` and `london/places`). |
+| `path:` | `path:viagens` | Vault-relative path contains `viagens`. |
+| `title:` | `title:plan` | First-H1 title contains `plan`. |
+| `modified:>Nd` / `<Nd` | `modified:>7d` | Modified within last 7 days. Suffixes: `d` (days), `w` (weeks), `m` (months), `y` (years). |
+| `modified:>YYYY-MM-DD` | `modified:>2026-01-01` | Modified after this absolute date. |
+| `modified:<YYYY-MM-DD` | `modified:<2026-01-01` | Modified before this date. |
+| `modified:=YYYY-MM-DD` | `modified:=2026-04-29` | Modified on this date (24h window). |
+
+**Combining:**
+- Operators **AND** together: `tag:work modified:>7d` returns notes with `work` tag AND modified within 7 days.
+- Plain text after operators acts as the body substring filter: `tag:work london` returns work-tagged notes whose name/title/body contains `london`.
+- Operator-only queries (no plain text) return all matching notes sorted by recency.
+
+**Escaping:** values containing spaces or operator characters aren't supported (no quoting yet). Keep operator values single-token.
+
+## Note templates
+
+Drop `.md` files into `<vault>/templates/`. They appear in the toolbar's `+ New` menu under "From template…". Selecting one prompts for a new note name; the template's body is then expanded with these placeholders before creation:
+
+| Placeholder | Replaced with |
+|---|---|
+| `{{date}}` | Today as `YYYY-MM-DD` (local time) |
+| `{{date:FMT}}` | Custom format using `YYYY MM DD HH mm ss` tokens. E.g. `{{date:DD/MM/YYYY HH:mm}}` → `29/04/2026 14:30` |
+| `{{time}}` | `HH:mm` |
+| `{{title}}` | The new note's name (sans `.md`) |
+
+Example template (`<vault>/templates/Meeting.md`):
+
+```yaml
+---
+date: {{date}}
+time: {{time}}
+attendees: []
+---
+
+# {{title}}
+
+## Agenda
+
+-
+
+## Notes
+
+```
+
+Templater syntax (`<% tp.date.now(...) %>`) used by Obsidian's plugin is **not** expanded — those tokens render literally. Use the placeholder syntax above for VaultReader-aware templates.
+
 ## Code blocks
 
 Fenced with ` ``` ` or ` ~~~ `. Optional language tag for hinting:

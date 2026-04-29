@@ -93,7 +93,31 @@ The popup hits `/api/search?vault=<active>&q=<typed>` with a 150ms debounce. Ins
 ### Paste / drop image upload
 Paste an image from the clipboard or drag-drop one onto the editor. The image uploads to `<note-dir>/attachments/<note-base>-<unix>.<ext>` via `POST /api/upload`. While uploading, a `![[uploading-<ts>]]` placeholder sits at the cursor; on success it's replaced with `![[attachments/<filename>]]`.
 
+**Preview-mode paste also works**: paste an image while reading (no edit toggle needed). The upload runs, the embed gets appended at end of the note's raw markdown, the file saves with conflict detection, and the preview re-renders. Convenient for "I'm reading and want to drop in a screenshot" without breaking flow.
+
 Reuses the same `isWritable` + `safePath` guards as note PUTs. Caps body at 10MB. Accepts `image/{png,jpeg,gif,webp,svg+xml}`. Files in unwritable paths return 403, surfaced via a modal.
+
+### Save normalization
+On every save, the backend applies two harmless cleanups:
+- Strip trailing whitespace from every line.
+- Ensure exactly one trailing newline.
+
+This eliminates a common source of git-diff noise when the same vault is edited from multiple tools. Internal blank lines are preserved (markdown semantics).
+
+### Note templates
+Drop `.md` files into `<vault>/templates/`. They appear in the toolbar's `+ New` menu under "From template…". Selecting one prompts for a new note name; the template's body is then expanded with these placeholders before creation:
+
+| Placeholder | Replaced with |
+|---|---|
+| `{{date}}` | `YYYY-MM-DD` (today, local time) |
+| `{{date:FMT}}` | Custom format using `YYYY MM DD HH mm ss` tokens |
+| `{{time}}` | `HH:mm` |
+| `{{title}}` | The new note's name |
+
+The new note opens in edit mode with the cursor at end of file. Templates that use Obsidian's Templater syntax (`<% tp.date.now(...) %>`) are not expanded — they render literally. Use the placeholder syntax above for VaultReader-aware templates.
+
+### Rename warning
+Renaming a note also breaks any `[[wikilinks]]` that point to it (VaultReader does not auto-rewrite linking notes). Before showing the rename input, the app fetches the backlink list. If anything links to the note, a danger modal appears listing up to 5 affected note titles with a "Rename anyway" button. Notes with zero incoming links skip the warning entirely.
 
 ### Conflict-aware writes
 On save, the client sends `?ifMTime=<last-known-mtime>` along with the body. If the file on disk is newer (with 1-second slop for second-precision filesystems), the server returns **409 Conflict** with the disk version's content + mtime in the body.
@@ -108,10 +132,34 @@ This protects against silent overwrites when Syncthing brings in changes from an
 ## Search & discovery
 
 ### Search overlay
-`Ctrl/⌘+K` or `/` opens. Backed by a substring match against filename + content (case-insensitive), capped at 20 results per vault. Shows path, title (first H1), and an excerpt.
+`Ctrl/⌘+K` or `/` opens. Capped at 20 results per vault. Shows path, title (first H1), and an excerpt around the first body match. Image attachments matching the query also appear with a 🖼 prefix; click them to open the file in a new tab.
+
+**Ranking:**
+| Match type | Score |
+|---|---|
+| Exact title equals query | +20 |
+| Substring in title | +10 |
+| Substring in filename basename | +5 |
+| Per body occurrence (capped at 5) | +1 |
+| Recency (modified within 30 days, linear) | +0–3 |
+
+Top 20 by score per vault.
+
+**Operators**: combine plain text with structured filters. Operators AND together; plain text after acts as the body substring filter.
+
+| Operator | Example | Meaning |
+|---|---|---|
+| `tag:` | `tag:work` | Frontmatter tags contain `work` (substring + hierarchical match: `tag:london` catches `london-2026` and `london/places`) |
+| `path:` | `path:viagens` | Vault-relative path contains `viagens` |
+| `title:` | `title:plan` | First-H1 title contains `plan` |
+| `modified:` | `modified:>7d` | Modified within last 7 days. Also `<30d`, `>2026-01-01`, `<2026-01-01`, `=2026-04-29` |
+
+Operator-only queries (e.g. `tag:work modified:>7d`) return all matches sorted by recency.
+
+The placeholder text in the search input shows operator hints.
 
 ### Saved searches
-Type a query → click "★ Save" → modal asks for a name (default = the query). Up to 30 saved queries kept (LIFO; deduped by name) in `localStorage['vr-saved-searches']`. Empty-state of the search overlay shows the saved list with click-to-run.
+Type a query → click "★ Save" → modal asks for a name (default = the query). Up to 30 saved queries kept (LIFO; deduped by name) in `localStorage['vr-saved-searches']`. Empty-state of the search overlay shows the saved list with click-to-run. Saved searches with operators work just like any other query string.
 
 ### Tag pane
 Toolbar icon (price-tag). Opens a 600px overlay listing every frontmatter tag across all vaults, sorted by count desc. Filter input narrows the cloud live. Click any tag → closes the pane and opens search with that tag as the query. Tooltip shows which vaults the tag appears in.
@@ -119,12 +167,47 @@ Toolbar icon (price-tag). Opens a 600px overlay listing every frontmatter tag ac
 Currently aggregates `tags:` and `tag:` keys from frontmatter only — inline `#tag` syntax is not yet detected.
 
 ### Graph view
-Toolbar icon (three-circles). Full-screen overlay with a Cytoscape force-directed graph. Each node is a note; each edge is a wikilink. Per-vault filter dropdown defaults to the active vault but can be set to "All vaults". Node size scales with incoming reference count; nodes with refs get the accent color. Click any node to close the graph and jump to that note.
+Toolbar icon (three-circles). Full-screen overlay with a force-directed graph powered by Cytoscape + the `cola` layout (live continuous simulation — drag a node and the rest reflows in real time, settles a couple of seconds after release). Each node is a note; each edge is a wikilink.
 
-The graph endpoint reuses the in-memory wikilink index; recomputed on every open.
+**Three scopes**, picked automatically by the toolbar icon based on what's open:
+- **All vaults** — no filter.
+- **Single vault** — `?vault=X`.
+- **Folder** — `?vault=X&folder=path/to/folder`. Only notes whose vault-relative path is under that folder.
+- **Ego graph** — `?center=vault:path&depth=N` (1–5). The center note plus everyone within N hops via outbound + inbound wikilinks. Center node renders larger with a thick accent ring.
+
+A scope breadcrumb at the top of the overlay lets you click to widen (e.g. ego → folder → vault → all). In ego mode, depth ± buttons appear next to the breadcrumb.
+
+**Interactions:**
+- Plain click on a node → close graph, open the note.
+- Shift-click → re-center the graph there (stays open).
+- Cmd/Ctrl-click → open in new tab.
+- Hover → light up the connected neighborhood (rest fades to 0.12).
+- Drag → ripple the graph; cola continues simulating for ~1.5–3.5s after release.
+
+**Visual rules:**
+- Default node size is 5–14px, scaled by incoming reference count; default fill is the page background with a thin border.
+- Nodes with `refs > 0` get the accent fill.
+- Labels are hidden by default — only visible when zoom is high enough that the rendered font is readable, plus the center node and any hovered/lit nodes always show their label.
+- Edges are unbundled-bezier curves at 0.55 opacity; `.lit` ones (in the hovered neighborhood) brighten to accent color.
 
 ### Daily notes
-`Ctrl/⌘+D` → opens or creates `daily/YYYY-MM-DD.md` in the active vault. New notes get a minimal `# YYYY-MM-DD` template. Idempotent — second invocation just opens the existing note.
+`Ctrl/⌘+D` → opens or creates `daily/YYYY-MM-DD.md` in the active vault. Fresh ones get a minimal `# YYYY-MM-DD` template AND **drop you into edit mode with the cursor at end of file** — the common "open today's daily and start typing" workflow is one keystroke. Existing dailies open in preview as before.
+
+### Visit history navigation
+`Alt + ←` / `Alt + →` → back / forward through previously-opened notes. Wraps the browser's native `history.back/forward`. Skipped when focus is in a text input or the editor (so Alt+← still does word-jump there).
+
+### Reveal in sidebar
+`Ctrl/⌘ + Shift + L`, or right-click any wikilink in preview → "Reveal in sidebar". Switches the sidebar to the active note's vault, navigates `cwd` to the note's parent folder, and smooth-scrolls the row into view.
+
+### Wikilink context menu
+Right-click any `[[wikilink]]` in the preview pane:
+- **Open** — open the target note.
+- **Open in new tab** — middle-click equivalent.
+- **Reveal in sidebar** — see above.
+- **Copy wikilink** — copies `[[name]]` to clipboard.
+- **Copy URL** — copies the full clickable URL.
+
+Missing-link spans (red, broken) get **Create** + **Copy as text** instead.
 
 ### Pinned notes
 Add `pinned: true` to a note's frontmatter. Next time you open the note, it joins a per-vault pin list (`localStorage['vr-pinned-<vault>']`). Pinned notes float to the top of the recents list with a 📌 badge, even after dropping out of the recency window.
@@ -143,8 +226,17 @@ https://notes.example.com/share/<24-char-token>
 
 If you proxy `notas/<token>` to `/share/<token>` in Traefik (or similar), shorter custom URLs work.
 
+### Rendered content in shared notes
+Image embeds, Mermaid diagrams, and KaTeX math all render in the shared-note page — not just for logged-in users. The implementation:
+
+- **Image embeds** (`![[…]]`) get rewritten from `/api/file?…` (auth-gated) to `/share/<token>/file?path=…` (covered by the existing `/share/*` Authelia bypass).
+- **Mermaid + KaTeX** load from `/share/<token>/asset?name=…` — a new asset route under the share-bypass, with a strict allowlist (only the bundled libs and KaTeX font files; everything else 404). KaTeX CSS font URLs are rewritten at-serve-time so the browser fetches fonts under the same bypass.
+- **Conditional injection** — a share page that doesn't contain `mermaid` blocks doesn't ship the 3MB Mermaid bundle. Same for KaTeX. Saves bandwidth on the common case.
+
+A leaked share token cannot be used to fetch arbitrary static files: the asset allowlist explicitly blocks `index.html`, `style.css`, etc. (404).
+
 ### Active shares (Settings → Shared tab)
-Lists every active link. Each row: vault/path, badges (edit / ro, expiration), label, copy button, revoke button. **"Revoke all"** at the top clears every active link in one go (with a danger confirm).
+Lists every active link. Each row: vault/path, badges (edit / ro, expiration), label, copy button, revoke button. **"Revoke all"** at the top clears every active link in one go via a single backend call (`DELETE /api/shares/revoke-all`) — no rate-limit hits even with 100+ links.
 
 The server-side filter in `handleShareList` already hides expired entries from this view (they're functionally gone — they can't be redeemed — but still occupy space in `shares.json` until the file is rewritten).
 
@@ -152,19 +244,34 @@ The server-side filter in `handleShareList` already hides expired entries from t
 
 ### Create / rename / delete
 - Right-click a folder → New note / New folder / Rename / Delete.
-- Or use the `+` button at the top of the file list for the current directory.
+- Or use the `+` button at the top of the file list. Sub-menu: New note / New folder / **From template…**
 - `Ctrl/⌘+N` creates a new note via prompt.
 
-Deletes are **soft** by default — the file moves to `<vault>/.trash/`. Permanent delete from there.
+Deletes are **soft** by default — the file moves to `<vault>/.trash/` and a 6.5-second **undo toast** appears at bottom-right. Click "Undo" to restore.
+
+### Trash naming
+Soft-deleted files are stored as `<vault>/.trash/VRTRASH_<base64url(originalPath)>_<unix><ext>`. The base64-encoded original path makes restore round-trip-safe for any filename — including ones containing `__` or starting with `_` which the legacy `__→/` flatten scheme would have corrupted. Legacy entries (created before this change) are still readable via a fallback decoder.
 
 ### Move
 Right-click → Move. Opens the move-picker: pick a target folder via tree, click "Move here". Path resolution preserves directory ↔ note distinction.
+
+**Drag-and-drop alternative**: drag any file or folder row in the sidebar onto a folder row (or onto the `..↑` up-row) to move it there. Drop targets get a dashed accent outline on hover. Self-drops, in-same-dir drops, and folder-into-itself drops are no-ops.
+
+### Bulk operations
+**Cmd/Ctrl-click** any sidebar row to toggle it in a selection set. **Shift-click** range-selects from the last toggled row. A bottom-of-sidebar action bar appears once any rows are selected, with **Move…** / **Delete** / ✕ (clear). Esc also clears.
+
+- **Bulk delete** soft-deletes each item (folder or note via the right endpoint per type) and emits one combined undo toast for the whole batch.
+- **Bulk move** reuses the tree picker; moves all selected items into the chosen destination.
+
+Selection clears automatically on folder change.
 
 ### Trash (Settings → Trash tab)
 Aggregated across all vaults; each row tagged with its origin vault. **Restore** moves the file back to its original location and re-indexes it. **Delete** permanently removes. **Empty all** clears every vault's `.trash/` (danger confirm).
 
 ### Attachments (Settings → Attachments tab)
-Per-vault picker + filter (All / Orphans only). Lists every image file with size, modified, ref count. **Orphans** (refCount=0) get an accent border and red tag; **Delete all orphans** moves them all to trash with one click.
+Per-vault picker + free-text filter (substring match against path/name) + filter (All / Orphans only). Lists every image file with thumbnail, size, modified, ref count, and (for non-orphans) up to 8 referencing notes as clickable chips with H1-extracted titles.
+
+**Orphans** (refCount=0) get an accent border and red tag; **Delete all orphans** moves them all to trash with one click.
 
 Reference detection scans every `.md` file for path-suffix matches against the image:
 - `![[basename.ext]]` — basename
@@ -173,6 +280,9 @@ Reference detection scans every `.md` file for path-suffix matches against the i
 - Variants without the extension
 
 This catches Obsidian's note-relative `![[subdir/foo.png]]` syntax as well as full-path references.
+
+### Rename warning
+Renaming a note that has incoming wikilinks surfaces a danger modal listing up to 5 affected notes (`+ N more` if there are extras), with a "Rename anyway" button. Notes with zero incoming links go straight to the rename input. VaultReader does not auto-rewrite linking notes — that's a phase-2 future feature.
 
 ## Operations
 
