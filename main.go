@@ -8,6 +8,7 @@ import (
 	"crypto/subtle"
 	"crypto/tls"
 	"embed"
+	"encoding/base64"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -1527,15 +1528,10 @@ func (s *server) handleDeleteNote(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// preserve sub-path inside trash to avoid name collisions
-	trashPath := filepath.Join(trashDir, strings.ReplaceAll(path, "/", "__"))
-	// if file already in trash with same name, add timestamp
-	if _, err := os.Stat(trashPath); err == nil {
-		ext := filepath.Ext(trashPath)
-		base := strings.TrimSuffix(trashPath, ext)
-		trashPath = fmt.Sprintf("%s_%d%s", base, time.Now().Unix(), ext)
-	}
-
+	// Trash filename: encode the original path in base64-url so restore is
+	// unambiguous. Format: VRTRASH_<b64>_<unix>.<ext>. The legacy `__`-flat
+	// scheme conflicted with files whose names contained double underscores.
+	trashPath := filepath.Join(trashDir, makeTrashName(path, time.Now().Unix()))
 	if err := os.Rename(full, trashPath); err != nil {
 		errResponse(w, 500, err.Error())
 		return
@@ -1700,10 +1696,7 @@ func (s *server) handleDeleteFolder(w http.ResponseWriter, r *http.Request) {
 		errResponse(w, 500, "cannot create trash: "+err.Error())
 		return
 	}
-	trashPath := filepath.Join(trashDir, strings.ReplaceAll(path, "/", "__"))
-	if _, err := os.Stat(trashPath); err == nil {
-		trashPath = fmt.Sprintf("%s_%d", trashPath, time.Now().Unix())
-	}
+	trashPath := filepath.Join(trashDir, makeTrashName(path, time.Now().Unix()))
 	if err := os.Rename(full, trashPath); err != nil {
 		errResponse(w, 500, err.Error())
 		return
@@ -2272,6 +2265,62 @@ func (s *server) handleSyncStatus(w http.ResponseWriter, r *http.Request) {
 // ─── Static files ─────────────────────────────────────────────────────────────
 
 
+// Trash naming: VRTRASH_<base64url(path)>_<unix><ext>. Encoding the full
+// vault-relative path eliminates the ambiguity of the legacy `__`-flatten
+// scheme (where files containing `__` round-tripped wrong) and supports
+// arbitrary characters in original paths. The .ext is preserved at the
+// end so OS file pickers / `file` command still recognize the type.
+const trashSentinel = "VRTRASH_"
+
+func makeTrashName(originalPath string, unix int64) string {
+	enc := base64.RawURLEncoding.EncodeToString([]byte(originalPath))
+	ext := filepath.Ext(originalPath)
+	return fmt.Sprintf("%s%s_%d%s", trashSentinel, enc, unix, ext)
+}
+
+// decodeTrashName: trash basename → (originalPath, true) or ("", false).
+// Falls back to the legacy `__` scheme when the sentinel isn't present so
+// already-trashed files keep working.
+func decodeTrashName(base string) (string, bool) {
+	if !strings.HasPrefix(base, trashSentinel) {
+		return "", false
+	}
+	rest := base[len(trashSentinel):]
+	// Expected: <b64>_<unix><ext>. Last `_` separates b64 from unix+ext.
+	cut := strings.LastIndex(rest, "_")
+	if cut <= 0 {
+		return "", false
+	}
+	enc := rest[:cut]
+	data, err := base64.RawURLEncoding.DecodeString(enc)
+	if err != nil {
+		return "", false
+	}
+	return string(data), true
+}
+
+// legacyDecodeTrashName: best-effort decode for entries created before the
+// sentinel scheme. Mirrors the old logic; ambiguous for files with `__` in
+// real names but the old scheme can't do better.
+func legacyDecodeTrashName(base string) string {
+	// Strip optional `_<unix>` collision suffix.
+	if idx := strings.LastIndex(base, "_"); idx > 0 {
+		if _, err := strconv.ParseInt(base[idx+1:], 10, 64); err == nil {
+			base = base[:idx]
+		} else {
+			// Maybe `_<unix>.<ext>`
+			ext := filepath.Ext(base)
+			noext := strings.TrimSuffix(base, ext)
+			if i2 := strings.LastIndex(noext, "_"); i2 > 0 {
+				if _, err := strconv.ParseInt(noext[i2+1:], 10, 64); err == nil {
+					base = noext[:i2] + ext
+				}
+			}
+		}
+	}
+	return strings.ReplaceAll(base, "__", "/")
+}
+
 // handleTrashList returns items in .trash/ for a vault.
 func (s *server) handleTrashList(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
@@ -2296,15 +2345,12 @@ func (s *server) handleTrashList(w http.ResponseWriter, r *http.Request) {
 			if e.IsDir() {
 				items = append(items, map[string]string{"name": e.Name() + "/", "path": ".trash/" + e.Name(), "isDir": "true"})
 			} else {
-				// Strip timestamp suffix `_<number>` for display name
-				name := e.Name()
-				if idx := strings.LastIndex(name, "_"); idx > 0 {
-					if _, err := strconv.ParseInt(name[idx+1:], 10, 64); err == nil {
-					name = name[:idx]
-					}
+				// Display name = the original vault-relative path. Decode via
+				// the sentinel scheme; fall back to legacy for older entries.
+				display, ok := decodeTrashName(e.Name())
+				if !ok {
+					display = legacyDecodeTrashName(e.Name())
 				}
-				// Replace __ back to /
-				display := strings.ReplaceAll(name, "__", "/")
 				items = append(items, map[string]string{"name": display, "path": ".trash/" + e.Name(), "isDir": "false"})
 			}
 		}
@@ -2334,15 +2380,14 @@ func (s *server) handleTrashRestore(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	trashFull := filepath.Join(vp, strings.ReplaceAll(path, "/", string(os.PathSeparator)))
-	// Compute original path: strip ".trash/" prefix, strip timestamp suffix, replace __ with /
+	// Decode the trash filename back to its original vault-relative path.
+	// New scheme uses VRTRASH_<b64> and is exact; legacy `__`-flatten scheme
+	// kicks in for entries created before the sentinel was introduced.
 	base := filepath.Base(trashFull)
-	if idx := strings.LastIndex(base, "_"); idx > 0 {
-		if _, err := strconv.ParseInt(base[idx+1:], 10, 64); err == nil {
-			base = base[:idx]
-		}
+	originalBase, ok := decodeTrashName(base)
+	if !ok {
+		originalBase = legacyDecodeTrashName(base)
 	}
-	originalBase := strings.ReplaceAll(base, "__", "/")
-	// Put it back at vault root (simplest restore — could preserve original dir from "__" separator)
 	dest := filepath.Join(vp, originalBase)
 	if err := os.MkdirAll(filepath.Dir(dest), 0755); err != nil {
 		http.Error(w, "mkdir failed", http.StatusInternalServerError)
@@ -2447,8 +2492,7 @@ func (s *server) handleAttachments(w http.ResponseWriter, r *http.Request) {
 			errResponse(w, 500, "mkdir failed")
 			return
 		}
-		flat := strings.ReplaceAll(path, "/", "__")
-		trashName := fmt.Sprintf("%s_%d", flat, time.Now().Unix())
+		trashName := makeTrashName(path, time.Now().Unix())
 		if err := os.Rename(full, filepath.Join(trashDir, trashName)); err != nil {
 			errResponse(w, 500, "rename failed: "+err.Error())
 			return
