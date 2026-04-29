@@ -587,8 +587,24 @@
           @keydown.arrow-up.prevent="searchFocus = Math.max(searchFocus - 1, 0)"
           @keydown.enter.prevent="openSearchResult(searchFocus)"
           x-ref="searchInput" autocomplete="off">
+        <button class="btn search-save-btn" x-show="searchQuery.trim()" @click="saveCurrentSearch()" title="Save this search">★ Save</button>
       </div>
       <div class="search-results">
+        <!-- Empty-state: show saved searches if no query typed -->
+        <template x-if="!searchQuery.trim() && savedSearches.length > 0">
+          <div class="search-saved">
+            <div class="search-saved-label">★ Saved</div>
+            <template x-for="s in savedSearches" :key="s.name">
+              <div class="search-saved-item">
+                <button class="search-saved-name" @click="runSavedSearch(s)">
+                  <span x-text="s.name"></span>
+                  <span class="search-saved-query" x-show="s.name !== s.query" x-text="s.query"></span>
+                </button>
+                <button class="search-saved-del" @click.stop="deleteSavedSearch(s.name)" title="Delete">✕</button>
+              </div>
+            </template>
+          </div>
+        </template>
         <template x-if="searchQuery && searchResults.length === 0">
           <div class="search-empty">No results for "<span x-text="searchQuery"></span>"</div>
         </template>
@@ -1216,6 +1232,7 @@ function vaultApp() {
     tagsLoading: false,
     tagsList: [],
     tagsFilter: '',
+    savedSearches: [],  // [{name, query}, ...] persisted globally
     frontmatterOpen: false,
     searchQuery: '',
     searchResults: [],
@@ -1449,6 +1466,11 @@ function vaultApp() {
       const olSaved = localStorage.getItem('vr-outline')
       if (olSaved !== null) this.outlineOpen = olSaved === '1'
       this.$watch('outlineOpen', v => localStorage.setItem('vr-outline', v ? '1' : '0'))
+
+      // restore saved searches
+      try {
+        this.savedSearches = JSON.parse(localStorage.getItem('vr-saved-searches') || '[]')
+      } catch(_) { this.savedSearches = [] }
 
       try {
         const res = await fetch('/api/vaults')
@@ -1967,6 +1989,44 @@ function vaultApp() {
       if (!raw) return 0
       const matches = raw.match(/\[\[[^\]\n]+\]\]/g)
       return matches ? matches.length : 0
+    },
+
+    // ── saved searches ────────────────────────────
+    _persistSavedSearches() {
+      localStorage.setItem('vr-saved-searches', JSON.stringify(this.savedSearches))
+    },
+    saveCurrentSearch() {
+      const q = (this.searchQuery || '').trim()
+      if (!q) return
+      // Reuse the modal flow to ask for a name (defaults to query).
+      this.modal = {
+        open: true,
+        title: 'Save search',
+        body: '',
+        value: q,
+        placeholder: 'Name for this saved search',
+        error: '',
+        confirmLabel: 'Save',
+        confirmOnly: false,
+        danger: false,
+        onConfirm: () => {
+          const name = (this.modal.value || '').trim() || q
+          // De-dupe by name
+          this.savedSearches = [
+            { name, query: q },
+            ...this.savedSearches.filter(s => s.name !== name),
+          ].slice(0, 30)
+          this._persistSavedSearches()
+        },
+        secondaryLabel: '', onSecondary: null,
+      }
+    },
+    runSavedSearch(saved) {
+      this.chipSearch(saved.query)
+    },
+    deleteSavedSearch(name) {
+      this.savedSearches = this.savedSearches.filter(s => s.name !== name)
+      this._persistSavedSearches()
     },
 
     // ── tags ──────────────────────────────────────
