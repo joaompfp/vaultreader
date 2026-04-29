@@ -2297,7 +2297,7 @@ function vaultApp() {
               'color': text2,
               'font-size': 10,
               'font-family': 'inherit',
-              'min-zoomed-font-size': 11,           // hide label below ~1.1x zoom
+              'min-zoomed-font-size': 14,           // hide label until rendered px ≥ 14 (zoom ≥ 1.4)
               'text-valign': 'bottom',
               'text-margin-y': 4,
               'text-wrap': 'ellipsis',
@@ -2378,7 +2378,7 @@ function vaultApp() {
           maxZoom: 6,
           wheelSensitivity: 0.18,
           motionBlur: false,
-          textureOnViewport: true,    // cheaper rendering during pan/zoom
+          textureOnViewport: false,   // off — was caching label visibility
         })
 
         // Hover highlights — emphasise the node's neighborhood, fade the rest.
