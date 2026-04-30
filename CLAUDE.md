@@ -31,7 +31,7 @@ The Go server is split into ~18 sibling files in `package main`. The Go compiler
 | `server` struct + AdminConfig + admin token + writable paths | `admin.go` |
 | Gzip middleware + JSON helpers + rate limiter | `http.go` |
 | Shared types + regexes + goldmark init + `embed.FS` | `data.go` |
-| Alpine state | `static/index.html` ~L1010 (`function vaultApp()`) — until Stage 2 |
+| Alpine state | `static/index.html` ~L1500 (`function vaultApp()`) — organized into ~50 sections via `// ── Section ─` comment dividers |
 | The `__cmAPI` (CodeMirror wrapper) | `static/index.html` second `<script>` block, ~L944 |
 | Stylesheet | `static/style.css` (organized by section comments) |
 | Asset bundles | `static/{codemirror.bundle,mermaid.min,katex.min,cytoscape.min,cola.min,cytoscape-cola,alpine.min}.js` + `static/fonts/` |

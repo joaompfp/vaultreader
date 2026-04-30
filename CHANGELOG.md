@@ -35,7 +35,8 @@ webdav.go          37  read-only WebDAV mount with method allowlist
 
 Spec: [docs/superpowers/specs/2026-04-29-modularization-design.md](docs/superpowers/specs/2026-04-29-modularization-design.md).
 Plan: [docs/superpowers/plans/2026-04-29-modularization.md](docs/superpowers/plans/2026-04-29-modularization.md).
-Stage 2 (frontend modularization) is the next step.
+
+**Stage 2 (frontend modularization) was attempted and abandoned 2026-04-30.** The progressive-override / ES-modules approach raced Alpine 3.x's auto-bootstrap — by the time the mixin module graph finished loading, Alpine had already constructed the component from the (now-incomplete) inline factory. Sidebar broke (file icons rendered as literal "undefined"). All Stage 2 commits were reverted before reaching `main`; the broken `refactor/frontend-modules` branch was deleted. See the "Stage 2 retrospective" in the spec for what would actually work in a future retry. The inline `vaultApp()` factory remains in `static/index.html`, organized into ~50 well-named sections via comment dividers.
 
 ## 2026-04-29 — Per-kind icons + toolbar gating for non-md items
 

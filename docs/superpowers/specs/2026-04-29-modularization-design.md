@@ -1,7 +1,7 @@
 # VaultReader modularization
 
-**Status:** design
-**Date:** 2026-04-29
+**Status:** Stage 1 shipped (2026-04-30, commit `cb5b7c6`); Stage 2 abandoned 2026-04-30 — see "Stage 2 retrospective" at the bottom of this doc before considering a retry.
+**Date:** 2026-04-29 (design); 2026-04-30 (Stage 1 ship + Stage 2 abandonment)
 **Author:** Joao + Claude
 **Driver:** Future feature velocity for the maintainer; readability and PR-scope as side benefits.
 
@@ -347,3 +347,31 @@ This design is approved when:
 - The user confirms that the mixin pattern is the intended JS style.
 
 After approval, an implementation plan is written that breaks each stage into ordered, individually-verifiable steps. Each step is small enough to check in isolation; the plan covers verification commands at every checkpoint.
+
+---
+
+## Stage 2 retrospective (2026-04-30)
+
+**Outcome:** Stage 2 was abandoned mid-implementation. Stage 1 (backend) shipped cleanly and is on `main`. Read this section before any future Stage 2 attempt.
+
+**What was attempted.** The progressive-override pattern: capture the existing inline `vaultApp()` factory as `_originalVaultApp`, then redefine `window.vaultApp` from a `<script type="module" src="/js/app.js">` to call the original AND `Object.assign` mixins on top. Each task moved one feature's methods+state from the inline factory into a mixin module, registered in `app.js`. Seven mixins were extracted (`util`, `copy-paste`, `undo-toasts`, `viewer`, `render`, `outline`, `notes-io`) before the broken state was caught in a real browser.
+
+**What broke.** Sidebar items rendered "undefined" instead of file icons; clicking notes did nothing. The migrated methods (`fileIconSvg`, `fileKind`, `viewerKind`, `saveStatus`, etc.) were missing from the Alpine component instance.
+
+**Why the design failed.**
+
+1. **Alpine 3.x ignores `window.deferLoadingAlpine`.** That hook was an Alpine 2.x feature. Alpine 3 auto-bootstraps via its own `DOMContentLoaded` listener with no documented way to defer it via a window flag. The fix attempted (`window.deferLoadingAlpine = (start) => { window.__alpineStart = start }`) was silently ignored.
+
+2. **ES module load timing races classical-script-defer timing.** Even when both `<script type="module">` and `<script defer>` are "deferred," they execute via separate task queues. In browser-side measurements, Alpine's `<script defer>` ran BEFORE app.js's `<script type="module">` finished loading its 7-import graph. Result: Alpine called the inline `vaultApp()` directly (with mixin methods already deleted from it), constructed the component with a 223-key object instead of the merged 273-key object, and bound reactivity to the un-merged state.
+
+3. **The smoke tests didn't catch it.** Asset-200 checks and `node --check` syntax checks both passed for every commit. Without a real browser to evaluate Alpine bindings, the broken state propagated through 7 commits. The first time it was tested in a browser it was clearly broken.
+
+**What would actually work** (for any future Stage 2 retry):
+
+- **Don't use ES modules for mixins.** Use plain `<script>` tags loaded BEFORE the inline `vaultApp()` factory. Each mixin file does `window.__vrMixins.push({...})` at parse time. The inline factory at the end calls `Object.assign(this, ...window.__vrMixins)` inside its return. Synchronous, no race, no Alpine lifecycle fight.
+- **Browser verification gate per commit.** Real Chromium load + check Alpine console errors == 0 + verify a few key bindings resolve. Anything less than this misses the bug class that broke Stage 2.
+- **Keep the inline factory intact** until every mixin has been verified to merge correctly in a browser. Don't delete from inline until merged behaviour is confirmed.
+
+**Recommendation:** Stage 2 is high effort, low payoff (the inline factory is already organized into ~50 well-named sections via comment dividers). Stage 1 captured the bigger maintainability win — `main.go` 3,588 → 139 lines. Future-you, read this before deciding to retry.
+
+**Branch state.** All Stage 2 work was on `refactor/frontend-modules`, deleted 2026-04-30. No commits pushed to GitHub. The plan document at `docs/superpowers/plans/2026-04-29-modularization.md` covers Stage 2 in detail but its approach is now known-broken — treat it as historical.

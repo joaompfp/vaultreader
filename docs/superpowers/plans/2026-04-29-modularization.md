@@ -1,5 +1,7 @@
 # VaultReader Modularization Implementation Plan
 
+> ⚠️ **Status (2026-04-30):** Stage 1 SHIPPED in commit `cb5b7c6` on `main`. **Stage 2 ABANDONED** — the ES-modules + progressive-override architecture in this plan races Alpine 3.x's auto-bootstrap and is not viable. See the "Stage 2 retrospective" section in [docs/superpowers/specs/2026-04-29-modularization-design.md](../specs/2026-04-29-modularization-design.md) before considering a retry. The Stage 2 sections of this plan (Tasks 2.0 onward) are kept for historical reference only.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Split `main.go` (3,588 lines) and the inline `<script>` in `static/index.html` (~3,550 lines of `vaultApp()`) into focused modules, with byte-identical runtime behavior, no JS build step, and `package main` preserved.
