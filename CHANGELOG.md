@@ -4,6 +4,39 @@ All notable changes to VaultReader. Versioning is loose — there are no formal 
 
 Most-recent first.
 
+## 2026-04-30 — Stage 1: backend modularization
+
+`main.go` (3,588 lines, single file) split into 18 focused `package main` siblings — pure organisational change, runtime byte-identical (Go's package scope concatenates files at compile time, so the resulting binary is the same):
+
+```
+main.go           139  (was 3,588 — flag setup + mux + main() only)
+data.go           100  shared types, regexes, goldmark init, embed.FS
+http.go            98  gzip middleware, JSON helpers, rate limiter
+admin.go          180  server struct, AdminConfig, config persistence, admin endpoints
+markdown.go       339  rendering, embeds, wikilinks, callouts, frontmatter
+index.go          206  NoteIndex methods + helpers (buildAll, resolve, getBacklinks)
+search.go         370  query operators, parseSearchQuery, searchVault
+notes.go          764  note + folder CRUD, save, upload, search HTTP, resolve, templates, backlinks
+files.go          184  buildTree, handleFile, handleVaultIcon, vaultPath, safePath
+vaults.go          68  vaultOrder, handleVaults, handleTree, handleIndex
+shares.go         461  ShareEntry, ShareStore, share handlers + share-page renderer
+trash.go          191  trash naming, list/restore/empty
+attachments.go    194  AttachmentItem/Ref, handleAttachments, refcount
+stats.go           71  VaultStat, StatsResponse, handleStats
+sync.go            69  Syncthing status (TLS-insecure for self-signed)
+tags.go           118  tag aggregation across all vaults
+graph.go          175  handleGraph (vault/folder/ego scopes for cytoscape)
+webdav.go          37  read-only WebDAV mount with method allowlist
+```
+
+**Driver:** future feature velocity. Each file now answers one question (where does sharing live? `shares.go`. Where's wikilink resolution? `markdown.go`). Adding a feature touches one focused file ≤500 lines instead of scrolling through `main.go`.
+
+**Verification:** every endpoint smoke-tested after every commit; final integrated smoke test exercises all 14 module surfaces (vaults, writable-paths, stats, note, search, graph, tags, attachments, trash, templates, sync-status, shares, file/icon, traversal-block, webdav, /, /health) — all passing. Baseline `/api/vaults` byte-identical at every commit.
+
+Spec: [docs/superpowers/specs/2026-04-29-modularization-design.md](docs/superpowers/specs/2026-04-29-modularization-design.md).
+Plan: [docs/superpowers/plans/2026-04-29-modularization.md](docs/superpowers/plans/2026-04-29-modularization.md).
+Stage 2 (frontend modularization) is the next step.
+
 ## 2026-04-29 — Per-kind icons + toolbar gating for non-md items
 
 - **Per-kind icons in the sidebar** so a folder of mixed types is scannable at a glance. `.fl-kind-image` (blue picture-frame icon), `.fl-kind-pdf` (red doc-with-lines), `.fl-kind-code` (green `</>`), `.fl-kind-media` (amber play triangle), `.fl-kind-file` (neutral generic doc), `.fl-kind-note` (default doc — same as before). Dark-mode palette tuned for legibility on dark backgrounds.

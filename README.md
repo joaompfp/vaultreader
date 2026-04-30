@@ -150,7 +150,7 @@ Docker build:
 docker build -t vaultreader .
 ```
 
-The Dockerfile runs `go mod tidy` inside the builder stage, so adding a new Go dependency is a one-file edit (`main.go`) — no host-side `go mod tidy` round-trip needed.
+The Dockerfile runs `go mod tidy` inside the builder stage, so adding a new Go dependency is a one-file edit — no host-side `go mod tidy` round-trip needed.
 
 ## Documentation
 
@@ -167,7 +167,24 @@ The Dockerfile runs `go mod tidy` inside the builder stage, so adding a new Go d
 ## Project layout
 
 ```
-main.go                 — single-file Go server (~2500 lines)
+main.go                 — CLI entry, mux setup, ListenAndServe (~140 lines)
+data.go                 — shared types + regexes + goldmark init + embed.FS
+http.go                 — gzip middleware + JSON helpers + rate limiter
+admin.go                — server struct + AdminConfig + admin endpoints
+markdown.go             — rendering + wikilinks + callouts + frontmatter
+index.go                — NoteIndex methods + helpers
+search.go               — query operators + searchVault
+notes.go                — note + folder CRUD + save + upload + supporting handlers
+files.go                — buildTree + handleFile + safePath / vaultPath
+vaults.go               — vault listing + tree + SPA index
+shares.go               — ShareStore + handlers + share-page renderer
+trash.go                — trash naming + handlers
+attachments.go          — attachment list + refcount
+graph.go                — handleGraph (vault/folder/ego scopes)
+tags.go                 — tag aggregation
+stats.go                — vault stats handler
+sync.go                 — Syncthing status handler
+webdav.go               — read-only WebDAV mount
 go.mod                  — three dependencies: goldmark, yaml.v3, x/net/webdav
 static/                 — Alpine + CodeMirror + Mermaid + KaTeX + Cytoscape, all bundled
   index.html            — single-page app
