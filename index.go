@@ -13,23 +13,27 @@ func newIndex() *NoteIndex {
 	return &NoteIndex{
 		outbound: make(map[string][]string),
 		inbound:  make(map[string][]string),
-		allNotes: make(map[string]NoteRef),
+		byName:   make(map[string][]NoteRef),
+		byPath:   make(map[string]NoteRef),
 	}
 }
 
 func normalizeName(name string) string {
-	// strip .md extension, lowercase
 	name = strings.TrimSuffix(name, ".md")
 	return strings.ToLower(name)
 }
 
 func extractTitle(content, filename string) string {
-	// look for first H1
 	m := headingRe.FindStringSubmatch(content)
 	if m != nil {
 		return strings.TrimSpace(m[1])
 	}
 	return strings.TrimSuffix(filepath.Base(filename), ".md")
+}
+
+// pathKey returns the lower-case "vault:path" key used in byPath.
+func pathKey(vault, path string) string {
+	return strings.ToLower(vault + ":" + path)
 }
 
 func (idx *NoteIndex) buildAll(vaultsPath string) {
@@ -38,7 +42,8 @@ func (idx *NoteIndex) buildAll(vaultsPath string) {
 
 	idx.outbound = make(map[string][]string)
 	idx.inbound = make(map[string][]string)
-	idx.allNotes = make(map[string]NoteRef)
+	idx.byName = make(map[string][]NoteRef)
+	idx.byPath = make(map[string]NoteRef)
 
 	entries, err := os.ReadDir(vaultsPath)
 	if err != nil {
@@ -51,16 +56,16 @@ func (idx *NoteIndex) buildAll(vaultsPath string) {
 			continue
 		}
 		vaultName := e.Name()
-		vaultPath := filepath.Join(vaultsPath, vaultName)
-		_ = filepath.Walk(vaultPath, func(path string, info os.FileInfo, err error) error {
+		vaultRoot := filepath.Join(vaultsPath, vaultName)
+		_ = filepath.Walk(vaultRoot, func(p string, info os.FileInfo, err error) error {
 			if err != nil || info.IsDir() {
 				return nil
 			}
 			if shouldSkip(info.Name()) || !strings.HasSuffix(info.Name(), ".md") {
 				return nil
 			}
-			rel, _ := filepath.Rel(vaultPath, path)
-			data, err := os.ReadFile(path)
+			rel, _ := filepath.Rel(vaultRoot, p)
+			data, err := os.ReadFile(p)
 			if err != nil {
 				return nil
 			}
@@ -68,15 +73,13 @@ func (idx *NoteIndex) buildAll(vaultsPath string) {
 			_, body := parseFrontmatter(content)
 			title := extractTitle(body, rel)
 			nname := normalizeName(filepath.Base(rel))
+			pk := pathKey(vaultName, rel)
 			key := vaultKey(vaultName, rel)
 
-			// Add compound key for vault-scoped lookup
-			compoundKey := vaultName + ":" + nname
-			idx.allNotes[compoundKey] = NoteRef{Vault: vaultName, Path: rel, Title: title}
-			// Keep global key as fallback
-			idx.allNotes[nname] = NoteRef{Vault: vaultName, Path: rel, Title: title}
+			ref := NoteRef{Vault: vaultName, Path: rel, Title: title}
+			idx.byName[nname] = append(idx.byName[nname], ref)
+			idx.byPath[pk] = ref
 
-			// extract wikilinks
 			matches := wikilinkRe.FindAllStringSubmatch(body, -1)
 			var targets []string
 			for _, m := range matches {
@@ -86,7 +89,6 @@ func (idx *NoteIndex) buildAll(vaultsPath string) {
 			for _, t := range targets {
 				idx.inbound[t] = append(idx.inbound[t], key)
 			}
-			_ = nname
 			return nil
 		})
 	}
@@ -99,27 +101,25 @@ func (idx *NoteIndex) updateNote(vault, path, content string) {
 	_, body := parseFrontmatter(content)
 	title := extractTitle(body, path)
 	nname := normalizeName(filepath.Base(path))
+	pk := pathKey(vault, path)
 	key := vaultKey(vault, path)
 
-	// update allNotes (both compound and global keys)
-	compoundKey := vault + ":" + nname
-	idx.allNotes[compoundKey] = NoteRef{Vault: vault, Path: path, Title: title}
-	idx.allNotes[nname] = NoteRef{Vault: vault, Path: path, Title: title}
+	// Remove old byName entry and byPath entry.
+	idx.byName[nname] = removeRef(idx.byName[nname], vault, path)
+	delete(idx.byPath, pk)
 
-	// remove old outbound links from inbound index
+	// Remove old outbound links from inbound index.
 	old := idx.outbound[key]
 	for _, t := range old {
-		links := idx.inbound[t]
-		var filtered []string
-		for _, l := range links {
-			if l != key {
-				filtered = append(filtered, l)
-			}
-		}
-		idx.inbound[t] = filtered
+		idx.inbound[t] = removeKey(idx.inbound[t], key)
 	}
 
-	// add new outbound links
+	// Add updated entries.
+	ref := NoteRef{Vault: vault, Path: path, Title: title}
+	idx.byName[nname] = append(idx.byName[nname], ref)
+	idx.byPath[pk] = ref
+
+	// Reindex outbound links.
 	matches := wikilinkRe.FindAllStringSubmatch(body, -1)
 	var targets []string
 	for _, m := range matches {
@@ -136,44 +136,99 @@ func (idx *NoteIndex) removeNote(vault, path string) {
 	defer idx.mu.Unlock()
 
 	nname := normalizeName(filepath.Base(path))
+	pk := pathKey(vault, path)
 	key := vaultKey(vault, path)
-	compoundKey := vault + ":" + nname
 
-	delete(idx.allNotes, compoundKey)
-	delete(idx.allNotes, nname)
+	idx.byName[nname] = removeRef(idx.byName[nname], vault, path)
+	delete(idx.byPath, pk)
 
-	// remove outbound links from inbound index
 	old := idx.outbound[key]
 	for _, t := range old {
-		links := idx.inbound[t]
-		var filtered []string
-		for _, l := range links {
-			if l != key {
-				filtered = append(filtered, l)
-			}
-		}
-		idx.inbound[t] = filtered
+		idx.inbound[t] = removeKey(idx.inbound[t], key)
 	}
 	delete(idx.outbound, key)
 }
 
-func (idx *NoteIndex) resolve(name, preferVault string) (string, string, bool) {
+// resolve finds the best note matching name. preferVault biases toward the
+// same vault; fromDir (vault-relative directory of the linking note) is used
+// to break ties by folder proximity — longer shared prefix wins.
+func (idx *NoteIndex) resolve(name, preferVault, fromDir string) (string, string, bool) {
 	idx.mu.RLock()
 	defer idx.mu.RUnlock()
 
-	nname := normalizeName(name)
-	// Pass 1: prefer current vault
-	if preferVault != "" {
-		if ref, ok := idx.allNotes[preferVault+":"+nname]; ok {
-			return ref.Vault, ref.Path, true
-		}
-	}
-	// Pass 2: global fallback
-	ref, ok := idx.allNotes[nname]
-	if !ok {
+	candidates := idx.byName[normalizeName(name)]
+	if len(candidates) == 0 {
 		return "", "", false
 	}
-	return ref.Vault, ref.Path, true
+	v, p := pickBest(candidates, preferVault, fromDir)
+	return v, p, true
+}
+
+// resolvePathSuffix finds the best note whose vault-relative path ends with
+// suffix (e.g. "riba3/_analysis/note.md"). Used for path-shaped wikilinks
+// that did not resolve via relative or vault-root lookup. Lock must NOT be
+// held by the caller.
+func (idx *NoteIndex) resolvePathSuffix(suffix, preferVault, fromDir string) (string, string, bool) {
+	idx.mu.RLock()
+	defer idx.mu.RUnlock()
+
+	suffix = strings.ToLower(filepath.Clean(suffix))
+	var candidates []NoteRef
+	for pk, ref := range idx.byPath {
+		// pk is lower-case "vault:path"; strip the vault prefix to get lower-case path.
+		colon := strings.IndexByte(pk, ':')
+		if colon < 0 {
+			continue
+		}
+		lp := pk[colon+1:]
+		if lp == suffix || strings.HasSuffix(lp, "/"+suffix) {
+			candidates = append(candidates, ref)
+		}
+	}
+	if len(candidates) == 0 {
+		return "", "", false
+	}
+	v, p := pickBest(candidates, preferVault, fromDir)
+	return v, p, true
+}
+
+// pickBest selects the best NoteRef from candidates using vault preference
+// (worth 1000 points) then folder proximity (shared path prefix depth).
+func pickBest(candidates []NoteRef, preferVault, fromDir string) (string, string) {
+	if len(candidates) == 1 {
+		return candidates[0].Vault, candidates[0].Path
+	}
+	best := 0
+	bestScore := -1
+	for i, c := range candidates {
+		score := sharedPrefixDepth(fromDir, filepath.Dir(c.Path))
+		if preferVault != "" && c.Vault == preferVault {
+			score += 1000
+		}
+		if score > bestScore {
+			bestScore = score
+			best = i
+		}
+	}
+	return candidates[best].Vault, candidates[best].Path
+}
+
+// sharedPrefixDepth counts how many leading path components a and b share.
+func sharedPrefixDepth(a, b string) int {
+	if a == "" || b == "" || a == "." || b == "." {
+		return 0
+	}
+	aParts := strings.Split(strings.ToLower(filepath.ToSlash(filepath.Clean(a))), "/")
+	bParts := strings.Split(strings.ToLower(filepath.ToSlash(filepath.Clean(b))), "/")
+	depth := 0
+	for i := 0; i < len(aParts) && i < len(bParts); i++ {
+		if aParts[i] == bParts[i] {
+			depth++
+		} else {
+			break
+		}
+	}
+	return depth
 }
 
 func (idx *NoteIndex) getBacklinks(vault, path string) []BacklinkRef {
@@ -195,12 +250,35 @@ func (idx *NoteIndex) getBacklinks(vault, path string) []BacklinkRef {
 			continue
 		}
 		v, p := parts[0], parts[1]
-		ref, ok := idx.allNotes[normalizeName(filepath.Base(p))]
+		pk := pathKey(v, p)
+		ref := idx.byPath[pk]
 		title := ref.Title
-		if !ok {
+		if title == "" {
 			title = strings.TrimSuffix(filepath.Base(p), ".md")
 		}
 		refs = append(refs, BacklinkRef{Vault: v, Path: p, Title: title, Excerpt: ""})
 	}
 	return refs
+}
+
+// removeRef filters out the entry with the given vault+path from a []NoteRef slice.
+func removeRef(refs []NoteRef, vault, path string) []NoteRef {
+	out := refs[:0]
+	for _, r := range refs {
+		if !(r.Vault == vault && r.Path == path) {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+// removeKey filters a string out of a slice.
+func removeKey(keys []string, key string) []string {
+	out := keys[:0]
+	for _, k := range keys {
+		if k != key {
+			out = append(out, k)
+		}
+	}
+	return out
 }

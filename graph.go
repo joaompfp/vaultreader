@@ -49,15 +49,11 @@ func (s *server) handleGraph(w http.ResponseWriter, r *http.Request) {
 	s.idx.mu.RLock()
 	defer s.idx.mu.RUnlock()
 
-	// Step 1: build a vaultKey → NoteRef lookup of every note in the index,
-	// deduped (allNotes contains both the bare name and `vault:name` keys).
-	allByKey := map[string]NoteRef{}
-	for _, ref := range s.idx.allNotes {
-		key := vaultKey(ref.Vault, ref.Path)
-		if _, ok := allByKey[key]; ok {
-			continue
-		}
-		allByKey[key] = ref
+	// Step 1: build a vaultKey → NoteRef lookup of every note in the index.
+	// byPath values are already unique per note.
+	allByKey := make(map[string]NoteRef, len(s.idx.byPath))
+	for _, ref := range s.idx.byPath {
+		allByKey[vaultKey(ref.Vault, ref.Path)] = ref
 	}
 
 	// Step 2: pick the candidate set based on scope.
@@ -75,29 +71,37 @@ func (s *server) handleGraph(w http.ResponseWriter, r *http.Request) {
 			next := []string{}
 			for _, k := range frontier {
 				// outbound: edges from k → resolve target normalized names → keys
+				srcRef := allByKey[k]
 				for _, t := range s.idx.outbound[k] {
-					if ref, ok := s.idx.allNotes[t]; ok {
-						tKey := vaultKey(ref.Vault, ref.Path)
-						if _, seen := noteByKey[tKey]; !seen {
-							noteByKey[tKey] = ref
-							next = append(next, tKey)
+					// Pick same-vault candidate first, then any.
+					var ref NoteRef
+					for _, c := range s.idx.byName[t] {
+						if c.Vault == srcRef.Vault {
+							ref = c
+							break
 						}
 					}
+					if ref.Vault == "" && len(s.idx.byName[t]) > 0 {
+						ref = s.idx.byName[t][0]
+					}
+					if ref.Vault == "" {
+						continue
+					}
+					tKey := vaultKey(ref.Vault, ref.Path)
+					if _, seen := noteByKey[tKey]; !seen {
+						noteByKey[tKey] = ref
+						next = append(next, tKey)
+					}
 				}
-				// inbound: which notes link to k? inbound is keyed by normalized name.
-				// k is "vault:path"; we need to find the normalized names that
-				// resolve to k, then look them up in inbound.
+				// inbound: which notes link to k?
 				ref := allByKey[k]
 				baseName := normalizeName(filepath.Base(ref.Path))
-				compoundName := ref.Vault + ":" + baseName
-				for _, candidate := range []string{baseName, compoundName} {
-					for _, srcKey := range s.idx.inbound[candidate] {
-						if srcRef, ok := allByKey[srcKey]; ok {
-							sKey := vaultKey(srcRef.Vault, srcRef.Path)
-							if _, seen := noteByKey[sKey]; !seen {
-								noteByKey[sKey] = srcRef
-								next = append(next, sKey)
-							}
+				for _, srcKey := range s.idx.inbound[baseName] {
+					if srcRef, ok := allByKey[srcKey]; ok {
+						sKey := vaultKey(srcRef.Vault, srcRef.Path)
+						if _, seen := noteByKey[sKey]; !seen {
+							noteByKey[sKey] = srcRef
+							next = append(next, sKey)
 						}
 					}
 				}
@@ -142,9 +146,20 @@ func (s *server) handleGraph(w http.ResponseWriter, r *http.Request) {
 		if _, ok := noteByKey[srcKey]; !ok {
 			continue
 		}
+		srcRef := allByKey[srcKey]
 		for _, t := range targets {
-			ref, ok := s.idx.allNotes[t]
-			if !ok {
+			// Same-vault candidate first, then any.
+			var ref NoteRef
+			for _, c := range s.idx.byName[t] {
+				if c.Vault == srcRef.Vault {
+					ref = c
+					break
+				}
+			}
+			if ref.Vault == "" && len(s.idx.byName[t]) > 0 {
+				ref = s.idx.byName[t][0]
+			}
+			if ref.Vault == "" {
 				continue
 			}
 			tKey := vaultKey(ref.Vault, ref.Path)

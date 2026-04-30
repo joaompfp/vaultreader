@@ -116,8 +116,8 @@ func resolveEmbed(target, currentVault, noteDir string, idx *NoteIndex, vaultsDi
 		}
 		return "", "", false
 	}
-	// Bare name → ask the index.
-	if v, p, ok := idx.resolve(target, currentVault); ok {
+	// Bare name → ask the index with proximity scoring.
+	if v, p, ok := idx.resolve(target, currentVault, noteDir); ok {
 		return v, p, true
 	}
 	// Index only tracks .md notes; for image basenames it'll miss. Try walking
@@ -298,17 +298,21 @@ func resolveWikilinkTarget(target, currentVault, noteDir string, idx *NoteIndex,
 				return currentVault, candidate2, true
 			}
 		}
-		// Path-shaped but didn't resolve directly — fall through to
-		// basename lookup (handles `[[folder/foo]]` where `foo` is unique
-		// in the index but lives somewhere else than `folder/foo`).
+		// 3. Path-suffix match: any note whose path ends with this suffix.
+		// Handles [[riba3/_analysis/note]] when note is in a sibling subtree.
+		suffix := withMd(filepath.ToSlash(target))
+		if v, p, ok := idx.resolvePathSuffix(suffix, currentVault, noteDir); ok {
+			return v, p, true
+		}
+		// 4. Basename fallback for loose cross-vault references.
 		base := filepath.Base(target)
-		if v, p, ok := idx.resolve(base, currentVault); ok {
+		if v, p, ok := idx.resolve(base, currentVault, noteDir); ok {
 			return v, p, true
 		}
 		return "", "", false
 	}
-	// Bare name → ask the index.
-	return idx.resolve(target, currentVault)
+	// Bare name → proximity-aware index lookup.
+	return idx.resolve(target, currentVault, noteDir)
 }
 
 // ─── Frontmatter ─────────────────────────────────────────────────────────────

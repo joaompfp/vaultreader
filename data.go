@@ -63,9 +63,10 @@ type NoteRef struct {
 
 type NoteIndex struct {
 	mu       sync.RWMutex
-	outbound map[string][]string // vaultKey -> []target names
-	inbound  map[string][]string // normalizedName -> []vaultKey paths that link to it
-	allNotes map[string]NoteRef  // normalizedName -> NoteRef
+	outbound map[string][]string  // vaultKey → []normalized target names
+	inbound  map[string][]string  // normalized basename → []vaultKeys that link to it
+	byName   map[string][]NoteRef // normalized basename → all notes with that name (no overwrite)
+	byPath   map[string]NoteRef   // lower-case "vault:path" → NoteRef (unique per note)
 }
 
 // vaultKey is "vault:path" — unique across all vaults

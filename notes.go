@@ -226,19 +226,22 @@ func (s *server) handleRenameFolder(w http.ResponseWriter, r *http.Request) {
 
 	// update index: rekey all notes under renamed folder
 	s.idx.mu.Lock()
-	updates := map[string]string{} // oldPath -> newPath
-	for key, ref := range s.idx.allNotes {
+	type rekey struct{ oldPath, newPath string }
+	var rekeyed []rekey
+	for pk, ref := range s.idx.byPath {
 		if ref.Vault == vault && strings.HasPrefix(ref.Path, from+"/") {
-			newPath := to + ref.Path[len(from):]
-			updates[key] = newPath
+			rekeyed = append(rekeyed, rekey{ref.Path, to + ref.Path[len(from):]})
+			_ = pk
 		}
 	}
-	for oldKey, newPath := range updates {
-		ref := s.idx.allNotes[oldKey]
-		delete(s.idx.allNotes, oldKey)
-		ref.Path = newPath
-		newKey := vault + ":" + newPath
-		s.idx.allNotes[newKey] = ref
+	for _, rk := range rekeyed {
+		nname := normalizeName(filepath.Base(rk.oldPath))
+		s.idx.byName[nname] = removeRef(s.idx.byName[nname], vault, rk.oldPath)
+		delete(s.idx.byPath, pathKey(vault, rk.oldPath))
+
+		ref := NoteRef{Vault: vault, Path: rk.newPath, Title: strings.TrimSuffix(filepath.Base(rk.newPath), ".md")}
+		s.idx.byName[normalizeName(filepath.Base(rk.newPath))] = append(s.idx.byName[normalizeName(filepath.Base(rk.newPath))], ref)
+		s.idx.byPath[pathKey(vault, rk.newPath)] = ref
 	}
 	s.idx.mu.Unlock()
 
@@ -325,13 +328,11 @@ func (s *server) handleDeleteFolder(w http.ResponseWriter, r *http.Request) {
 
 	// remove all notes in this folder from the index
 	s.idx.mu.Lock()
-	prefix := vault + ":" // walk allNotes to find matching paths
-	for key := range s.idx.allNotes {
-		ref := s.idx.allNotes[key]
+	for pk, ref := range s.idx.byPath {
 		if ref.Vault == vault && (strings.HasPrefix(ref.Path, path+"/") || ref.Path == path) {
-			delete(s.idx.allNotes, key)
+			s.idx.byName[normalizeName(filepath.Base(ref.Path))] = removeRef(s.idx.byName[normalizeName(filepath.Base(ref.Path))], vault, ref.Path)
+			delete(s.idx.byPath, pk)
 		}
-		_ = prefix
 	}
 	s.idx.mu.Unlock()
 
@@ -689,7 +690,7 @@ func (s *server) handleResolve(w http.ResponseWriter, r *http.Request) {
 	name := r.URL.Query().Get("name")
 	vault := r.URL.Query().Get("vault")
 
-	v, p, ok := s.idx.resolve(name, vault)
+	v, p, ok := s.idx.resolve(name, vault, "")
 	if !ok {
 		errResponse(w, 404, "not found")
 		return
