@@ -9,19 +9,32 @@ A Go web app serving Obsidian vaults. ~2700-line `main.go` + 3000-line `static/i
 
 ## Where things live
 
+The Go server is split into ~18 sibling files in `package main`. The Go compiler concatenates package files at build time, so cross-file references just work — no imports, no exports.
+
 | Want to change… | Look in… |
 |---|---|
-| A route | `main.go` ~L2580 (`mux.HandleFunc` block) |
-| An HTTP handler | `main.go` — search for `func (s *server) handle…` |
-| The wikilink index | `main.go` — `NoteIndex` struct around L92 |
-| Alpine state | `static/index.html` ~L1010 (`function vaultApp()`) |
+| Routes / mux setup / `func main()` | `main.go` (~140 lines) |
+| Markdown rendering / wikilinks / callouts / embeds / frontmatter | `markdown.go` |
+| Note CRUD / save / upload / search HTTP / resolve / templates / backlinks | `notes.go` |
+| Search ranking + operators (parseSearchQuery + searchVault) | `search.go` |
+| The wikilink index (buildAll, resolve, getBacklinks) | `index.go` |
+| Share creation + view + asset + file (rewriteShareImageURLs) | `shares.go` |
+| Trash naming (VRTRASH_…) + handlers | `trash.go` |
+| Attachment listing + refcount | `attachments.go` |
+| Graph data builder (vault/folder/ego scopes) | `graph.go` |
+| Tag aggregation across vaults | `tags.go` |
+| Vault listing + tree + SPA index | `vaults.go` |
+| File serving + safePath / vaultPath / vault icons | `files.go` |
+| Stats endpoint | `stats.go` |
+| Syncthing status (TLS-insecure for self-signed) | `sync.go` |
+| WebDAV mount (read-only via method allowlist) | `webdav.go` |
+| `server` struct + AdminConfig + admin token + writable paths | `admin.go` |
+| Gzip middleware + JSON helpers + rate limiter | `http.go` |
+| Shared types + regexes + goldmark init + `embed.FS` | `data.go` |
+| Alpine state | `static/index.html` ~L1010 (`function vaultApp()`) — until Stage 2 |
 | The `__cmAPI` (CodeMirror wrapper) | `static/index.html` second `<script>` block, ~L944 |
-| Stylesheet | `static/style.css` (1500+ lines, organized by section comments) |
+| Stylesheet | `static/style.css` (organized by section comments) |
 | Asset bundles | `static/{codemirror.bundle,mermaid.min,katex.min,cytoscape.min,cola.min,cytoscape-cola,alpine.min}.js` + `static/fonts/` |
-| Search ranking + operators | `main.go` — `parseSearchQuery` + `searchVault` |
-| Trash naming scheme | `main.go` — `makeTrashName` / `decodeTrashName` / `legacyDecodeTrashName` |
-| Share-asset allowlist | `main.go` — `shareAssetAllowlist` map + `handleShareAsset` |
-| Graph layout config | `static/index.html` — `_graphLayoutOptions` (cola or cose fallback) |
 | Dockerfile | Already does `go mod tidy` in builder, so adding a Go dep is a one-file change |
 
 ## Standing rules
