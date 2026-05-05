@@ -104,7 +104,7 @@
              @contextmenu.prevent="openCtxMenu($event, item)">
           <span class="fl-icon fl-icon-file" x-html="fileIconSvg(item)"></span>
           <span class="fl-name" x-text="item.ext ? item.name : item.name.replace(/\.md$/, '')"></span>
-          <span class="fl-ext" x-show="item.ext" x-text="item.ext.replace(/^\./, '')"></span>
+          <span class="fl-ext" x-show="item.ext" x-text="(item.ext || '').replace(/^\./, '')"></span>
         </div>
       </template>
 

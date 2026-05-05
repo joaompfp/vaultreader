@@ -6,3 +6,4 @@ vaultreader
 # starter scaffolding that ships in the public repo).
 /appdata/
 .worktrees/
+.gitnexus
