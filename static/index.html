@@ -79,7 +79,7 @@
            Cmd/Ctrl-toggle and Shift-range bulk selection. -->
       <template x-for="item in currentDirs()" :key="item.path">
         <div class="fl-item fl-dir" :class="{ selected: isSelected(item.path) }"
-             draggable="true"
+             :draggable="!isTouch"
              @dragstart="handleSidebarDragStart($event, item)"
              @dragover.prevent="$event.dataTransfer.dropEffect = 'move'; $event.currentTarget.classList.add('drop-target')"
              @dragleave="$event.currentTarget.classList.remove('drop-target')"
@@ -98,7 +98,7 @@
       <template x-for="item in currentFiles()" :key="item.path">
         <div class="fl-item fl-file"
              :class="'fl-kind-' + fileKind(item) + (item.path === activePath ? ' active' : '') + (isSelected(item.path) ? ' selected' : '') + (item.ext ? ' fl-non-note' : '')"
-             draggable="true"
+             :draggable="!isTouch"
              @dragstart="handleSidebarDragStart($event, item)"
              @click="handleSidebarRowClick($event, item, false)"
              @contextmenu.prevent="openCtxMenu($event, item)">
@@ -1563,6 +1563,11 @@ function vaultApp() {
     noteSize: 0,
     backlinks: [],
     mode: 'preview',
+    // Touch-primary devices (phones/tablets): suppress draggable="true" on rows
+    // because iOS Safari hijacks touch events on draggable elements and never
+    // synthesizes the click — taps on note rows do nothing. Detected via
+    // (hover: none) media query, evaluated once at component construction.
+    isTouch: typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(hover: none)').matches,
     sidebarOpen: true,
     backlinksOpen: false,
     outlineOpen: false,
