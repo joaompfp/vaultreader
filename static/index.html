@@ -2664,7 +2664,18 @@ function vaultApp() {
         this.noteSize = data.size || 0
         this.backlinks = data.backlinks || []
         this.isDirty = false
-        this.$nextTick(() => { this.rerenderMermaid(); this.rerenderMath(); this.decorateCodeBlocks() })
+        this.$nextTick(() => {
+          // Defensive fallback: on some iOS WebKit builds Alpine's x-html flush
+          // can race with x-show flipping display from none → block, leaving
+          // the preview empty. Force-apply innerHTML if it didn't land.
+          const el = document.getElementById('preview')
+          if (el && this.noteHtml && el.innerHTML.length < this.noteHtml.length / 2) {
+            el.innerHTML = this.noteHtml
+          }
+          try { this.rerenderMermaid() } catch(err) { console.error('mermaid:', err) }
+          try { this.rerenderMath() }    catch(err) { console.error('math:', err) }
+          try { this.decorateCodeBlocks() } catch(err) { console.error('code:', err) }
+        })
         this.saveStatus = ''
         if (window.__cmAPI) window.__cmAPI.destroy()
         this._recordRecent(vault, path, this.noteTitle())
@@ -5050,6 +5061,23 @@ function vaultApp() {
 
   }
 }
+
+// Surface uncaught errors on screen so iOS Safari/Chrome users can see why
+// notes silently fail to render. Tapping the banner dismisses it.
+(function installErrorBanner() {
+  let banner = null
+  function show(msg) {
+    if (!banner) {
+      banner = document.createElement('div')
+      banner.style.cssText = 'position:fixed;left:8px;right:8px;bottom:32px;z-index:9999;background:#b00020;color:#fff;padding:10px 14px;border-radius:6px;font:12px/1.4 monospace;box-shadow:0 4px 18px rgba(0,0,0,.4);cursor:pointer;max-height:50vh;overflow:auto;white-space:pre-wrap;word-break:break-word'
+      banner.addEventListener('click', () => { banner.remove(); banner = null })
+      document.body.appendChild(banner)
+    }
+    banner.textContent = String(msg).slice(0, 1000)
+  }
+  window.addEventListener('error', e => show('JS error: ' + (e.error?.stack || e.message || 'unknown')))
+  window.addEventListener('unhandledrejection', e => show('Promise reject: ' + (e.reason?.stack || e.reason || 'unknown')))
+})()
 </script>
 
 </body>
