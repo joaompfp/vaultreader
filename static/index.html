@@ -2103,6 +2103,15 @@ function vaultApp() {
       return '/n/' + segs.join('/')
     },
 
+    // iOS WebKit throws SecurityError on pushState/replaceState for reasons
+    // that are hard to predict (rate-limit, %2F handling, WKWebView edge
+    // cases). History updates are non-critical — the note still loads — so
+    // swallow the error and just keep going.
+    _safeHistory(method, state, url) {
+      try { window.history[method](state, '', url) }
+      catch(e) { console.warn('history.' + method + ' failed for', url, e) }
+    },
+
     // ── pathname routing: parse /n/<vault>/<path> and load that note ──
     // Returns true if a note URL was matched and loaded.
     async _routePath() {
@@ -2584,7 +2593,7 @@ function vaultApp() {
       // Same URL-pushing behaviour as openNote so reload/back/forward work.
       const targetURL = this._noteURL(vault, path)
       if (window.location.pathname !== targetURL) {
-        window.history.pushState({ vault, path }, '', targetURL)
+        this._safeHistory('pushState', { vault, path }, targetURL)
       }
       this.activeVault = vault
       this.activePath = path
@@ -2626,11 +2635,11 @@ function vaultApp() {
       // exact URL (e.g. when invoked from popstate).
       const targetURL = this._noteURL(vault, path)
       if (window.location.pathname !== targetURL) {
-        window.history.pushState({ vault, path }, '', targetURL)
+        this._safeHistory('pushState', { vault, path }, targetURL)
       }
       // legacy: clear any leftover hash from older bookmarks
       if (window.location.hash) {
-        window.history.replaceState({ vault, path }, '', targetURL)
+        this._safeHistory('replaceState', { vault, path }, targetURL)
       }
       this.activeVault = vault
       this.activePath = path
