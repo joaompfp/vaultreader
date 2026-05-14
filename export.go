@@ -36,8 +36,9 @@ const officecliBin = "officecli"
 
 type batchCmd struct {
 	Op     string         `json:"op"`
-	Parent string         `json:"parent"`
-	Type   string         `json:"type"`
+	Parent string         `json:"parent,omitempty"` // for add (target's parent)
+	Path   string         `json:"path,omitempty"`   // for remove / set (target itself)
+	Type   string         `json:"type,omitempty"`
 	Props  map[string]any `json:"props,omitempty"`
 }
 
@@ -837,10 +838,19 @@ func (s *server) renderDocx(raw, vault, notePath, templateFull string) ([]byte, 
 		idx:       s.idx,
 		vaultsDir: s.vaultsDir,
 	}
+	// When a template is in use, strip its existing /body/p[] and
+	// /body/tbl[] BEFORE appending the note. The template's chrome
+	// (styles, headers, footers, watermark, section properties) lives
+	// outside /body's p/tbl children and is preserved. Walker indices
+	// then start at 1 like for a blank doc.
 	if usingTemplate {
 		if p, t, ok := countBodyChildren(outFile); ok {
-			ctx.paraIdx = p
-			ctx.tableIdx = t
+			for i := 0; i < p; i++ {
+				ctx.cmds = append(ctx.cmds, batchCmd{Op: "remove", Path: "/body/p[1]"})
+			}
+			for i := 0; i < t; i++ {
+				ctx.cmds = append(ctx.cmds, batchCmd{Op: "remove", Path: "/body/tbl[1]"})
+			}
 		}
 	}
 	for n := root.FirstChild(); n != nil; n = n.NextSibling() {
