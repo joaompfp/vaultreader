@@ -690,20 +690,39 @@ func (s *server) handleExportNote(w http.ResponseWriter, r *http.Request) {
 		templateFull = tf
 	}
 
-	docxBytes, err := s.renderDocx(string(raw), vault, path, templateFull)
+	// Disable the per-request write deadline — officecli batches on a 2 MB
+	// .dotx can run 30-120s, longer than the global WriteTimeout. The
+	// ResponseController (Go 1.20+) overrides the deadline for THIS request
+	// only; other endpoints keep their tighter timeouts.
+	if rc := http.NewResponseController(w); rc != nil {
+		_ = rc.SetWriteDeadline(time.Time{})
+	}
+
+	outFile, cleanup, err := s.renderDocx(string(raw), vault, path, templateFull)
 	if err != nil {
 		errResponse(w, 500, "export failed: "+err.Error())
 		return
 	}
+	defer cleanup()
+
+	f, err := os.Open(outFile)
+	if err != nil {
+		errResponse(w, 500, "open output: "+err.Error())
+		return
+	}
+	defer f.Close()
 
 	base := filepath.Base(path)
 	base = strings.TrimSuffix(base, ".md") + ".docx"
 	w.Header().Set("Content-Type", "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
 	w.Header().Set("Content-Disposition", `attachment; filename="`+sanitizeDocxFilename(base)+`"`)
-	// Don't set Content-Length: docx is already a zip; the gzip middleware
-	// re-compresses (gaining ~nothing) but our Content-Length would describe
-	// the uncompressed bytes, leaving the client waiting for missing data.
-	w.Write(docxBytes)
+	// Stream from disk — io.Copy uses a 32 KB buffer, so memory stays flat
+	// even for huge templates. No Content-Length set (chunked encoding).
+	if _, err := io.Copy(w, f); err != nil {
+		// Connection died mid-stream; client got partial bytes, nothing we
+		// can do but log.
+		fmt.Fprintf(os.Stderr, "stream docx: %v\n", err)
+	}
 }
 
 var docxFilenameSanRe = regexp.MustCompile(`[^A-Za-z0-9._ \-]+`)
@@ -846,7 +865,11 @@ func countBodyChildren(docxPath string) (paras, tables int, ok bool) {
 // template; when set, the export inherits the template's styles,
 // headers/footers, watermark, etc. and the note content is appended
 // after the template's existing body content.
-func (s *server) renderDocx(raw, vault, notePath, templateFull string) ([]byte, error) {
+// renderDocx assembles the .docx on disk and returns its path plus a
+// cleanup function the caller MUST defer. Streaming the file directly
+// from disk (rather than buffering ~2 MB into memory) keeps the
+// handler's memory footprint flat regardless of template size.
+func (s *server) renderDocx(raw, vault, notePath, templateFull string) (string, func(), error) {
 	raw = stripFrontmatter(raw)
 	raw = expandEmbedsForDocx(raw, vault, notePath, s.idx, s.vaultsDir)
 	// Pre-resolve wikilinks now so goldmark doesn't split [[…]] into three
@@ -855,9 +878,17 @@ func (s *server) renderDocx(raw, vault, notePath, templateFull string) ([]byte, 
 
 	tmp, err := os.MkdirTemp("", "vrexport-")
 	if err != nil {
-		return nil, err
+		return "", nil, err
 	}
-	defer os.RemoveAll(tmp)
+	cleanup := func() { os.RemoveAll(tmp) }
+	// On any error from here on, run cleanup before returning. On
+	// success the caller defers it after streaming.
+	success := false
+	defer func() {
+		if !success {
+			cleanup()
+		}
+	}()
 
 	outFile := filepath.Join(tmp, "out.docx")
 	jsonFile := filepath.Join(tmp, "batch.json")
@@ -869,22 +900,22 @@ func (s *server) renderDocx(raw, vault, notePath, templateFull string) ([]byte, 
 	case templateFull != "":
 		data, err := os.ReadFile(templateFull)
 		if err != nil {
-			return nil, fmt.Errorf("read template: %w", err)
+			return "", nil, fmt.Errorf("read template: %w", err)
 		}
 		if err := os.WriteFile(outFile, data, 0o600); err != nil {
-			return nil, fmt.Errorf("write template copy: %w", err)
+			return "", nil, fmt.Errorf("write template copy: %w", err)
 		}
 		usingTemplate = true
 	default:
 		legacy := filepath.Join(s.vaultsDir, vault, ".vr", "template.docx")
 		if data, err := os.ReadFile(legacy); err == nil {
 			if err := os.WriteFile(outFile, data, 0o600); err != nil {
-				return nil, fmt.Errorf("write template copy: %w", err)
+				return "", nil, fmt.Errorf("write template copy: %w", err)
 			}
 			usingTemplate = true
 		} else {
 			if out, err := exec.Command(officecliBin, "create", outFile).CombinedOutput(); err != nil {
-				return nil, fmt.Errorf("officecli create: %w (%s)", err, strings.TrimSpace(string(out)))
+				return "", nil, fmt.Errorf("officecli create: %w (%s)", err, strings.TrimSpace(string(out)))
 			}
 		}
 	}
@@ -1008,10 +1039,10 @@ func (s *server) renderDocx(raw, vault, notePath, templateFull string) ([]byte, 
 	}
 	cmdJSON, err := json.Marshal(ctx.cmds)
 	if err != nil {
-		return nil, err
+		return "", nil, err
 	}
 	if err := os.WriteFile(jsonFile, cmdJSON, 0o600); err != nil {
-		return nil, err
+		return "", nil, err
 	}
 	// 2. batch-apply commands. Run in continue-on-error mode so a single bad
 	// command (unsupported style, malformed inline equation, missing image)
@@ -1027,7 +1058,7 @@ func (s *server) renderDocx(raw, vault, notePath, templateFull string) ([]byte, 
 	completed := strings.Contains(string(out), "Batch complete:")
 	if err != nil && !completed {
 		fmt.Fprintf(os.Stderr, "officecli batch hard error for %s/%s: %v\n%s\n", vault, notePath, err, string(out))
-		return nil, fmt.Errorf("officecli batch: %w (%s)", err, errorLine(string(out)))
+		return "", nil, fmt.Errorf("officecli batch: %w (%s)", err, errorLine(string(out)))
 	}
 	if strings.Contains(strings.ToLower(string(out)), "error") || strings.Contains(string(out), "failed") {
 		fmt.Fprintf(os.Stderr, "officecli batch partial-fail for %s/%s:\n%s\n", vault, notePath, string(out))
@@ -1035,7 +1066,8 @@ func (s *server) renderDocx(raw, vault, notePath, templateFull string) ([]byte, 
 	// 3. close to flush
 	_ = exec.Command(officecliBin, "close", outFile).Run()
 
-	return os.ReadFile(outFile)
+	success = true
+	return outFile, cleanup, nil
 }
 
 // errorLine scans officecli output for a line that looks like a failure
