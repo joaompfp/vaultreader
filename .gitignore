@@ -7,3 +7,6 @@ vaultreader
 /appdata/
 .worktrees/
 .gitnexus
+
+# Build-time binaries (downloaded by Dockerfile)
+officecli

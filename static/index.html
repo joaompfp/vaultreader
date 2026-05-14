@@ -314,6 +314,14 @@
                 More options…
               </button>
             </div>
+            <!-- Export — sibling section so it doesn't read as a share-link option -->
+            <div class="share-pop-section share-pop-section-export" x-show="activeVault && activePath">
+              <div class="share-pop-head">Export</div>
+              <button class="share-pop-quick" @click="sharePopoverOpen=false; exportNoteDocx()">
+                <span class="share-pop-quick-title">⬇ Download as .docx</span>
+                <span class="share-pop-quick-sub">For Word / Pages / Google Docs</span>
+              </button>
+            </div>
           </div>
         </div>
       </template>
@@ -4170,6 +4178,9 @@ function vaultApp() {
         items.push({ label: 'Rename', action: () => this.promptRenameNote(item.path) })
         items.push({ label: 'Move to…', action: () => this.promptMoveItem(item.path, false) })
         items.push({ label: 'Share…', action: () => this.openShareModal(item.path) })
+        if (/\.md$/i.test(item.path)) {
+          items.push({ label: 'Export as .docx', action: () => this.exportNoteDocx(this.activeVault, item.path) })
+        }
         items.push({ label: 'Delete', danger: true, action: () => this.deleteNote(item.path) })
       } else {
         items.push({ label: 'Open folder', action: () => this.enterDir(this.activeVault, item.path) })
@@ -4610,6 +4621,40 @@ function vaultApp() {
           }, 4000)
         }
       } catch(e) { console.error('quickShare:', e); alert('Network error') }
+    },
+
+    // Download the active note as a formatted .docx. Streams the binary,
+    // triggers a browser download, surfaces server errors via the toast row.
+    async exportNoteDocx(vault, path) {
+      vault = vault || this.activeVault
+      path  = path  || this.activePath
+      if (!vault || !path) return
+      const url = '/api/note/export?format=docx' +
+                  '&vault=' + encodeURIComponent(vault) +
+                  '&path='  + encodeURIComponent(path)
+      try {
+        const r = await fetch(url)
+        if (!r.ok) {
+          const txt = await r.text()
+          alert('Export failed: ' + txt)
+          return
+        }
+        const blob = await r.blob()
+        const filename = (path.split('/').pop() || 'note.md').replace(/\.md$/i, '.docx')
+        const obj = URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = obj
+        a.download = filename
+        document.body.appendChild(a)
+        a.click()
+        a.remove()
+        setTimeout(() => URL.revokeObjectURL(obj), 60_000)
+        if (this.toasts) {
+          const id = 'export-' + Date.now()
+          this.toasts.push({ id, text: 'Exported "' + filename + '"', kind: 'info', undo: null })
+          setTimeout(() => { this.toasts = this.toasts.filter(t => t.id !== id) }, 4000)
+        }
+      } catch(e) { console.error('exportNoteDocx:', e); alert('Network error') }
     },
 
     async copyShareLinkFor(token) {
