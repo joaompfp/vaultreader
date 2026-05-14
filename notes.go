@@ -104,10 +104,14 @@ func (s *server) handleCreateNote(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	r.Body = http.MaxBytesReader(w, r.Body, 10<<20)
 	var body struct {
 		Raw string `json:"raw"`
 	}
-	_ = json.NewDecoder(r.Body).Decode(&body)
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		errResponse(w, 413, "request body too large or invalid json")
+		return
+	}
 
 	if err := saveNote(vp, path, body.Raw); err != nil {
 		errResponse(w, 500, err.Error())
@@ -509,9 +513,13 @@ func (s *server) handlePutNote(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	// Cap the body — uncapped reads here let a single huge PUT OOM the
+	// container. 10 MB matches handleUpload; any normal markdown note is
+	// orders of magnitude smaller.
+	r.Body = http.MaxBytesReader(w, r.Body, 10<<20)
 	var buf bytes.Buffer
 	if _, err := buf.ReadFrom(r.Body); err != nil {
-		errResponse(w, 400, "cannot read body")
+		errResponse(w, 413, "request body too large or unreadable")
 		return
 	}
 	content := buf.String()

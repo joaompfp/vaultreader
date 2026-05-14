@@ -164,8 +164,11 @@ func (s *server) handleShareView(w http.ResponseWriter, r *http.Request) {
 		if !e.Writable { errResponse(w, 403, "read-only share"); return }
 		vp, ok := s.vaultPath(e.Vault)
 		if !ok { errResponse(w, 400, "vault unavailable"); return }
+		r.Body = http.MaxBytesReader(w, r.Body, 10<<20)
 		var body struct{ Raw string `json:"raw"` }
-		_ = json.NewDecoder(r.Body).Decode(&body)
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			errResponse(w, 413, "request body too large or invalid json"); return
+		}
 		if err := saveNote(vp, e.Path, body.Raw); err != nil { errResponse(w, 500, err.Error()); return }
 		s.idx.updateNote(e.Vault, e.Path, body.Raw)
 		jsonResponse(w, map[string]string{"status": "saved"}); return

@@ -106,7 +106,7 @@ func main() {
 	addr := ":" + *port
 	httpServer := &http.Server{
 		Addr:         addr,
-		Handler:      gzipMiddleware(newRateLimiter(mux, 240, time.Minute)),
+		Handler:      gzipMiddleware(originGuard(newRateLimiter(mux, 240, time.Minute))),
 		ReadTimeout:  30 * time.Second,
 		WriteTimeout: 30 * time.Second,
 		IdleTimeout:  120 * time.Second,

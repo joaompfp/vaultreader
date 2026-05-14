@@ -262,8 +262,11 @@ func (idx *NoteIndex) getBacklinks(vault, path string) []BacklinkRef {
 }
 
 // removeRef filters out the entry with the given vault+path from a []NoteRef slice.
+// Allocates a fresh slice (does NOT reuse the backing array) so callers that
+// hold onto stale references to the original slice — or that iterate over a
+// sibling map sharing the array — don't observe corrupted data.
 func removeRef(refs []NoteRef, vault, path string) []NoteRef {
-	out := refs[:0]
+	out := make([]NoteRef, 0, len(refs))
 	for _, r := range refs {
 		if !(r.Vault == vault && r.Path == path) {
 			out = append(out, r)
@@ -272,9 +275,9 @@ func removeRef(refs []NoteRef, vault, path string) []NoteRef {
 	return out
 }
 
-// removeKey filters a string out of a slice.
+// removeKey filters a string out of a slice (allocates fresh; see removeRef).
 func removeKey(keys []string, key string) []string {
-	out := keys[:0]
+	out := make([]string, 0, len(keys))
 	for _, k := range keys {
 		if k != key {
 			out = append(out, k)

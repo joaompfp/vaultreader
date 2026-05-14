@@ -536,12 +536,22 @@ func (s *server) renderDocx(raw, vault, notePath string) ([]byte, error) {
 			return nil, fmt.Errorf("officecli create: %w (%s)", err, strings.TrimSpace(string(out)))
 		}
 	}
-	// 2. batch-apply commands
-	bcmd := exec.Command(officecliBin, "batch", outFile, "--input", jsonFile, "--stop-on-error")
+	// 2. batch-apply commands. Run in continue-on-error mode so a single bad
+	// command (unsupported style, malformed inline equation, missing image)
+	// doesn't abandon the whole export — the user still gets a docx with the
+	// rest of their content. Failures are logged to server stderr.
+	bcmd := exec.Command(officecliBin, "batch", outFile, "--input", jsonFile)
 	bcmd.Env = append(os.Environ(), "OFFICECLI_BATCH_ALLOW_STDIN_REDIRECT=1")
-	if out, err := bcmd.CombinedOutput(); err != nil {
-		// Surface the first error line for debugging; bury full output in server log.
-		return nil, fmt.Errorf("officecli batch: %w (%s)", err, firstLine(string(out)))
+	out, err := bcmd.CombinedOutput()
+	if err != nil {
+		// Hard failure (couldn't open file, etc.). Log full output and bail.
+		fmt.Fprintf(os.Stderr, "officecli batch hard error for %s/%s: %v\n%s\n", vault, notePath, err, string(out))
+		return nil, fmt.Errorf("officecli batch: %w (%s)", err, errorLine(string(out)))
+	}
+	// Even on exit 0, individual commands may have failed (continue-on-error
+	// reports them in stdout). Log so we can fix the walker over time.
+	if strings.Contains(string(out), "failed") {
+		fmt.Fprintf(os.Stderr, "officecli batch partial-fail for %s/%s:\n%s\n", vault, notePath, string(out))
 	}
 	// 3. close to flush
 	_ = exec.Command(officecliBin, "close", outFile).Run()
@@ -549,8 +559,24 @@ func (s *server) renderDocx(raw, vault, notePath string) ([]byte, error) {
 	return os.ReadFile(outFile)
 }
 
-func firstLine(s string) string {
+// errorLine scans officecli output for a line that looks like a failure
+// (officecli batch prints "[N] Added …" for successes and "[N] Error: …" /
+// "Failed: …" for failures). Falls back to the first non-empty line.
+func errorLine(s string) string {
 	s = strings.TrimSpace(s)
+	for _, line := range strings.Split(s, "\n") {
+		l := strings.TrimSpace(line)
+		if l == "" {
+			continue
+		}
+		lo := strings.ToLower(l)
+		if strings.Contains(lo, "error") || strings.Contains(lo, "fail") {
+			if len(l) > 240 {
+				l = l[:240] + "…"
+			}
+			return l
+		}
+	}
 	if i := strings.IndexByte(s, '\n'); i >= 0 {
 		return s[:i]
 	}
