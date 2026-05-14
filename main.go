@@ -108,8 +108,13 @@ func main() {
 	httpServer := &http.Server{
 		Addr:         addr,
 		Handler:      gzipMiddleware(originGuard(newRateLimiter(mux, 240, time.Minute))),
-		ReadTimeout:  30 * time.Second,
-		WriteTimeout: 30 * time.Second,
+		ReadTimeout: 30 * time.Second,
+		// Generous WriteTimeout because /api/note/export shells out to
+		// officecli + processes 2 MB JLL templates: a 100-command batch
+		// over a strip + reapply on a heavy template can take 30-90s
+		// cold. Other endpoints respond in ms — they don't suffer from
+		// the higher cap.
+		WriteTimeout: 180 * time.Second,
 		IdleTimeout:  120 * time.Second,
 	}
 	srv.shutdown = make(chan struct{})
