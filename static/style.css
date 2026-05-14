@@ -39,9 +39,9 @@
     --bg3:         #313244;
     --border:      #45475a;
     --text:        #cdd6f4;
-    --text2:       #a6adc8;
+    --text2:       #bac2dc; /* bumped from #a6adc8 for AA contrast on sidebar */
     --text3:       #6c7086;
-    --accent:      #f87171;
+    --accent:      #e88080; /* slightly desaturated from #f87171 */
     --accent-dim:  #fca5a5;
     --link:        #89b4fa;
     --link-wiki:   #fca5a5;
@@ -54,9 +54,9 @@
   --bg3:         #313244;
   --border:      #45475a;
   --text:        #cdd6f4;
-  --text2:       #a6adc8;
+  --text2:       #bac2dc; /* see note above */
   --text3:       #6c7086;
-  --accent:      #f87171;
+  --accent:      #e88080;
   --accent-dim:  #fca5a5;
   --link:        #89b4fa;
   --link-wiki:   #fca5a5;
@@ -1244,7 +1244,7 @@ a.wikilink-missing {
   padding: 14px;
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 8px;
   align-content: flex-start;
 }
 .tag-cloud-item {

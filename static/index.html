@@ -2343,20 +2343,22 @@ function vaultApp() {
           const vault = this.activeVault
           // Determine note vs folder by checking allNodes — folders have isDir.
           const dirs = new Set(this.currentDirs().map(d => d.path))
-          let movedToList = []
-          for (const p of items) {
+          // Issue all deletes in parallel — each operates on a different
+          // path, so the server's per-note locks don't contend.
+          const results = await Promise.all(items.map(async (p) => {
             const isFolder = dirs.has(p)
             const url = (isFolder ? '/api/folder' : '/api/note') +
                         '?vault=' + encodeURIComponent(vault) +
                         '&path=' + encodeURIComponent(p)
             try {
               const res = await fetch(url, { method: 'DELETE' })
-              if (res.ok) {
-                const d = await res.json().catch(() => ({}))
-                if (d.movedTo) movedToList.push({ originalPath: p, trashPath: d.movedTo, isFolder, name: p.split('/').pop().replace(/\.md$/, '') })
-              }
-            } catch(e) { console.error('bulk delete:', p, e) }
-          }
+              if (!res.ok) return null
+              const d = await res.json().catch(() => ({}))
+              if (!d.movedTo) return null
+              return { originalPath: p, trashPath: d.movedTo, isFolder, name: p.split('/').pop().replace(/\.md$/, '') }
+            } catch(e) { console.error('bulk delete:', p, e); return null }
+          }))
+          const movedToList = results.filter(Boolean)
           this.bulkSelected = []
           this._lastSelectedPath = ''
           if (this.activePath && items.includes(this.activePath)) {

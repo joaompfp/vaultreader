@@ -336,21 +336,28 @@ func resolveWikilinkTarget(target, currentVault, noteDir string, idx *NoteIndex,
 // ─── Frontmatter ─────────────────────────────────────────────────────────────
 
 func parseFrontmatter(content string) (map[string]any, string) {
-	if !strings.HasPrefix(content, "---\n") && !strings.HasPrefix(content, "---\r\n") {
+	var skip int
+	switch {
+	case strings.HasPrefix(content, "---\n"):
+		skip = 4
+	case strings.HasPrefix(content, "---\r\n"):
+		skip = 5
+	default:
 		return nil, content
 	}
-	// find closing ---
-	rest := content[4:] // skip "---\n"
+	rest := content[skip:]
+	// Closing fence may be preceded by either LF or CRLF — accept both so
+	// Syncthing-from-Windows notes parse cleanly.
 	idx := strings.Index(rest, "\n---")
 	if idx < 0 {
 		return nil, content
 	}
-	yamlStr := rest[:idx]
-	body := rest[idx+4:] // skip "\n---"
-	if strings.HasPrefix(body, "\n") {
-		body = body[1:]
-	} else if strings.HasPrefix(body, "\r\n") {
+	yamlStr := strings.TrimRight(rest[:idx], "\r")
+	body := rest[idx+4:]
+	if strings.HasPrefix(body, "\r\n") {
 		body = body[2:]
+	} else if strings.HasPrefix(body, "\n") {
+		body = body[1:]
 	}
 
 	fm := make(map[string]any)

@@ -176,8 +176,10 @@ func (s *server) handleTrashEmpty(w http.ResponseWriter, r *http.Request) {
 	if path != "" {
 		// Delete single item
 		full := filepath.Join(vp, strings.ReplaceAll(path, "/", string(os.PathSeparator)))
-		// safety check
-		if !strings.HasPrefix(full, trashDir) {
+		// safety check — the bare HasPrefix(full, trashDir) is fooled by a
+		// sibling like ".trashfoo"; require either equality with trashDir
+		// (which deletes nothing useful but is safe) or a real subpath.
+		if full != trashDir && !strings.HasPrefix(full, trashDir+string(os.PathSeparator)) {
 			http.Error(w, "invalid path", http.StatusBadRequest)
 			return
 		}

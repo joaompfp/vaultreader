@@ -111,6 +111,35 @@ func originGuard(next http.Handler) http.Handler {
 	})
 }
 
+// isTrustedProxyPeer returns true when the immediate TCP peer is a
+// private/Docker bridge address — i.e. the request reached us through
+// Traefik (or another in-cluster proxy) rather than directly from a
+// random client that could spoof X-Real-IP/X-Forwarded-For.
+func isTrustedProxyPeer(host string) bool {
+	if host == "" || host == "127.0.0.1" || host == "::1" {
+		return true
+	}
+	// Strip IPv6 brackets / zone if present.
+	host = strings.TrimPrefix(strings.TrimSuffix(host, "]"), "[")
+	if i := strings.Index(host, "%"); i >= 0 {
+		host = host[:i]
+	}
+	// Private IPv4 ranges that map to the docker bridge / VPN / LAN.
+	// 10.0.0.0/8 · 172.16.0.0/12 · 192.168.0.0/16
+	if strings.HasPrefix(host, "10.") || strings.HasPrefix(host, "192.168.") {
+		return true
+	}
+	if strings.HasPrefix(host, "172.") {
+		// crude check: 172.16.0.0/12 = 172.16..172.31
+		var b int
+		_, err := fmt.Sscanf(host[4:], "%d", &b)
+		if err == nil && b >= 16 && b <= 31 {
+			return true
+		}
+	}
+	return false
+}
+
 // rateLimiter per-IP sliding window.
 type rateLimiter struct {
 	handler http.Handler
@@ -125,17 +154,24 @@ func newRateLimiter(h http.Handler, limit int, window time.Duration) *rateLimite
 }
 
 func (rl *rateLimiter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	ip := r.RemoteAddr
-	if idx := strings.LastIndex(ip, ":"); idx != -1 { ip = ip[:idx] }
+	peer := r.RemoteAddr
+	if idx := strings.LastIndex(peer, ":"); idx != -1 { peer = peer[:idx] }
+	ip := peer
 	// Behind Traefik (only ingress path), honor forwarded client IP so the
 	// per-IP bucket is real-per-user, not a single shared bridge-IP bucket.
-	if xri := r.Header.Get("X-Real-IP"); xri != "" {
-		ip = xri
-	} else if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-		if comma := strings.Index(xff, ","); comma != -1 {
-			ip = strings.TrimSpace(xff[:comma])
-		} else {
-			ip = strings.TrimSpace(xff)
+	// But ONLY trust the headers when the immediate peer is on a private
+	// Docker bridge (172.16.0.0/12 incl. 172.10.0.0/16) — otherwise anyone
+	// hitting the container directly could spoof their bucket key by
+	// setting X-Real-IP themselves.
+	if isTrustedProxyPeer(peer) {
+		if xri := r.Header.Get("X-Real-IP"); xri != "" {
+			ip = xri
+		} else if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+			if comma := strings.Index(xff, ","); comma != -1 {
+				ip = strings.TrimSpace(xff[:comma])
+			} else {
+				ip = strings.TrimSpace(xff)
+			}
 		}
 	}
 	now := time.Now()

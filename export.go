@@ -50,15 +50,37 @@ type docxCtx struct {
 }
 
 type fmtState struct {
-	bold   bool
-	italic bool
-	code   bool
-	strike bool
+	bold     bool
+	italic   bool
+	code     bool
+	strike   bool
+	heading  int // 1-6, 0 = body. Drives run-level size+bold so headings
+	             // render visibly even when the blank template's HeadingN
+	             // style definitions are minimal (officecli's `create`).
+}
+
+// headingSizes is the run-level font size used inside a heading paragraph,
+// keyed by 1-based heading level. Word's defaults for Heading1 are 16-20pt;
+// we lean a hair larger so the visual hierarchy reads at a glance.
+var headingSizes = map[int]string{
+	1: "20pt",
+	2: "16pt",
+	3: "14pt",
+	4: "12pt",
+	5: "11pt",
+	6: "11pt",
 }
 
 func (st fmtState) props() map[string]any {
 	p := map[string]any{}
-	if st.bold {
+	bold := st.bold
+	if st.heading > 0 {
+		bold = true
+		if sz, ok := headingSizes[st.heading]; ok {
+			p["size"] = sz
+		}
+	}
+	if bold {
 		p["bold"] = "true"
 	}
 	if st.italic {
@@ -200,8 +222,16 @@ func (c *docxCtx) walkBlock(node ast.Node) {
 		if level > 6 {
 			level = 6
 		}
-		idx := c.addParagraph(map[string]any{"style": fmt.Sprintf("Heading%d", level)})
-		c.walkInline(n, idx, fmtState{})
+		// Paragraph also gets the HeadingN style for any template that
+		// actually defines it, and a roomier spaceBefore so headings
+		// breathe.
+		props := map[string]any{
+			"style":       fmt.Sprintf("Heading%d", level),
+			"spaceBefore": "12pt",
+			"spaceAfter":  "4pt",
+		}
+		idx := c.addParagraph(props)
+		c.walkInline(n, idx, fmtState{heading: level})
 
 	case *ast.Paragraph:
 		idx := c.addParagraph(nil)
