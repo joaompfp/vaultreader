@@ -1453,7 +1453,9 @@ const { EditorState } = CM
 const { defaultKeymap, history, historyKeymap, indentWithTab } = CM
 const { markdown } = CM
 const { oneDark } = CM
-const { search, searchKeymap, openSearchPanel } = CM
+const { search, searchKeymap, openSearchPanel, highlightSelectionMatches } = CM
+const { bracketMatching, foldGutter, foldKeymap, codeLanguages } = CM
+const { autocompletion, completionKeymap, closeBrackets, closeBracketsKeymap } = CM
 
 const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches
 
@@ -1464,13 +1466,32 @@ window.__cmAPI = {
     if (this.view) { this.view.destroy(); this.view = null }
     const extensions = [
       history(),
-      // @codemirror/search panel — appears at the top of the editor on
-      // Ctrl/Cmd+F (find) or Ctrl/Cmd+H (replace). searchKeymap bundles
-      // F3/Shift+F3 for next/prev, Enter behaviour, etc.
+      // Search panel + match highlighting (selection-driven Sublime-style).
       search({ top: true }),
-      keymap.of([...searchKeymap, ...defaultKeymap, ...historyKeymap, indentWithTab]),
+      highlightSelectionMatches(),
+      // Auto-pair brackets / quotes / markdown markers as you type.
+      closeBrackets(),
+      // Highlight the matching bracket when the caret sits on `[`/`{`/`(`.
+      bracketMatching(),
+      // Click-to-fold gutter for collapsible heading sections.
+      foldGutter(),
+      // Completion infrastructure (Ctrl/Cmd+Space). Sources can be added
+      // per-language; the wikilink popup remains hand-rolled for now.
+      autocompletion(),
+      keymap.of([
+        ...closeBracketsKeymap,
+        ...searchKeymap,
+        ...defaultKeymap,
+        ...historyKeymap,
+        ...foldKeymap,
+        ...completionKeymap,
+        indentWithTab,
+      ]),
       lineNumbers(),
-      markdown(),
+      // codeLanguages teaches the markdown parser how to syntax-highlight
+      // fenced blocks (```js, ```python, ```yaml, …) — see entry.js for
+      // the full list.
+      markdown({ codeLanguages }),
       EditorView.lineWrapping,
       EditorView.updateListener.of(update => {
         if (update.docChanged) onChange(update.state.doc.toString())
