@@ -716,6 +716,18 @@ body.sidebar-resizing * {
   font-size: 13px;
 }
 .toast-msg { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Pending-mode toast (long-running operation like docx export) — spinner
+   + slightly muted background so it reads as "in progress". */
+.toast-pending { background: var(--bg2); color: var(--text); border: 1px solid var(--border); }
+.toast-spinner {
+  flex-shrink: 0;
+  width: 14px; height: 14px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: toast-spin 0.9s linear infinite;
+}
+@keyframes toast-spin { to { transform: rotate(360deg); } }
 .toast-undo {
   background: var(--accent);
   color: #fff;

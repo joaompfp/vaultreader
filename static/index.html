@@ -1428,15 +1428,17 @@
   <div id="toast-stack">
     <template x-for="t in toasts" :key="t.id">
       <div class="toast"
+           :class="'toast-' + (t.kind || 'undo')"
            x-transition:enter="toast-enter"
            x-transition:enter-start="toast-enter-start"
            x-transition:enter-end="toast-enter-end"
            x-transition:leave="toast-leave"
            x-transition:leave-start="toast-leave-start"
            x-transition:leave-end="toast-leave-end">
-        <span class="toast-msg" x-text="t.message"></span>
-        <button class="toast-undo" @click="undoToast(t.id)">Undo</button>
-        <button class="toast-close" @click="dismissToast(t.id)" title="Dismiss">✕</button>
+        <span class="toast-spinner" x-show="t.kind === 'pending'"></span>
+        <span class="toast-msg" x-text="t.message || t.text"></span>
+        <button class="toast-undo" @click="undoToast(t.id)" x-show="!t.kind || t.kind === 'undo'">Undo</button>
+        <button class="toast-close" @click="dismissToast(t.id)" title="Dismiss" x-show="t.kind !== 'pending'">✕</button>
       </div>
     </template>
   </div>
@@ -4682,14 +4684,29 @@ function vaultApp() {
                 '&vault=' + encodeURIComponent(vault) +
                 '&path='  + encodeURIComponent(path)
       if (templatePath) url += '&template=' + encodeURIComponent(templatePath)
+
+      // In-progress toast — surfaces "this is taking a few seconds, we're
+      // working on it". Removed when the download triggers OR an error
+      // toast replaces it.
+      const progressId = 'export-pending-' + Date.now()
+      const tplLabel = templatePath ? templatePath.split('/').pop().replace(/\.(docx|dotx)$/i, '') : 'blank'
+      if (this.toasts) {
+        this.toasts.push({ id: progressId, text: 'Preparing docx (' + tplLabel + ')…', kind: 'pending', undo: null })
+      }
+      const clearProgress = () => {
+        if (this.toasts) this.toasts = this.toasts.filter(t => t.id !== progressId)
+      }
+
       try {
         const r = await fetch(url)
         if (!r.ok) {
+          clearProgress()
           const txt = await r.text()
           alert('Export failed: ' + txt)
           return
         }
         const blob = await r.blob()
+        clearProgress()
         const filename = (path.split('/').pop() || 'note.md').replace(/\.md$/i, '.docx')
         const obj = URL.createObjectURL(blob)
         const a = document.createElement('a')
@@ -4704,7 +4721,11 @@ function vaultApp() {
           this.toasts.push({ id, text: 'Exported "' + filename + '"', kind: 'info', undo: null })
           setTimeout(() => { this.toasts = this.toasts.filter(t => t.id !== id) }, 4000)
         }
-      } catch(e) { console.error('exportNoteDocx:', e); alert('Network error') }
+      } catch(e) {
+        clearProgress()
+        console.error('exportNoteDocx:', e)
+        alert('Network error')
+      }
     },
 
     async copyShareLinkFor(token) {

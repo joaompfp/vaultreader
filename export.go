@@ -758,6 +758,82 @@ func noteTitleFor(notePath string) string {
 	return strings.TrimSuffix(base, ".md")
 }
 
+// convertTemplateToDocument flips [Content_Types].xml so a .dotx-derived
+// file declares itself a regular .docx. Without this Microsoft Word
+// shows "The document is corrupt" because the internal content type
+// (`wordprocessingml.template.main+xml`) doesn't match the .docx
+// extension we serve. LibreOffice / officecli accept either.
+func convertTemplateToDocument(docxPath string) error {
+	rc, err := zip.OpenReader(docxPath)
+	if err != nil {
+		return err
+	}
+	defer rc.Close()
+
+	tmpOut := docxPath + ".rewriting"
+	out, err := os.Create(tmpOut)
+	if err != nil {
+		return err
+	}
+	zw := zip.NewWriter(out)
+
+	for _, f := range rc.File {
+		w, err := zw.CreateHeader(&zip.FileHeader{
+			Name:     f.Name,
+			Method:   f.Method,
+			Modified: f.Modified,
+		})
+		if err != nil {
+			out.Close()
+			os.Remove(tmpOut)
+			return err
+		}
+		src, err := f.Open()
+		if err != nil {
+			out.Close()
+			os.Remove(tmpOut)
+			return err
+		}
+		if f.Name == "[Content_Types].xml" {
+			b, err := io.ReadAll(src)
+			src.Close()
+			if err != nil {
+				out.Close()
+				os.Remove(tmpOut)
+				return err
+			}
+			b = []byte(strings.ReplaceAll(
+				string(b),
+				"application/vnd.openxmlformats-officedocument.wordprocessingml.template.main+xml",
+				"application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml",
+			))
+			if _, err := w.Write(b); err != nil {
+				out.Close()
+				os.Remove(tmpOut)
+				return err
+			}
+		} else {
+			if _, err := io.Copy(w, src); err != nil {
+				src.Close()
+				out.Close()
+				os.Remove(tmpOut)
+				return err
+			}
+			src.Close()
+		}
+	}
+	if err := zw.Close(); err != nil {
+		out.Close()
+		os.Remove(tmpOut)
+		return err
+	}
+	if err := out.Close(); err != nil {
+		os.Remove(tmpOut)
+		return err
+	}
+	return os.Rename(tmpOut, docxPath)
+}
+
 // scanBody walks word/document.xml in a .docx/.dotx and records each
 // /body/p[] and /body/tbl[] with its style + whether it sits in the
 // title-page section (everything up to AND including the paragraph that
@@ -1065,6 +1141,15 @@ func (s *server) renderDocx(raw, vault, notePath, templateFull string) (string, 
 	}
 	// 3. close to flush
 	_ = exec.Command(officecliBin, "close", outFile).Run()
+
+	// 4. If the source was a .dotx, the file's internal Content_Types still
+	// says "template" — Word rejects that as corrupt when the extension is
+	// .docx. Flip the bit. Idempotent on already-docx-typed files.
+	if usingTemplate {
+		if err := convertTemplateToDocument(outFile); err != nil {
+			fmt.Fprintf(os.Stderr, "convertTemplateToDocument(%s): %v\n", outFile, err)
+		}
+	}
 
 	success = true
 	return outFile, cleanup, nil
