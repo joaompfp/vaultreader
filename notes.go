@@ -673,14 +673,14 @@ func (s *server) handleSearch(w http.ResponseWriter, r *http.Request) {
 	if vault != "" {
 		vp, ok := s.vaultPath(vault)
 		if ok {
-			results = searchVault(vp, vault, q)
+			results = searchVault(s.idx, vp, vault, q)
 		}
 	} else {
 		entries, _ := os.ReadDir(s.vaultsDir)
 		for _, e := range entries {
 			if e.IsDir() && !shouldSkip(e.Name()) {
 				vp := filepath.Join(s.vaultsDir, e.Name())
-				results = append(results, searchVault(vp, e.Name(), q)...)
+				results = append(results, searchVault(s.idx, vp, e.Name(), q)...)
 				if len(results) >= 20 {
 					break
 				}

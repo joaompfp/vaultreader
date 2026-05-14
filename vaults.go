@@ -10,7 +10,7 @@ import (
 // ─── Vaults ───────────────────────────────────────────────────────────────────
 
 // preferred vault display order — vaults not listed here appear alphabetically after
-var vaultOrder = []string{"pessoal", "work", "pcp", "sosracismo", "projects"}
+var vaultOrder = []string{"agent-wiki", "pessoal", "work", "pcp", "sosracismo", "projects"}
 
 func (s *server) handleVaults(w http.ResponseWriter, r *http.Request) {
 	entries, err := os.ReadDir(s.vaultsDir)

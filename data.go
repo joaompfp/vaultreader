@@ -67,6 +67,26 @@ type NoteIndex struct {
 	inbound  map[string][]string  // normalized basename → []vaultKeys that link to it
 	byName   map[string][]NoteRef // normalized basename → all notes with that name (no overwrite)
 	byPath   map[string]NoteRef   // lower-case "vault:path" → NoteRef (unique per note)
+	// byAttachment maps a lower-case basename (with extension) → [(vault, relPath)]
+	// for every non-markdown file under each vault. Populated at index-build
+	// time so resolveEmbed doesn't fall back to a per-render filepath.Walk
+	// of the whole vault when a note has many image embeds.
+	byAttachment map[string][]NoteRef
+	// searchByVault holds pre-lowercased title/body/tags + mtime for every
+	// indexed note, keyed by vault name. The search hot path iterates this
+	// slice instead of walking the filesystem and re-reading + re-lowercasing
+	// every note on every keystroke into the wikilink popup.
+	searchByVault map[string][]searchEntry
+}
+
+// searchEntry is the per-note payload backing the search hot path.
+type searchEntry struct {
+	rel        string // path relative to vault root, e.g. "folder/note.md"
+	title      string // original-case title for result display
+	titleLower string
+	bodyLower  string
+	tagsLower  []string
+	mtime      int64
 }
 
 // vaultKey is "vault:path" — unique across all vaults

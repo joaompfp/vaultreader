@@ -111,6 +111,20 @@ html, body {
   overflow: hidden;
 }
 
+/* Keyboard focus indicator. :focus-visible fires only for keyboard nav,
+   so mouse clicks don't get the ring. Accent-coloured so it survives the
+   dark theme background (the default UA ring was rgb(16,16,16) and invisible). */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+/* Inputs and the share/admin pop-ins already manage their own border;
+   keep their built-in focus styling rather than doubling up. */
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible { outline-offset: 0; }
+
 a { color: var(--link); text-decoration: none; }
 a:hover { text-decoration: underline; }
 
@@ -339,9 +353,16 @@ body.sidebar-resizing * {
 }
 .fl-item:hover { background: var(--bg3); color: var(--text); }
 .fl-item.drop-target {
-  background: color-mix(in srgb, var(--accent) 20%, transparent);
-  outline: 1px dashed var(--accent);
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+  outline: 2px solid var(--accent);
   outline-offset: -2px;
+  border-radius: 4px;
+}
+/* Source row gets dimmed during the drag so the user sees what's
+   moving. Removed on dragend. */
+.fl-item.dragging {
+  opacity: .35;
+  transition: opacity .12s ease;
 }
 .fl-item.selected {
   background: color-mix(in srgb, var(--accent) 16%, transparent);
@@ -1276,6 +1297,20 @@ a.wikilink-missing {
   border-bottom: 1px solid var(--border);
   background: var(--bg2);
   flex-shrink: 0;
+}
+/* Mobile: graph header was wrapping to 5 lines. Stack title vertically,
+   shrink scope chips so canvas isn't crushed. */
+@media (max-width: 700px) {
+  .graph-header {
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 6px 8px;
+    font-size: 11px;
+  }
+  .graph-header .graph-title { font-size: 12px; }
+  .graph-header .graph-scope-btn,
+  .graph-header .graph-scope-current { font-size: 11px; padding: 1px 5px; max-width: 120px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .graph-header .graph-vault-select { font-size: 11px; padding: 1px 3px; max-width: 90px; }
 }
 .graph-title {
   font-weight: 600;
@@ -2376,6 +2411,19 @@ mark {
   font-size: var(--text-sm);
   overflow: hidden;
 }
+/* On phones the anchor button often ends up off-screen after a toolbar
+   scroll, dragging the popover with it. Override the inline top/left from
+   the toolbar-anchored math and center it instead. */
+@media (max-width: 700px) {
+  .share-pop {
+    width: auto !important;
+    left: 12px !important;
+    right: 12px !important;
+    top: 56px !important;
+    max-height: calc(100vh - 80px);
+    overflow-y: auto;
+  }
+}
 .share-pop-section { padding: 8px 10px; }
 .share-pop-section + .share-pop-section { border-top: 1px solid var(--border); }
 .share-pop-head {
@@ -2462,13 +2510,36 @@ mark {
 
 /* ── Toolbar mobile fixes (max-width: 700px) ─────────────────────── */
 @media (max-width: 700px) {
-  /* Toolbar: tighter, note title only — no full path */
+  /* Toolbar: tighter, note title only — no full path.
+     overflow-x:auto contains horizontal overflow INSIDE the toolbar so the
+     page itself doesn't scroll sideways (previously left the hamburger
+     off-screen with no obvious way back). */
   #toolbar {
     padding: 6px 10px;
     gap: 5px;
     min-height: 42px;
     flex-wrap: nowrap;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: none;
+    /* fade-out indicator on the right so users know to scroll */
+    -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 24px), transparent);
+            mask-image: linear-gradient(to right, #000 calc(100% - 24px), transparent);
   }
+  #toolbar::-webkit-scrollbar { display: none; }
+  /* Pin the hamburger so opening the sidebar is always reachable, no
+     matter how far the toolbar has been scrolled. */
+  #toolbar > button:first-child {
+    position: sticky;
+    left: 0;
+    background: var(--bg2);
+    z-index: 2;
+    box-shadow: 6px 0 6px -4px rgba(0,0,0,.15);
+  }
+  [data-theme="dark"] #toolbar > button:first-child { background: #16182a; }
+  /* Make sure the main column doesn't grow wider than viewport (the cause
+     of the page-level horizontal scroll that hid the hamburger). */
+  #main { max-width: 100vw; min-width: 0; }
 
   /* Title area gets flex: 1 but truncates aggressively */
   .toolbar-title {

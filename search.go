@@ -142,7 +142,7 @@ func parseModSpec(spec string, now time.Time, q *searchQuery) {
 	}
 }
 
-func searchVault(vaultPath, vaultName, query string) []SearchResult {
+func searchVault(idx *NoteIndex, vaultPath, vaultName, query string) []SearchResult {
 	q := parseSearchQuery(query)
 	plain := q.plain
 	type scored struct {
@@ -153,56 +153,50 @@ func searchVault(vaultPath, vaultName, query string) []SearchResult {
 
 	now := time.Now().Unix()
 
-	_ = filepath.Walk(vaultPath, func(path string, info os.FileInfo, err error) error {
-		if err != nil || info.IsDir() || shouldSkip(info.Name()) {
-			return nil
-		}
-		if !strings.HasSuffix(info.Name(), ".md") {
-			return nil
-		}
+	// Iterate the prebuilt search cache — no filesystem walk, no per-query
+	// disk reads, no per-query strings.ToLower of every note body. Cache is
+	// kept current via updateNote/removeNote.
+	idx.mu.RLock()
+	entries := idx.searchByVault[vaultName]
+	idx.mu.RUnlock()
+	for _, e := range entries {
+		relLower := strings.ToLower(e.rel)
+		baseLower := strings.ToLower(filepath.Base(e.rel))
 
-		rel, _ := filepath.Rel(vaultPath, path)
-		relLower := strings.ToLower(rel)
-		baseLower := strings.ToLower(info.Name())
-
-		// Operator filters (mtime + path) — cheap; skip the read if any fails.
-		mtime := info.ModTime().Unix()
-		if q.modAfter > 0 && mtime < q.modAfter {
-			return nil
+		// Operator filters (mtime + path) — cheap; skip the rest if any fails.
+		if q.modAfter > 0 && e.mtime < q.modAfter {
+			continue
 		}
-		if q.modBefore > 0 && mtime > q.modBefore {
-			return nil
+		if q.modBefore > 0 && e.mtime > q.modBefore {
+			continue
 		}
+		skipPath := false
 		for _, p := range q.paths {
 			if !strings.Contains(relLower, p) {
-				return nil
+				skipPath = true
+				break
 			}
 		}
-
-		data, err := os.ReadFile(path)
-		if err != nil {
-			return nil
+		if skipPath {
+			continue
 		}
-		content := string(data)
-		contentLower := strings.ToLower(content)
 
-		fm, body := parseFrontmatter(content)
-		title := extractTitle(body, rel)
-		titleLower := strings.ToLower(title)
-
-		// Operator filters (title + tags) — need parsed frontmatter.
+		// Title + tag operators.
+		skipMeta := false
 		for _, t := range q.titles {
-			if !strings.Contains(titleLower, t) {
-				return nil
+			if !strings.Contains(e.titleLower, t) {
+				skipMeta = true
+				break
 			}
+		}
+		if skipMeta {
+			continue
 		}
 		if len(q.tags) > 0 {
-			noteTags := extractTagsLower(fm)
+			missing := false
 			for _, want := range q.tags {
 				found := false
-				for _, have := range noteTags {
-					// Match if exact, hierarchical descendant (work/active),
-					// or substring (so tag:london matches "london-2026").
+				for _, have := range e.tagsLower {
 					if have == want ||
 						strings.HasPrefix(have, want+"/") ||
 						strings.Contains(have, want) {
@@ -211,29 +205,30 @@ func searchVault(vaultPath, vaultName, query string) []SearchResult {
 					}
 				}
 				if !found {
-					return nil
+					missing = true
+					break
 				}
+			}
+			if missing {
+				continue
 			}
 		}
 
-		// Plain-text matching: when there's a `plain` portion of the query,
-		// require it to appear in name OR title OR body. When the query is
-		// pure operators (e.g. "tag:work modified:>7d"), every file passing
-		// the operator filters is a hit.
+		// Plain-text matching against name / title / body.
 		nameMatch, contentMatch, titleMatch := false, false, false
 		if plain != "" {
 			nameMatch = strings.Contains(baseLower, plain)
-			contentMatch = strings.Contains(contentLower, plain)
-			titleMatch = strings.Contains(titleLower, plain)
+			contentMatch = strings.Contains(e.bodyLower, plain)
+			titleMatch = strings.Contains(e.titleLower, plain)
 			if !nameMatch && !contentMatch && !titleMatch {
-				return nil
+				continue
 			}
 		}
 
-		// Scoring (same shape as before; `plain == ""` skips the +N body bonuses).
+		// Scoring (same shape as before).
 		score := 0.0
 		if plain != "" {
-			if titleLower == plain {
+			if e.titleLower == plain {
 				score += 20
 			} else if titleMatch {
 				score += 10
@@ -242,18 +237,16 @@ func searchVault(vaultPath, vaultName, query string) []SearchResult {
 				score += 5
 			}
 			if contentMatch {
-				n := strings.Count(contentLower, plain)
+				n := strings.Count(e.bodyLower, plain)
 				if n > 5 {
 					n = 5
 				}
 				score += float64(n)
 			}
 		} else {
-			// Operator-only query: small base score so all results sort.
 			score += 5
 		}
-		// Recency: 0 days old → +3, 30+ days → 0.
-		ageDays := float64(now-mtime) / 86400
+		ageDays := float64(now-e.mtime) / 86400
 		if ageDays < 0 {
 			ageDays = 0
 		}
@@ -261,32 +254,30 @@ func searchVault(vaultPath, vaultName, query string) []SearchResult {
 			score += 3.0 * (1.0 - ageDays/30.0)
 		}
 
-		// Excerpt around the first plain-text match (skip if operator-only).
 		excerpt := ""
 		if contentMatch && plain != "" {
-			pos := strings.Index(contentLower, plain)
+			pos := strings.Index(e.bodyLower, plain)
 			start := pos - 60
 			if start < 0 {
 				start = 0
 			}
 			end := pos + 60 + len(plain)
-			if end > len(content) {
-				end = len(content)
+			if end > len(e.bodyLower) {
+				end = len(e.bodyLower)
 			}
-			excerpt = "..." + strings.ReplaceAll(content[start:end], "\n", " ") + "..."
+			excerpt = "..." + strings.ReplaceAll(e.bodyLower[start:end], "\n", " ") + "..."
 		}
 
 		hits = append(hits, scored{
 			r: SearchResult{
 				Vault:   vaultName,
-				Path:    rel,
-				Title:   title,
+				Path:    e.rel,
+				Title:   e.title,
 				Excerpt: excerpt,
 			},
 			score: score,
 		})
-		return nil
-	})
+	}
 
 	// Image attachments — second pass. Only includes image hits when the
 	// query has a plain-text portion (operator-only queries like

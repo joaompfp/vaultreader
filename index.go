@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // ─── Index ────────────────────────────────────────────────────────────────────
@@ -44,6 +45,8 @@ func (idx *NoteIndex) buildAll(vaultsPath string) {
 	idx.inbound = make(map[string][]string)
 	idx.byName = make(map[string][]NoteRef)
 	idx.byPath = make(map[string]NoteRef)
+	idx.byAttachment = make(map[string][]NoteRef)
+	idx.searchByVault = make(map[string][]searchEntry)
 
 	entries, err := os.ReadDir(vaultsPath)
 	if err != nil {
@@ -61,16 +64,23 @@ func (idx *NoteIndex) buildAll(vaultsPath string) {
 			if err != nil || info.IsDir() {
 				return nil
 			}
-			if shouldSkip(info.Name()) || !strings.HasSuffix(info.Name(), ".md") {
+			if shouldSkip(info.Name()) {
 				return nil
 			}
 			rel, _ := filepath.Rel(vaultRoot, p)
+			if !strings.HasSuffix(info.Name(), ".md") {
+				// Non-md attachment — track by lower-case basename so embed
+				// resolution is O(1) instead of an on-demand vault walk.
+				k := strings.ToLower(filepath.Base(rel))
+				idx.byAttachment[k] = append(idx.byAttachment[k], NoteRef{Vault: vaultName, Path: rel})
+				return nil
+			}
 			data, err := os.ReadFile(p)
 			if err != nil {
 				return nil
 			}
 			content := string(data)
-			_, body := parseFrontmatter(content)
+			fm, body := parseFrontmatter(content)
 			title := extractTitle(body, rel)
 			nname := normalizeName(filepath.Base(rel))
 			pk := pathKey(vaultName, rel)
@@ -79,6 +89,15 @@ func (idx *NoteIndex) buildAll(vaultsPath string) {
 			ref := NoteRef{Vault: vaultName, Path: rel, Title: title}
 			idx.byName[nname] = append(idx.byName[nname], ref)
 			idx.byPath[pk] = ref
+
+			idx.searchByVault[vaultName] = append(idx.searchByVault[vaultName], searchEntry{
+				rel:        rel,
+				title:      title,
+				titleLower: strings.ToLower(title),
+				bodyLower:  strings.ToLower(content),
+				tagsLower:  extractTagsLower(fm),
+				mtime:      info.ModTime().Unix(),
+			})
 
 			matches := wikilinkRe.FindAllStringSubmatch(body, -1)
 			var targets []string
@@ -98,7 +117,7 @@ func (idx *NoteIndex) updateNote(vault, path, content string) {
 	idx.mu.Lock()
 	defer idx.mu.Unlock()
 
-	_, body := parseFrontmatter(content)
+	fm, body := parseFrontmatter(content)
 	title := extractTitle(body, path)
 	nname := normalizeName(filepath.Base(path))
 	pk := pathKey(vault, path)
@@ -129,6 +148,23 @@ func (idx *NoteIndex) updateNote(vault, path, content string) {
 	for _, t := range targets {
 		idx.inbound[t] = append(idx.inbound[t], key)
 	}
+
+	// Refresh search cache for this note (drop old entry, append new).
+	entries := idx.searchByVault[vault][:0:0]
+	for _, e := range idx.searchByVault[vault] {
+		if e.rel != path {
+			entries = append(entries, e)
+		}
+	}
+	entries = append(entries, searchEntry{
+		rel:        path,
+		title:      title,
+		titleLower: strings.ToLower(title),
+		bodyLower:  strings.ToLower(content),
+		tagsLower:  extractTagsLower(fm),
+		mtime:      time.Now().Unix(),
+	})
+	idx.searchByVault[vault] = entries
 }
 
 func (idx *NoteIndex) removeNote(vault, path string) {
@@ -147,6 +183,15 @@ func (idx *NoteIndex) removeNote(vault, path string) {
 		idx.inbound[t] = removeKey(idx.inbound[t], key)
 	}
 	delete(idx.outbound, key)
+
+	// Drop from search cache.
+	entries := idx.searchByVault[vault][:0:0]
+	for _, e := range idx.searchByVault[vault] {
+		if e.rel != path {
+			entries = append(entries, e)
+		}
+	}
+	idx.searchByVault[vault] = entries
 }
 
 // resolve finds the best note matching name. preferVault biases toward the

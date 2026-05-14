@@ -47,6 +47,13 @@ func (s *server) handleSyncStatus(w http.ResponseWriter, r *http.Request) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != 200 {
+		// 401/403 means the API key is wrong or unset — that's a config
+		// issue, not a real sync error. Suppress the indicator instead of
+		// permanently lighting it red.
+		if resp.StatusCode == 401 || resp.StatusCode == 403 {
+			jsonResponse(w, SyncStatus{Available: false, State: "unknown"})
+			return
+		}
 		jsonResponse(w, SyncStatus{Available: true, State: "error", Message: fmt.Sprintf("HTTP %d", resp.StatusCode)})
 		return
 	}

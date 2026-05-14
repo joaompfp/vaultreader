@@ -120,23 +120,41 @@ func resolveEmbed(target, currentVault, noteDir string, idx *NoteIndex, vaultsDi
 	if v, p, ok := idx.resolve(target, currentVault, noteDir); ok {
 		return v, p, true
 	}
-	// Index only tracks .md notes; for image basenames it'll miss. Try walking
-	// the current vault for a matching file (cheap once, results not cached).
+	// Non-md attachments are tracked in byAttachment (lower-case basename),
+	// populated at index build time so an image-heavy note doesn't trigger
+	// one filepath.Walk per embed. Prefer current vault; fall back to any.
+	idx.mu.RLock()
+	cands := idx.byAttachment[strings.ToLower(target)]
+	idx.mu.RUnlock()
+	if len(cands) > 0 {
+		for _, c := range cands {
+			if c.Vault == currentVault {
+				return c.Vault, c.Path, true
+			}
+		}
+		return cands[0].Vault, cands[0].Path, true
+	}
+	// Safety net for attachments added since last index build (no incremental
+	// add yet). Walks at most once per missing target.
 	root := filepath.Join(vaultsDir, currentVault)
 	var found string
 	_ = filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
 			return nil
 		}
-		if filepath.Base(p) == target {
+		if strings.EqualFold(filepath.Base(p), target) {
 			found = p
 			return filepath.SkipAll
 		}
 		return nil
 	})
 	if found != "" {
-		rel, err := filepath.Rel(root, found)
-		if err == nil {
+		if rel, err := filepath.Rel(root, found); err == nil {
+			// Memoize so subsequent embeds of the same file are O(1).
+			idx.mu.Lock()
+			lk := strings.ToLower(target)
+			idx.byAttachment[lk] = append(idx.byAttachment[lk], NoteRef{Vault: currentVault, Path: rel})
+			idx.mu.Unlock()
 			return currentVault, rel, true
 		}
 	}
