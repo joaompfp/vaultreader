@@ -411,17 +411,28 @@ func (c *docxCtx) emitTable(tbl *east.Table) {
 	c.tableIdx++
 	tblPath := fmt.Sprintf("/body/tbl[%d]", c.tableIdx)
 
-	// Equal-width columns — each ~3000 twips (~5.3cm). Word will recompute
-	// if the table is set to autofit.
+	// Equal-width columns sized to fit a Letter/A4 content area
+	// (~9000 twips ≈ 15.9cm). Cap per-column at 3000 so 2- or 3-column
+	// tables don't sprawl, but shrink for wider tables so the table
+	// doesn't overflow the page edge. `layout: autofit` lets Word
+	// further redistribute based on content.
+	const maxRowTwips = 9000
+	const maxColTwips = 3000
+	perCol := maxRowTwips / colCount
+	if perCol > maxColTwips {
+		perCol = maxColTwips
+	}
+	colW := fmt.Sprintf("%d", perCol)
 	widths := make([]string, colCount)
 	for i := range widths {
-		widths[i] = "3000"
+		widths[i] = colW
 	}
 	c.cmds = append(c.cmds, batchCmd{
 		Op: "add", Parent: "/body", Type: "table",
 		Props: map[string]any{
 			"align":     "left",
 			"colWidths": strings.Join(widths, ","),
+			"layout":    "autofit",
 		},
 	})
 
