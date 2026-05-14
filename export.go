@@ -464,7 +464,9 @@ func (s *server) handleExportNote(w http.ResponseWriter, r *http.Request) {
 	base = strings.TrimSuffix(base, ".md") + ".docx"
 	w.Header().Set("Content-Type", "application/vnd.openxmlformats-officedocument.wordprocessingml.document")
 	w.Header().Set("Content-Disposition", `attachment; filename="`+sanitizeDocxFilename(base)+`"`)
-	w.Header().Set("Content-Length", strconv.Itoa(len(docxBytes)))
+	// Don't set Content-Length: docx is already a zip; the gzip middleware
+	// re-compresses (gaining ~nothing) but our Content-Length would describe
+	// the uncompressed bytes, leaving the client waiting for missing data.
 	w.Write(docxBytes)
 }
 

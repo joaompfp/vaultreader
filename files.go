@@ -12,6 +12,7 @@ import (
 
 func shouldSkip(name string) bool {
 	return strings.HasPrefix(name, ".") ||
+		name == "node_modules" ||
 		strings.Contains(name, ".sync-conflict-") ||
 		strings.HasSuffix(name, ".tmp-vaultreader")
 }

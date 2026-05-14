@@ -1021,9 +1021,17 @@ a.wikilink-missing {
   overflow: auto;
   font-family: var(--mono);
   font-size: 14px;
+  min-width: 0; /* allow flex child to shrink so lineWrapping has a real width */
 }
-.cm-editor { height: 100%; }
+.cm-editor { height: 100%; max-width: 100%; }
 .cm-scroller { overflow: auto; }
+/* Mobile: hide gutter (line numbers eat horizontal real estate) and force
+   long tokens (URLs, code) to break instead of pushing the editor wide. */
+@media (max-width: 700px) {
+  #cm-editor .cm-gutters { display: none; }
+  #cm-editor .cm-content { overflow-wrap: anywhere; word-break: break-word; }
+  #cm-editor { overflow-x: hidden; }
+}
 
 /* ── Editor toolbar ────────────────────────────── */
 #editor-toolbar {

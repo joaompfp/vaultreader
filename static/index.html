@@ -1287,15 +1287,15 @@
                   </template>
                 </div>
                 <!-- Referencing notes — clickable chip per ref. Caps at 8. -->
-                <div class="att-refnotes" x-show="a.refs && a.refs.length > 0">
-                  <template x-for="ref in a.refs" :key="ref.path">
+                <div class="att-refnotes" x-show="(a.refs || []).length > 0">
+                  <template x-for="ref in (a.refs || [])" :key="ref.path">
                     <button class="att-refnote"
                             :title="ref.path"
                             @click.stop="settingsOpen = false; openNote(a.vault, ref.path)"
                             x-text="ref.title || ref.path.split('/').pop().replace(/\.md$/, '')"></button>
                   </template>
-                  <span class="att-refnote-more" x-show="a.refCount > a.refs.length"
-                        x-text="'+ ' + (a.refCount - a.refs.length) + ' more'"></span>
+                  <span class="att-refnote-more" x-show="a.refCount > (a.refs || []).length"
+                        x-text="'+ ' + (a.refCount - (a.refs || []).length) + ' more'"></span>
                 </div>
               </div>
               <button class="att-del" @click="deleteAttachment(a)" title="Delete">✕</button>
@@ -3008,7 +3008,10 @@ function vaultApp() {
     },
     selectTag(tag) {
       this.closeTags()
-      this.chipSearch(tag)
+      // Tags modal lists tags across ALL vaults; use the tag: operator
+      // so the search ranks by tag, not by fuzzy body match.
+      const q = /\s/.test(tag) ? `tag:"${tag}"` : `tag:${tag}`
+      this.chipSearch(q)
     },
 
     // ── graph view ────────────────────────────────
@@ -3854,8 +3857,12 @@ function vaultApp() {
     async doSearch() {
       if (!this.searchQuery.trim()) { this.searchResults = []; return }
       try {
-        const url = '/api/search?q=' + encodeURIComponent(this.searchQuery) +
-                    '&vault=' + encodeURIComponent(this.activeVault)
+        // tag:/modified: searches express precise cross-vault intent;
+        // drop the vault filter so e.g. tag:work hits results from every
+        // vault (the Tags modal lists tags from all vaults).
+        const goCrossVault = /^\s*(tag|modified)\s*:/i.test(this.searchQuery)
+        let url = '/api/search?q=' + encodeURIComponent(this.searchQuery)
+        if (!goCrossVault) url += '&vault=' + encodeURIComponent(this.activeVault)
         const res = await fetch(url)
         this.searchResults = await res.json()
         this.searchFocus = 0

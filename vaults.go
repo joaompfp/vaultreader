@@ -5,7 +5,6 @@ import (
 	"net/http"
 	"os"
 	"sort"
-	"strings"
 )
 
 // ─── Vaults ───────────────────────────────────────────────────────────────────
@@ -21,7 +20,7 @@ func (s *server) handleVaults(w http.ResponseWriter, r *http.Request) {
 	}
 	found := map[string]bool{}
 	for _, e := range entries {
-		if e.IsDir() && !strings.HasPrefix(e.Name(), ".") {
+		if e.IsDir() && !shouldSkip(e.Name()) {
 			found[e.Name()] = true
 		}
 	}

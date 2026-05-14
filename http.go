@@ -20,6 +20,16 @@ func gzipMiddleware(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
+		// Skip endpoints that emit binary blobs — docx/zip/images are
+		// already compressed; re-gzipping wastes CPU and historically broke
+		// downloads when a handler set Content-Length to the uncompressed
+		// length.
+		if strings.HasPrefix(r.URL.Path, "/api/note/export") ||
+			strings.HasPrefix(r.URL.Path, "/api/file") ||
+			strings.HasPrefix(r.URL.Path, "/api/vault-icon") {
+			next.ServeHTTP(w, r)
+			return
+		}
 		w.Header().Set("Content-Encoding", "gzip")
 		w.Header().Set("Vary", "Accept-Encoding")
 		gz, _ := gzip.NewWriterLevel(w, gzip.BestSpeed)
