@@ -13,6 +13,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/yuin/goldmark/ast"
 	east "github.com/yuin/goldmark/extension/ast"
@@ -715,15 +716,37 @@ func sanitizeDocxFilename(s string) string {
 	return s
 }
 
-// countBodyChildren reads word/document.xml from a .docx/.dotx file and
-// counts direct paragraph (w:p) and table (w:tbl) children of the body
-// element. Lets the export walker initialise its paraIdx / tableIdx so
-// new /body/p[N] addressing lands on the freshly-appended paragraphs,
-// not the template's existing ones.
-func countBodyChildren(docxPath string) (paras, tables int, ok bool) {
+// bodyPara is one paragraph (w:p) directly under w:body, captured by
+// scanBody for use by the template-strip logic.
+type bodyPara struct {
+	index      int    // 1-based ordinal among /body/p[]
+	styleID    string // contents of <w:pStyle w:val="...">; "" if Normal
+	hasTitlePg bool   // <w:sectPr><w:titlePg/></w:sectPr> on this paragraph
+}
+
+// bodyTable is one /body/tbl[] entry — currently only its index, plus
+// whether it falls in the title-page section (before the title-pg break).
+type bodyTable struct {
+	index     int
+	titlePage bool
+}
+
+// noteTitleFor returns a display title for the note — the basename
+// without .md extension. Cheap; used for placeholder substitution on
+// JLL title-page templates.
+func noteTitleFor(notePath string) string {
+	base := filepath.Base(notePath)
+	return strings.TrimSuffix(base, ".md")
+}
+
+// scanBody walks word/document.xml in a .docx/.dotx and records each
+// /body/p[] and /body/tbl[] with its style + whether it sits in the
+// title-page section (everything up to AND including the paragraph that
+// carries a <w:titlePg/> section break).
+func scanBody(docxPath string) (paras []bodyPara, tables []bodyTable, ok bool) {
 	rc, err := zip.OpenReader(docxPath)
 	if err != nil {
-		return 0, 0, false
+		return nil, nil, false
 	}
 	defer rc.Close()
 	var docFile *zip.File
@@ -734,17 +757,23 @@ func countBodyChildren(docxPath string) (paras, tables int, ok bool) {
 		}
 	}
 	if docFile == nil {
-		return 0, 0, false
+		return nil, nil, false
 	}
 	rdr, err := docFile.Open()
 	if err != nil {
-		return 0, 0, false
+		return nil, nil, false
 	}
 	defer rdr.Close()
 	d := xml.NewDecoder(rdr)
+
 	depth := 0
-	inBody := false
 	bodyDepth := -1
+	inBody := false
+	titlePageOpen := true // we're in the title-page section until proven otherwise
+
+	var curPara *bodyPara
+	curParaDepth := -1
+
 	for {
 		tok, err := d.Token()
 		if err == io.EOF || err != nil {
@@ -753,20 +782,50 @@ func countBodyChildren(docxPath string) (paras, tables int, ok bool) {
 		switch t := tok.(type) {
 		case xml.StartElement:
 			depth++
-			if t.Name.Local == "body" {
+			if t.Name.Local == "body" && bodyDepth < 0 {
 				inBody = true
 				bodyDepth = depth
 				continue
 			}
-			if inBody && depth == bodyDepth+1 {
+			if !inBody {
+				continue
+			}
+			if depth == bodyDepth+1 {
 				switch t.Name.Local {
 				case "p":
-					paras++
+					curPara = &bodyPara{index: len(paras) + 1}
+					curParaDepth = depth
 				case "tbl":
-					tables++
+					tables = append(tables, bodyTable{
+						index:     len(tables) + 1,
+						titlePage: titlePageOpen,
+					})
+				}
+				continue
+			}
+			// Inside a current paragraph — look for style + sectPr titlePg.
+			if curPara != nil && t.Name.Local == "pStyle" {
+				for _, a := range t.Attr {
+					if a.Name.Local == "val" {
+						curPara.styleID = a.Value
+						break
+					}
 				}
 			}
+			if curPara != nil && t.Name.Local == "titlePg" {
+				curPara.hasTitlePg = true
+			}
 		case xml.EndElement:
+			if t.Name.Local == "p" && curParaDepth == depth && curPara != nil {
+				paras = append(paras, *curPara)
+				if curPara.hasTitlePg && titlePageOpen {
+					// The titlePg section break paragraph IS the last one
+					// of the title page. Subsequent /body/p[] are body.
+					titlePageOpen = false
+				}
+				curPara = nil
+				curParaDepth = -1
+			}
 			if t.Name.Local == "body" && depth == bodyDepth {
 				inBody = false
 			}
@@ -774,6 +833,12 @@ func countBodyChildren(docxPath string) (paras, tables int, ok bool) {
 		}
 	}
 	return paras, tables, true
+}
+
+// countBodyChildren is the legacy helper — returns just the counts.
+func countBodyChildren(docxPath string) (paras, tables int, ok bool) {
+	pp, tt, k := scanBody(docxPath)
+	return len(pp), len(tt), k
 }
 
 // renderDocx is the core pipeline. Returns the .docx bytes.
@@ -838,18 +903,100 @@ func (s *server) renderDocx(raw, vault, notePath, templateFull string) ([]byte, 
 		idx:       s.idx,
 		vaultsDir: s.vaultsDir,
 	}
-	// When a template is in use, strip its existing /body/p[] and
-	// /body/tbl[] BEFORE appending the note. The template's chrome
-	// (styles, headers, footers, watermark, section properties) lives
-	// outside /body's p/tbl children and is preserved. Walker indices
-	// then start at 1 like for a blank doc.
+	// When a template is in use, strip its existing /body content before
+	// appending the note. Chrome (styles, headers, footers, watermark,
+	// section properties) lives outside /body's p/tbl children and is
+	// preserved by the underlying docx structure.
+	//
+	// JLL-style templates have a title page separated by a <w:titlePg/>
+	// section break. We keep paragraphs in that title section, replace
+	// the Cover-Title placeholder text with the note's title, and strip
+	// only the body that follows. Non-JLL / no-title-page templates
+	// strip everything.
 	if usingTemplate {
-		if p, t, ok := countBodyChildren(outFile); ok {
-			for i := 0; i < p; i++ {
-				ctx.cmds = append(ctx.cmds, batchCmd{Op: "remove", Path: "/body/p[1]"})
+		paras, tables, scanOK := scanBody(outFile)
+		if scanOK {
+			titleEnd := -1
+			for _, p := range paras {
+				if p.hasTitlePg {
+					titleEnd = p.index
+					break
+				}
 			}
-			for i := 0; i < t; i++ {
-				ctx.cmds = append(ctx.cmds, batchCmd{Op: "remove", Path: "/body/tbl[1]"})
+			isJLL := strings.Contains(strings.ToLower(templateFull), "/jll/")
+
+			noteTitle := noteTitleFor(notePath)
+			if isJLL && titleEnd > 0 {
+				// Update title-page placeholders in place.
+				for _, p := range paras[:titleEnd] {
+					switch p.styleID {
+					case "CoverTitleJLL":
+						// remove the existing runs, then add a fresh one
+						// with the note title. Two runs is typical; remove
+						// up to 8 defensively.
+						for k := 0; k < 8; k++ {
+							ctx.cmds = append(ctx.cmds, batchCmd{
+								Op: "remove", Path: fmt.Sprintf("/body/p[%d]/r[1]", p.index),
+							})
+						}
+						ctx.cmds = append(ctx.cmds, batchCmd{
+							Op: "add", Parent: fmt.Sprintf("/body/p[%d]", p.index),
+							Type: "run", Props: map[string]any{"text": noteTitle},
+						})
+					case "DateJLL":
+						for k := 0; k < 8; k++ {
+							ctx.cmds = append(ctx.cmds, batchCmd{
+								Op: "remove", Path: fmt.Sprintf("/body/p[%d]/r[1]", p.index),
+							})
+						}
+						ctx.cmds = append(ctx.cmds, batchCmd{
+							Op: "add", Parent: fmt.Sprintf("/body/p[%d]", p.index),
+							Type: "run", Props: map[string]any{"text": time.Now().Format("2 January 2006")},
+						})
+					}
+				}
+				// Strip body paragraphs AFTER the title page. They occupy
+				// indices titleEnd+1..len(paras); after each removal the
+				// list shifts, so always target /body/p[titleEnd+1].
+				bodyParaCount := len(paras) - titleEnd
+				for i := 0; i < bodyParaCount; i++ {
+					ctx.cmds = append(ctx.cmds, batchCmd{
+						Op: "remove", Path: fmt.Sprintf("/body/p[%d]", titleEnd+1),
+					})
+				}
+				// Strip tables that fell after the title-page break.
+				bodyTblCount := 0
+				firstBodyTbl := -1
+				for _, t := range tables {
+					if !t.titlePage {
+						bodyTblCount++
+						if firstBodyTbl < 0 {
+							firstBodyTbl = t.index
+						}
+					}
+				}
+				for i := 0; i < bodyTblCount; i++ {
+					ctx.cmds = append(ctx.cmds, batchCmd{
+						Op: "remove", Path: fmt.Sprintf("/body/tbl[%d]", firstBodyTbl),
+					})
+				}
+				// Walker's new paragraphs will land after the (kept) title
+				// page. Seed paraIdx so /body/p[N] addressing is correct.
+				ctx.paraIdx = titleEnd
+				ctx.tableIdx = 0
+				for _, t := range tables {
+					if t.titlePage {
+						ctx.tableIdx++
+					}
+				}
+			} else {
+				// Nuke all /body/p[] and /body/tbl[].
+				for i := 0; i < len(paras); i++ {
+					ctx.cmds = append(ctx.cmds, batchCmd{Op: "remove", Path: "/body/p[1]"})
+				}
+				for i := 0; i < len(tables); i++ {
+					ctx.cmds = append(ctx.cmds, batchCmd{Op: "remove", Path: "/body/tbl[1]"})
+				}
 			}
 		}
 	}
