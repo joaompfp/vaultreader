@@ -1,8 +1,11 @@
 package main
 
 import (
+	"archive/zip"
 	"encoding/json"
+	"encoding/xml"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"os/exec"
@@ -548,6 +551,71 @@ func (c *docxCtx) walkInline(parent ast.Node, paraIdx int, st fmtState) {
 
 // ─── HTTP handler ──────────────────────────────────────────────────────────────
 
+// handleDocxTemplates lists *.docx / *.dotx files found in any `.vr/`
+// folder along the path from the note up to the vault root. Returned
+// entries are sorted by depth (closest first) then name.
+//   GET /api/templates/docx?vault=X&path=Y
+//   → { templates: [{ path, name, dir }] }
+func (s *server) handleDocxTemplates(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		errResponse(w, 405, "method not allowed")
+		return
+	}
+	vault := r.URL.Query().Get("vault")
+	notePath := r.URL.Query().Get("path") // optional — vault-root scan if empty
+	if vault == "" {
+		errResponse(w, 400, "vault required")
+		return
+	}
+	vp, ok := s.vaultPath(vault)
+	if !ok {
+		errResponse(w, 400, "invalid vault")
+		return
+	}
+
+	// Build the list of directories to scan: the note's directory and
+	// every ancestor up to the vault root.
+	dirs := []string{""}
+	if notePath != "" {
+		d := filepath.Dir(notePath)
+		for d != "." && d != "/" && d != "" {
+			dirs = append(dirs, d)
+			d = filepath.Dir(d)
+		}
+	}
+
+	type tpl struct {
+		Path string `json:"path"`
+		Name string `json:"name"`
+		Dir  string `json:"dir"`
+	}
+	out := []tpl{}
+	seen := map[string]bool{}
+	for _, d := range dirs {
+		vrDir := filepath.Join(vp, d, ".vr")
+		entries, err := os.ReadDir(vrDir)
+		if err != nil {
+			continue
+		}
+		for _, e := range entries {
+			if e.IsDir() {
+				continue
+			}
+			lo := strings.ToLower(e.Name())
+			if !strings.HasSuffix(lo, ".docx") && !strings.HasSuffix(lo, ".dotx") {
+				continue
+			}
+			rel := filepath.Join(d, ".vr", e.Name())
+			if seen[rel] {
+				continue
+			}
+			seen[rel] = true
+			out = append(out, tpl{Path: rel, Name: e.Name(), Dir: d})
+		}
+	}
+	jsonResponse(w, map[string]any{"templates": out})
+}
+
 func (s *server) handleExportNote(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		errResponse(w, 405, "method not allowed")
@@ -593,7 +661,34 @@ func (s *server) handleExportNote(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	docxBytes, err := s.renderDocx(string(raw), vault, path)
+	// Optional template — relative path inside the vault, validated via
+	// safePath. Empty means "blank docx".
+	templateRel := r.URL.Query().Get("template")
+	templateFull := ""
+	if templateRel != "" {
+		tf, ok := s.safePath(vp, templateRel)
+		if !ok {
+			errResponse(w, 400, "invalid template path")
+			return
+		}
+		// Constrain to a .vr/ folder + supported extensions.
+		lo := strings.ToLower(templateRel)
+		if !strings.Contains(lo, "/.vr/") && !strings.HasPrefix(lo, ".vr/") {
+			errResponse(w, 400, "template must live in a .vr/ folder")
+			return
+		}
+		if !strings.HasSuffix(lo, ".docx") && !strings.HasSuffix(lo, ".dotx") {
+			errResponse(w, 400, "template must be .docx or .dotx")
+			return
+		}
+		if _, err := os.Stat(tf); err != nil {
+			errResponse(w, 404, "template not found")
+			return
+		}
+		templateFull = tf
+	}
+
+	docxBytes, err := s.renderDocx(string(raw), vault, path, templateFull)
 	if err != nil {
 		errResponse(w, 500, "export failed: "+err.Error())
 		return
@@ -619,15 +714,119 @@ func sanitizeDocxFilename(s string) string {
 	return s
 }
 
+// countBodyChildren reads word/document.xml from a .docx/.dotx file and
+// counts direct paragraph (w:p) and table (w:tbl) children of the body
+// element. Lets the export walker initialise its paraIdx / tableIdx so
+// new /body/p[N] addressing lands on the freshly-appended paragraphs,
+// not the template's existing ones.
+func countBodyChildren(docxPath string) (paras, tables int, ok bool) {
+	rc, err := zip.OpenReader(docxPath)
+	if err != nil {
+		return 0, 0, false
+	}
+	defer rc.Close()
+	var docFile *zip.File
+	for _, f := range rc.File {
+		if f.Name == "word/document.xml" {
+			docFile = f
+			break
+		}
+	}
+	if docFile == nil {
+		return 0, 0, false
+	}
+	rdr, err := docFile.Open()
+	if err != nil {
+		return 0, 0, false
+	}
+	defer rdr.Close()
+	d := xml.NewDecoder(rdr)
+	depth := 0
+	inBody := false
+	bodyDepth := -1
+	for {
+		tok, err := d.Token()
+		if err == io.EOF || err != nil {
+			break
+		}
+		switch t := tok.(type) {
+		case xml.StartElement:
+			depth++
+			if t.Name.Local == "body" {
+				inBody = true
+				bodyDepth = depth
+				continue
+			}
+			if inBody && depth == bodyDepth+1 {
+				switch t.Name.Local {
+				case "p":
+					paras++
+				case "tbl":
+					tables++
+				}
+			}
+		case xml.EndElement:
+			if t.Name.Local == "body" && depth == bodyDepth {
+				inBody = false
+			}
+			depth--
+		}
+	}
+	return paras, tables, true
+}
+
 // renderDocx is the core pipeline. Returns the .docx bytes.
-func (s *server) renderDocx(raw, vault, notePath string) ([]byte, error) {
+// templateFull (optional) is the absolute disk path of a .dotx/.docx
+// template; when set, the export inherits the template's styles,
+// headers/footers, watermark, etc. and the note content is appended
+// after the template's existing body content.
+func (s *server) renderDocx(raw, vault, notePath, templateFull string) ([]byte, error) {
 	raw = stripFrontmatter(raw)
 	raw = expandEmbedsForDocx(raw, vault, notePath, s.idx, s.vaultsDir)
 	// Pre-resolve wikilinks now so goldmark doesn't split [[…]] into three
 	// adjacent Text nodes (it does, because its link parser snags [abc] first).
 	raw = resolveWikilinksPlain(raw)
 
-	// Parse with shared goldmark parser.
+	tmp, err := os.MkdirTemp("", "vrexport-")
+	if err != nil {
+		return nil, err
+	}
+	defer os.RemoveAll(tmp)
+
+	outFile := filepath.Join(tmp, "out.docx")
+	jsonFile := filepath.Join(tmp, "batch.json")
+
+	// 1. Use the requested template if given, the vault's legacy single-
+	// template file as a fallback, otherwise create blank.
+	usingTemplate := false
+	switch {
+	case templateFull != "":
+		data, err := os.ReadFile(templateFull)
+		if err != nil {
+			return nil, fmt.Errorf("read template: %w", err)
+		}
+		if err := os.WriteFile(outFile, data, 0o600); err != nil {
+			return nil, fmt.Errorf("write template copy: %w", err)
+		}
+		usingTemplate = true
+	default:
+		legacy := filepath.Join(s.vaultsDir, vault, ".vr", "template.docx")
+		if data, err := os.ReadFile(legacy); err == nil {
+			if err := os.WriteFile(outFile, data, 0o600); err != nil {
+				return nil, fmt.Errorf("write template copy: %w", err)
+			}
+			usingTemplate = true
+		} else {
+			if out, err := exec.Command(officecliBin, "create", outFile).CombinedOutput(); err != nil {
+				return nil, fmt.Errorf("officecli create: %w (%s)", err, strings.TrimSpace(string(out)))
+			}
+		}
+	}
+
+	// 2. Parse markdown → AST → batch commands. When using a template, seed
+	// paraIdx / tableIdx with the template's existing body counts so new
+	// /body/p[N] paths land on the freshly-appended paragraphs, not the
+	// template's own boilerplate.
 	reader := text.NewReader([]byte(raw))
 	root := md.Parser().Parse(reader)
 
@@ -638,42 +837,24 @@ func (s *server) renderDocx(raw, vault, notePath string) ([]byte, error) {
 		idx:       s.idx,
 		vaultsDir: s.vaultsDir,
 	}
+	if usingTemplate {
+		if p, t, ok := countBodyChildren(outFile); ok {
+			ctx.paraIdx = p
+			ctx.tableIdx = t
+		}
+	}
 	for n := root.FirstChild(); n != nil; n = n.NextSibling() {
 		ctx.walkBlock(n)
 	}
-
-	// Empty doc fallback so officecli batch has something to attach to.
 	if len(ctx.cmds) == 0 {
 		ctx.addParagraph(nil)
 	}
-
 	cmdJSON, err := json.Marshal(ctx.cmds)
 	if err != nil {
 		return nil, err
 	}
-
-	tmp, err := os.MkdirTemp("", "vrexport-")
-	if err != nil {
-		return nil, err
-	}
-	defer os.RemoveAll(tmp)
-
-	outFile := filepath.Join(tmp, "out.docx")
-	jsonFile := filepath.Join(tmp, "batch.json")
 	if err := os.WriteFile(jsonFile, cmdJSON, 0o600); err != nil {
 		return nil, err
-	}
-
-	// 1. Use the vault's branded template if present, otherwise create blank.
-	tplPath := filepath.Join(s.vaultsDir, vault, ".vr", "template.docx")
-	if data, err := os.ReadFile(tplPath); err == nil {
-		if err := os.WriteFile(outFile, data, 0o600); err != nil {
-			return nil, fmt.Errorf("write template copy: %w", err)
-		}
-	} else {
-		if out, err := exec.Command(officecliBin, "create", outFile).CombinedOutput(); err != nil {
-			return nil, fmt.Errorf("officecli create: %w (%s)", err, strings.TrimSpace(string(out)))
-		}
 	}
 	// 2. batch-apply commands. Run in continue-on-error mode so a single bad
 	// command (unsupported style, malformed inline equation, missing image)

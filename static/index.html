@@ -316,11 +316,19 @@
             </div>
             <!-- Export — sibling section so it doesn't read as a share-link option -->
             <div class="share-pop-section share-pop-section-export" x-show="activeVault && activePath">
-              <div class="share-pop-head">Export</div>
+              <div class="share-pop-head">Export as .docx</div>
+              <!-- Blank docx (always shown). Skips the heavy template route. -->
               <button class="share-pop-quick" @click="sharePopoverOpen=false; exportNoteDocx()">
-                <span class="share-pop-quick-title">⬇ Download as .docx</span>
-                <span class="share-pop-quick-sub">For Word / Pages / Google Docs</span>
+                <span class="share-pop-quick-title">⬇ Blank document</span>
+                <span class="share-pop-quick-sub">Default styles</span>
               </button>
+              <!-- Per-template buttons, populated from /api/templates/docx -->
+              <template x-for="t in docxTemplates" :key="t.path">
+                <button class="share-pop-quick" @click="sharePopoverOpen=false; exportNoteDocx(null, null, t.path)">
+                  <span class="share-pop-quick-title" x-text="'⬇ ' + t.name.replace(/\.(docx|dotx)$/i, '')"></span>
+                  <span class="share-pop-quick-sub" x-text="t.dir ? ('from ' + t.dir + '/.vr/') : 'from .vr/'"></span>
+                </button>
+              </template>
             </div>
           </div>
         </div>
@@ -1678,6 +1686,7 @@ function vaultApp() {
     sharePopoverOpen: false,
     sharePopX: 0, sharePopY: 0,
     sharePopCopied: '', // token of the row most recently copied (for tick state)
+    docxTemplates: [], // populated when the share popover opens
     // trash tab data
     trashItems: [],
     // move picker modal
@@ -4608,6 +4617,23 @@ function vaultApp() {
       this.sharePopoverOpen = true
       // Keep activeShares fresh so the popover always reflects current state.
       this.loadActiveShares()
+      // Discover .vr/*.docx + *.dotx templates for the current note's
+      // folder tree. Empty result is fine — only the blank-export button
+      // is shown then.
+      this.loadDocxTemplates()
+    },
+
+    async loadDocxTemplates() {
+      this.docxTemplates = []
+      if (!this.activeVault || !this.activePath) return
+      try {
+        const r = await fetch('/api/templates/docx' +
+          '?vault=' + encodeURIComponent(this.activeVault) +
+          '&path=' + encodeURIComponent(this.activePath))
+        if (!r.ok) return
+        const d = await r.json()
+        this.docxTemplates = d.templates || []
+      } catch(e) { console.error('loadDocxTemplates:', e) }
     },
 
     async quickShare(writable, ttlSecs) {
@@ -4645,13 +4671,17 @@ function vaultApp() {
 
     // Download the active note as a formatted .docx. Streams the binary,
     // triggers a browser download, surfaces server errors via the toast row.
-    async exportNoteDocx(vault, path) {
+    // Optional `templatePath` is a vault-relative path to a .docx/.dotx in
+    // some .vr/ folder; when set, the export inherits that template's
+    // styles + headers + footers.
+    async exportNoteDocx(vault, path, templatePath) {
       vault = vault || this.activeVault
       path  = path  || this.activePath
       if (!vault || !path) return
-      const url = '/api/note/export?format=docx' +
-                  '&vault=' + encodeURIComponent(vault) +
-                  '&path='  + encodeURIComponent(path)
+      let url = '/api/note/export?format=docx' +
+                '&vault=' + encodeURIComponent(vault) +
+                '&path='  + encodeURIComponent(path)
+      if (templatePath) url += '&template=' + encodeURIComponent(templatePath)
       try {
         const r = await fetch(url)
         if (!r.ok) {

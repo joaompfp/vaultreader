@@ -70,6 +70,7 @@ func main() {
 	mux.HandleFunc("/api/tree", srv.handleTree)
 	mux.HandleFunc("/api/note", srv.handleNote)
 	mux.HandleFunc("/api/note/export", srv.handleExportNote)
+	mux.HandleFunc("/api/templates/docx", srv.handleDocxTemplates)
 	mux.HandleFunc("/api/upload", srv.handleUpload)
 	mux.HandleFunc("/api/move", srv.handleMove)
 	mux.HandleFunc("/api/folder", srv.handleFolder)
