@@ -706,6 +706,40 @@
           </div>
         </div>
 
+        <!-- Find / replace bar — opens with Ctrl/Cmd+F or Ctrl/Cmd+H while
+             editing. Hand-rolled because the curated CodeMirror bundle
+             doesn't include @codemirror/search and CLAUDE.md forbids
+             adding a JS build step. -->
+        <div id="editor-find" class="ed-find" x-show="editorFind.open" style="display:none"
+             @keydown.escape.prevent.stop="closeEditorFind()">
+          <input class="ed-find-input" placeholder="Find"
+                 x-model="editorFind.findText"
+                 @input="_recomputeEditorMatches(); _seekToCurrentMatch()"
+                 @keydown.enter.prevent="$event.shiftKey ? findPrev() : findNext()"
+                 x-ref="edFindInput">
+          <input class="ed-find-input" placeholder="Replace"
+                 x-show="editorFind.replaceMode"
+                 x-model="editorFind.replaceText"
+                 @keydown.enter.prevent="replaceCurrent()">
+          <span class="ed-find-count"
+                x-text="editorFind.matches.length === 0
+                        ? (editorFind.findText ? 'No matches' : '')
+                        : (editorFind.currentIdx + 1) + ' / ' + editorFind.matches.length"></span>
+          <button class="ed-find-btn"
+                  :class="{active: editorFind.caseSensitive}"
+                  @click="editorFind.caseSensitive = !editorFind.caseSensitive; _recomputeEditorMatches(); _seekToCurrentMatch()"
+                  title="Case sensitive">Aa</button>
+          <button class="ed-find-btn" @click="findPrev()" title="Previous (Shift+Enter)">↑</button>
+          <button class="ed-find-btn" @click="findNext()" title="Next (Enter)">↓</button>
+          <button class="ed-find-btn"
+                  :class="{active: editorFind.replaceMode}"
+                  @click="editorFind.replaceMode = !editorFind.replaceMode"
+                  title="Toggle replace (Ctrl/Cmd+H)">↻</button>
+          <button class="ed-find-btn" x-show="editorFind.replaceMode" @click="replaceCurrent()">Replace</button>
+          <button class="ed-find-btn" x-show="editorFind.replaceMode" @click="replaceAll()">All</button>
+          <button class="ed-find-btn" @click="closeEditorFind()" title="Close (Esc)">✕</button>
+        </div>
+
         <div id="cm-editor"></div>
       </div>
 
@@ -1669,6 +1703,16 @@ function vaultApp() {
     mermaidMenuOpen: false,
     // wikilink autocomplete popup
     wikiPop: { open: false, x: 0, y: 0, query: '', results: [], focus: 0, fromPos: 0, toPos: 0 },
+    // In-editor find/replace bar state. matches is an array of {from,to}.
+    editorFind: {
+      open: false,
+      replaceMode: false,
+      caseSensitive: false,
+      findText: '',
+      replaceText: '',
+      matches: [],
+      currentIdx: 0,
+    },
     _wikiPopAbort: null,
     // settings
     settingsOpen: false,
@@ -1764,6 +1808,18 @@ function vaultApp() {
           else if (k === 'e') { e.preventDefault(); this.tbWrap('`') }
           else if (k === 'k') { e.preventDefault(); this.tbLink() }
           else if (k === 'l') { e.preventDefault(); this.tbWikilink() }
+        }
+        // Ctrl/Cmd+F or Ctrl/Cmd+H — open the in-editor find/replace bar.
+        // F = find, H = find+replace mode. Active when focus is inside CM
+        // editor OR when the find bar itself has focus.
+        if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey &&
+            (e.key.toLowerCase() === 'f' || e.key.toLowerCase() === 'h')) {
+          const inEditor = document.activeElement?.closest('.cm-editor') ||
+                           document.activeElement?.closest('#editor-find')
+          if (inEditor && this.mode === 'edit') {
+            e.preventDefault()
+            this.openEditorFind(e.key.toLowerCase() === 'h')
+          }
         }
         // Wikilink autocomplete navigation (popup open + focus in editor)
         if (this.wikiPop.open && document.activeElement?.closest('.cm-editor')) {
@@ -4274,6 +4330,119 @@ function vaultApp() {
     _cmDispatch(spec) {
       const v = this._cm(); if (!v) return
       v.dispatch(spec); v.focus()
+    },
+
+    // ── In-editor find/replace ─────────────────────
+    openEditorFind(withReplace) {
+      this.editorFind.open = true
+      if (withReplace) this.editorFind.replaceMode = true
+      // Pre-populate with current selection (handy "find selected text").
+      const v = this._cm()
+      if (v) {
+        const { from, to } = v.state.selection.main
+        if (from !== to) {
+          const sel = v.state.sliceDoc(from, to)
+          if (sel.length < 200 && !/\n/.test(sel)) this.editorFind.findText = sel
+        }
+      }
+      this._recomputeEditorMatches()
+      this.$nextTick(() => {
+        const el = this.$refs.edFindInput
+        if (el) { el.focus(); el.select() }
+      })
+    },
+    closeEditorFind() {
+      this.editorFind.open = false
+      this.editorFind.replaceMode = false
+      this.editorFind.matches = []
+      const v = this._cm(); if (v) v.focus()
+    },
+    _recomputeEditorMatches() {
+      this.editorFind.matches = []
+      this.editorFind.currentIdx = 0
+      const q = this.editorFind.findText
+      if (!q) return
+      const v = this._cm(); if (!v) return
+      const doc = v.state.doc.toString()
+      const cs = this.editorFind.caseSensitive
+      const hay = cs ? doc : doc.toLowerCase()
+      const needle = cs ? q : q.toLowerCase()
+      const matches = []
+      let i = 0
+      while (i <= hay.length - needle.length) {
+        const at = hay.indexOf(needle, i)
+        if (at === -1) break
+        matches.push({ from: at, to: at + needle.length })
+        i = at + Math.max(1, needle.length)
+      }
+      this.editorFind.matches = matches
+      // Pick the first match at or after the current caret.
+      const head = v.state.selection.main.head
+      this.editorFind.currentIdx = Math.max(0, matches.findIndex(m => m.from >= head))
+      if (this.editorFind.currentIdx === -1) this.editorFind.currentIdx = 0
+    },
+    _seekToCurrentMatch() {
+      const v = this._cm(); if (!v) return
+      const m = this.editorFind.matches[this.editorFind.currentIdx]
+      if (!m) return
+      v.dispatch({
+        selection: { anchor: m.from, head: m.to },
+        scrollIntoView: true,
+      })
+    },
+    findNext() {
+      if (this.editorFind.matches.length === 0) return
+      this.editorFind.currentIdx = (this.editorFind.currentIdx + 1) % this.editorFind.matches.length
+      this._seekToCurrentMatch()
+    },
+    findPrev() {
+      if (this.editorFind.matches.length === 0) return
+      const n = this.editorFind.matches.length
+      this.editorFind.currentIdx = (this.editorFind.currentIdx - 1 + n) % n
+      this._seekToCurrentMatch()
+    },
+    replaceCurrent() {
+      const v = this._cm(); if (!v) return
+      const m = this.editorFind.matches[this.editorFind.currentIdx]
+      if (!m) return
+      // Verify the live selection still matches the find text — guards
+      // against the doc changing under us.
+      const { from, to } = v.state.selection.main
+      const sel = v.state.sliceDoc(from, to)
+      const needle = this.editorFind.findText
+      const matches = this.editorFind.caseSensitive
+        ? sel === needle
+        : sel.toLowerCase() === needle.toLowerCase()
+      if (!matches) {
+        // Selection drifted — re-seek without replacing.
+        this._seekToCurrentMatch()
+        return
+      }
+      v.dispatch({
+        changes: { from, to, insert: this.editorFind.replaceText },
+        selection: { anchor: from + this.editorFind.replaceText.length },
+      })
+      // Recompute matches now that doc length changed, then advance.
+      this._recomputeEditorMatches()
+      if (this.editorFind.matches.length > 0) this._seekToCurrentMatch()
+    },
+    replaceAll() {
+      const v = this._cm(); if (!v) return
+      if (this.editorFind.matches.length === 0) return
+      // Build one transaction with all changes — safer than N sequential
+      // dispatches (offsets stay valid because CM sorts changes).
+      const changes = this.editorFind.matches.map(m => ({
+        from: m.from, to: m.to, insert: this.editorFind.replaceText,
+      }))
+      const n = changes.length
+      v.dispatch({ changes })
+      this.editorFind.matches = []
+      this.editorFind.currentIdx = 0
+      if (this.toasts) {
+        const id = 'replaceall-' + Date.now()
+        this.toasts.push({ id, message: 'Replaced ' + n + ' occurrence' + (n === 1 ? '' : 's'), kind: 'info', undo: null })
+        setTimeout(() => { this.toasts = this.toasts.filter(t => t.id !== id) }, 3000)
+      }
     },
     // wrap selection (or empty cursor) in `marker`. Caret lands inside if no selection.
     tbWrap(marker) {

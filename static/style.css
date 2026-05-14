@@ -1042,6 +1042,45 @@ a.wikilink-missing {
   border-bottom-color: var(--link-wiki-missing);
 }
 
+/* ── In-editor find/replace bar ─────────────── */
+.ed-find {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  background: var(--bg2);
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+  flex-shrink: 0;
+}
+.ed-find-input {
+  flex: 1;
+  min-width: 80px;
+  max-width: 240px;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 12px;
+  font-family: inherit;
+  outline: none;
+}
+.ed-find-input:focus { border-color: var(--accent); }
+.ed-find-count { font-size: 11px; color: var(--text3); min-width: 60px; }
+.ed-find-btn {
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 3px 7px;
+  font-size: 12px;
+  color: var(--text2);
+  cursor: pointer;
+  font-family: inherit;
+}
+.ed-find-btn:hover { background: var(--bg3); color: var(--text); }
+.ed-find-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+
 /* ── CM6 Editor ──────────────────────────────── */
 #editor-wrap {
   flex: 1;
