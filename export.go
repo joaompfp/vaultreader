@@ -39,9 +39,10 @@ type batchCmd struct {
 }
 
 type docxCtx struct {
-	cmds    []batchCmd
-	source  []byte
-	paraIdx int // ordinal of last /body/p created (1-based)
+	cmds     []batchCmd
+	source   []byte
+	paraIdx  int // ordinal of last /body/p created (1-based)
+	tableIdx int // ordinal of last /body/tbl created (1-based)
 
 	vault     string
 	notePath  string
@@ -137,6 +138,52 @@ func (c *docxCtx) addPicture(paraIdx int, src string) {
 		Op: "add", Parent: fmt.Sprintf("/body/p[%d]", paraIdx), Type: "picture",
 		Props: map[string]any{"src": src, "width": "12cm"},
 	})
+}
+
+// resolveImageDest takes whatever appeared inside `![alt](here)` (or the
+// pre-expanded `![[...]]` form) and returns an absolute disk path that
+// officecli can open. Returns "" when the target is remote (http/https),
+// an /api/file URL (we don't want to round-trip through HTTP), or simply
+// doesn't exist.
+func (c *docxCtx) resolveImageDest(dest string) string {
+	if dest == "" {
+		return ""
+	}
+	// file://abs — strip prefix, accept as-is.
+	if strings.HasPrefix(dest, "file://") {
+		return strings.TrimPrefix(dest, "file://")
+	}
+	// Remote URLs and the SPA's own /api/file proxy — skip.
+	if strings.HasPrefix(dest, "http://") ||
+		strings.HasPrefix(dest, "https://") ||
+		strings.HasPrefix(dest, "/api/") {
+		return ""
+	}
+	// Absolute path on disk (rare for vault content).
+	if strings.HasPrefix(dest, "/") {
+		if _, err := os.Stat(dest); err == nil {
+			return dest
+		}
+		return ""
+	}
+	// Relative path — try (a) note's directory, (b) vault root, (c) the
+	// attachment index keyed by basename.
+	noteDir := filepath.Dir(c.notePath)
+	if noteDir == "." {
+		noteDir = ""
+	}
+	vaultRoot := filepath.Join(c.vaultsDir, c.vault)
+	for _, base := range []string{filepath.Join(vaultRoot, noteDir), vaultRoot} {
+		try := filepath.Join(base, dest)
+		if _, err := os.Stat(try); err == nil {
+			return try
+		}
+	}
+	// Fall back to the attachment index by basename.
+	if v, p, ok := resolveEmbed(filepath.Base(dest), c.vault, noteDir, c.idx, c.vaultsDir); ok {
+		return filepath.Join(c.vaultsDir, v, p)
+	}
+	return ""
 }
 
 func (c *docxCtx) addEquation(latex string, display bool) {
@@ -287,11 +334,7 @@ func (c *docxCtx) walkBlock(node ast.Node) {
 		c.addRun(idx, "———", nil)
 
 	case *east.Table:
-		// Render table as plain paragraphs (one per row, cells separated by " | ")
-		// V1 simplification: structural table emission is brittle in officecli
-		// (cell-text-via-inner-paragraph adds complexity). Re-walk extracting
-		// cell text.
-		c.emitTableAsText(n)
+		c.emitTable(n)
 
 	default:
 		// Document, lists, generic containers — recurse.
@@ -349,22 +392,76 @@ func (c *docxCtx) emitCodeLines(lines *text.Segments) {
 	}
 }
 
-func (c *docxCtx) emitTableAsText(tbl *east.Table) {
+// emitTable adds a proper docx table. Pre-allocates the column grid via
+// colWidths so officecli auto-creates the right number of cells per row;
+// then each cell's content is emitted as a run on its auto-created
+// paragraph. Adding cells manually causes officecli to APPEND beyond the
+// table grid (rows grow exponentially) — don't.
+func (c *docxCtx) emitTable(tbl *east.Table) {
+	// Count columns from the first row.
+	colCount := 0
+	if first := tbl.FirstChild(); first != nil {
+		for cell := first.FirstChild(); cell != nil; cell = cell.NextSibling() {
+			colCount++
+		}
+	}
+	if colCount == 0 {
+		return
+	}
+	c.tableIdx++
+	tblPath := fmt.Sprintf("/body/tbl[%d]", c.tableIdx)
+
+	// Equal-width columns — each ~3000 twips (~5.3cm). Word will recompute
+	// if the table is set to autofit.
+	widths := make([]string, colCount)
+	for i := range widths {
+		widths[i] = "3000"
+	}
+	c.cmds = append(c.cmds, batchCmd{
+		Op: "add", Parent: "/body", Type: "table",
+		Props: map[string]any{
+			"align":     "left",
+			"colWidths": strings.Join(widths, ","),
+		},
+	})
+
+	rowIdx := 0
 	for row := tbl.FirstChild(); row != nil; row = row.NextSibling() {
-		var cellTexts []string
-		for cell := row.FirstChild(); cell != nil; cell = cell.NextSibling() {
-			cellTexts = append(cellTexts, c.inlineText(cell))
-		}
-		idx := c.addParagraph(nil)
-		isHeader := false
-		if _, ok := row.(*east.TableHeader); ok {
-			isHeader = true
-		}
-		props := map[string]any{}
+		rowIdx++
+		_, isHeader := row.(*east.TableHeader)
+		rowProps := map[string]any{}
 		if isHeader {
-			props["bold"] = "true"
+			rowProps["header"] = "true"
 		}
-		c.addRun(idx, strings.Join(cellTexts, " | "), props)
+		// officecli's `add table` auto-creates the first row to match
+		// colWidths. Don't add it again — just populate it. The
+		// `header=true` attribute (used for repeat-on-page-break) isn't
+		// settable on the auto-created row from a batch JSON, but the
+		// header content is still bolded via the per-run props below.
+		if rowIdx > 1 {
+			c.cmds = append(c.cmds, batchCmd{
+				Op: "add", Parent: tblPath, Type: "row", Props: rowProps,
+			})
+		}
+
+		// Cells pre-exist (table grid auto-populates them). Address each
+		// cell's auto-created paragraph and add a run.
+		colIdx := 0
+		for cell := row.FirstChild(); cell != nil; cell = cell.NextSibling() {
+			colIdx++
+			if colIdx > colCount {
+				break
+			}
+			text := c.inlineText(cell)
+			runProps := map[string]any{"text": text}
+			if isHeader {
+				runProps["bold"] = "true"
+			}
+			cellParaPath := fmt.Sprintf("%s/tr[%d]/tc[%d]/p[1]", tblPath, rowIdx, colIdx)
+			c.cmds = append(c.cmds, batchCmd{
+				Op: "add", Parent: cellParaPath, Type: "run", Props: runProps,
+			})
+		}
 	}
 }
 
@@ -423,11 +520,12 @@ func (c *docxCtx) walkInline(parent ast.Node, paraIdx int, st fmtState) {
 			c.addHyperlink(paraIdx, url, url)
 		case *ast.Image:
 			dest := string(n.Destination)
-			src := strings.TrimPrefix(dest, "file://")
-			if strings.HasPrefix(src, "/api/file") {
-				// existing expandEmbeds output — we shouldn't see this since
-				// we use expandEmbedsForDocx, but guard anyway.
-				c.addRun(paraIdx, "[image]", map[string]any{"italic": "true"})
+			src := c.resolveImageDest(dest)
+			if src == "" {
+				// Couldn't resolve to a disk file (remote URL, /api/file, or
+				// path not found). Emit a placeholder so officecli doesn't
+				// abort on a missing file.
+				c.addRun(paraIdx, "[image: "+filepath.Base(dest)+"]", map[string]any{"italic": "true"})
 				continue
 			}
 			c.addPicture(paraIdx, src)
@@ -569,18 +667,20 @@ func (s *server) renderDocx(raw, vault, notePath string) ([]byte, error) {
 	// 2. batch-apply commands. Run in continue-on-error mode so a single bad
 	// command (unsupported style, malformed inline equation, missing image)
 	// doesn't abandon the whole export — the user still gets a docx with the
-	// rest of their content. Failures are logged to server stderr.
+	// rest of their content.
+	//
+	// officecli exits 1 when any command failed even though `Batch complete:`
+	// is printed and the docx is saved. Treat presence of that string as
+	// success and log the failure line; only bail when batch never ran.
 	bcmd := exec.Command(officecliBin, "batch", outFile, "--input", jsonFile)
 	bcmd.Env = append(os.Environ(), "OFFICECLI_BATCH_ALLOW_STDIN_REDIRECT=1")
 	out, err := bcmd.CombinedOutput()
-	if err != nil {
-		// Hard failure (couldn't open file, etc.). Log full output and bail.
+	completed := strings.Contains(string(out), "Batch complete:")
+	if err != nil && !completed {
 		fmt.Fprintf(os.Stderr, "officecli batch hard error for %s/%s: %v\n%s\n", vault, notePath, err, string(out))
 		return nil, fmt.Errorf("officecli batch: %w (%s)", err, errorLine(string(out)))
 	}
-	// Even on exit 0, individual commands may have failed (continue-on-error
-	// reports them in stdout). Log so we can fix the walker over time.
-	if strings.Contains(string(out), "failed") {
+	if strings.Contains(strings.ToLower(string(out)), "error") || strings.Contains(string(out), "failed") {
 		fmt.Fprintf(os.Stderr, "officecli batch partial-fail for %s/%s:\n%s\n", vault, notePath, string(out))
 	}
 	// 3. close to flush
