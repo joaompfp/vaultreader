@@ -1109,25 +1109,8 @@
 
 
   <!-- ─── Admin Panel ──────────────────────────── -->
-  <!-- ─── Wikilink autocomplete popup ───────────── -->
-  <div id="wiki-popup"
-       x-show="wikiPop.open"
-       :style="'top:' + wikiPop.y + 'px;left:' + wikiPop.x + 'px'"
-       @click.outside="closeWikiPopup()"
-       style="display:none">
-    <template x-if="wikiPop.results.length === 0">
-      <div class="wp-empty">No matches</div>
-    </template>
-    <template x-for="(r, i) in wikiPop.results" :key="r.vault + ':' + r.path">
-      <div class="wp-item"
-           :class="{ focused: wikiPop.focus === i }"
-           @mousedown.prevent="selectWikiResult(i)"
-           @mouseenter="wikiPop.focus = i">
-        <div class="wp-title" x-text="r.title || r.path.replace(/\.md$/, '').split('/').pop()"></div>
-        <div class="wp-path" x-text="r.path.replace(/\.md$/, '')"></div>
-      </div>
-    </template>
-  </div>
+  <!-- Wikilink/tag/template/frontmatter completion is now the native
+       CM6 autocomplete panel — see _cmCompletionSources(). -->
 
   <!-- ─── Context Menu ──────────────────────────── -->
   <div id="ctx-menu"
@@ -1456,13 +1439,14 @@ const { oneDark } = CM
 const { search, searchKeymap, openSearchPanel, highlightSelectionMatches } = CM
 const { bracketMatching, foldGutter, foldKeymap, codeLanguages } = CM
 const { autocompletion, completionKeymap, closeBrackets, closeBracketsKeymap } = CM
+const { startCompletion } = CM
 
 const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches
 
 window.__cmAPI = {
   view: null,
 
-  create(content, onChange, onPasteImage, onCursorChange) {
+  create(content, onChange, onPasteImage, onCursorChange, completionSources) {
     if (this.view) { this.view.destroy(); this.view = null }
     const extensions = [
       history(),
@@ -1475,9 +1459,13 @@ window.__cmAPI = {
       bracketMatching(),
       // Click-to-fold gutter for collapsible heading sections.
       foldGutter(),
-      // Completion infrastructure (Ctrl/Cmd+Space). Sources can be added
-      // per-language; the wikilink popup remains hand-rolled for now.
-      autocompletion(),
+      // Completion: vault-aware sources for [[wikilinks]], #tags,
+      // /templates, and frontmatter keys (passed in from Alpine).
+      autocompletion(
+        completionSources && completionSources.length
+          ? { override: completionSources, activateOnTyping: true, closeOnBlur: true }
+          : {}
+      ),
       keymap.of([
         ...closeBracketsKeymap,
         ...searchKeymap,
@@ -1497,6 +1485,24 @@ window.__cmAPI = {
         if (update.docChanged) onChange(update.state.doc.toString())
         if ((update.docChanged || update.selectionSet) && onCursorChange) {
           onCursorChange(update.view)
+        }
+        // Force-open the completion panel when the caret is in a
+        // wikilink/tag/slash/frontmatter context. autocompletion's own
+        // activateOnTyping only fires on word chars and bails before our
+        // async sources resolve; an explicit startCompletion keeps the
+        // session alive across the fetch.
+        if (update.docChanged && completionSources && completionSources.length) {
+          const s = update.state.selection.main
+          if (s.empty) {
+            const line = update.state.doc.lineAt(s.head)
+            const before = update.state.sliceDoc(line.from, s.head)
+            if (/\[\[[^\]\n]*$/.test(before) ||
+                /(?:^|\s)#[\w/\-]*$/.test(before) ||
+                /^\/[\w\- ]*$/.test(before) ||
+                /^[A-Za-z][\w\-]*$/.test(before)) {
+              startCompletion(update.view)
+            }
+          }
         }
       }),
       EditorView.domEventHandlers({
@@ -1695,8 +1701,6 @@ function vaultApp() {
     // editor toolbar — mermaid starter dropdown
     mermaidMenuOpen: false,
     // wikilink autocomplete popup
-    wikiPop: { open: false, x: 0, y: 0, query: '', results: [], focus: 0, fromPos: 0, toPos: 0 },
-    _wikiPopAbort: null,
     // settings
     settingsOpen: false,
     settingsTab: 'general',  // general | shared | trash | attachments | admin | about
@@ -1796,20 +1800,8 @@ function vaultApp() {
         // built-in keymap when focus is in the editor. No global hook
         // needed — the CM keymap layer intercepts before the browser's
         // default Find dialog.
-        // Wikilink autocomplete navigation (popup open + focus in editor)
-        if (this.wikiPop.open && document.activeElement?.closest('.cm-editor')) {
-          if (e.key === 'ArrowDown') {
-            e.preventDefault(); this.wikiPop.focus = Math.min(this.wikiPop.focus + 1, this.wikiPop.results.length - 1)
-          } else if (e.key === 'ArrowUp') {
-            e.preventDefault(); this.wikiPop.focus = Math.max(this.wikiPop.focus - 1, 0)
-          } else if (e.key === 'Enter') {
-            if (this.wikiPop.results.length > 0) {
-              e.preventDefault(); this.selectWikiResult(this.wikiPop.focus)
-            }
-          } else if (e.key === 'Escape') {
-            e.preventDefault(); this.closeWikiPopup()
-          }
-        }
+        // Completion popup navigation (↑/↓/Enter/Esc) is handled natively
+        // by @codemirror/autocomplete's completionKeymap.
         if (e.key === 'Escape') {
           this.ctxMenu.open = false
           this.newMenuOpen = false
@@ -2769,7 +2761,8 @@ function vaultApp() {
                 this.scheduleSave()
               },
               (file, view) => this.uploadImage(file, view),
-              (view) => this.maybeOpenWikiPopup(view),
+              null, // onCursorChange — wikilink popup is now a CM6 completion source
+              this._cmCompletionSources(),
             )
           }
         })
@@ -4554,72 +4547,144 @@ function vaultApp() {
       }
     },
 
-    // ── wikilink autocomplete ─────────────────────
-    maybeOpenWikiPopup(view) {
-      const sel = view.state.selection.main
-      const cursor = sel.head
-      // Look backwards from cursor for `[[` without a closing `]` in between.
-      const lineStart = view.state.doc.lineAt(cursor).from
-      const before = view.state.sliceDoc(lineStart, cursor)
-      const lastOpen = before.lastIndexOf('[[')
-      if (lastOpen === -1) { this.closeWikiPopup(); return }
-      const between = before.slice(lastOpen + 2)
-      if (between.includes(']') || between.includes('\n')) { this.closeWikiPopup(); return }
-      // Skip if cursor is inside a fenced code block — count ``` lines above.
-      const docHead = view.state.sliceDoc(0, cursor)
-      const fences = (docHead.match(/^```/gm) || []).length
-      if (fences % 2 === 1) { this.closeWikiPopup(); return }
-
-      const fromPos = lineStart + lastOpen
-      const query = between
-      const coords = view.coordsAtPos(cursor)
-      if (!coords) return
-
-      this.wikiPop.fromPos = fromPos
-      this.wikiPop.toPos = cursor
-      this.wikiPop.query = query
-      // Position below cursor; CodeMirror coords are viewport-relative.
-      this.wikiPop.x = coords.left
-      this.wikiPop.y = coords.bottom + 4
-      this.wikiPop.open = true
-      this.wikiPop.focus = 0
-      this._wikiSearch(query)
-    },
-    closeWikiPopup() {
-      this.wikiPop.open = false
-      this.wikiPop.results = []
-      if (this._wikiPopAbort) { this._wikiPopAbort.abort(); this._wikiPopAbort = null }
-    },
-    async _wikiSearch(query) {
-      if (this._wikiPopAbort) this._wikiPopAbort.abort()
-      this._wikiPopAbort = new AbortController()
-      try {
-        const url = '/api/search?vault=' + encodeURIComponent(this.activeVault) +
-                    '&q=' + encodeURIComponent(query)
-        const res = await fetch(url, { signal: this._wikiPopAbort.signal })
-        if (!res.ok) return
-        const data = await res.json()
-        // Cap to 8 results
-        this.wikiPop.results = (data || []).slice(0, 8)
-        this.wikiPop.focus = 0
-      } catch (e) {
-        if (e.name !== 'AbortError') console.error('wiki search:', e)
+    // ── editor autocomplete sources ───────────────
+    // Returns an array of CM6 CompletionSource fns bound to this Alpine
+    // component. Replaces the old hand-rolled wikilink popup; adds tag,
+    // slash-template and frontmatter-key completion.
+    _cmCompletionSources() {
+      const self = this
+      const inFence = (state, pos) => {
+        const head = state.sliceDoc(0, pos)
+        return ((head.match(/^```/gm) || []).length) % 2 === 1
       }
-    },
-    selectWikiResult(i) {
-      const r = this.wikiPop.results[i]
-      if (!r) return
-      const view = this._cm()
-      if (!view) return
-      const linkPath = r.path.replace(/\.md$/, '')
-      // Replace [[partial → [[full]]
-      const insert = '[[' + linkPath + ']]'
-      view.dispatch({
-        changes: { from: this.wikiPop.fromPos, to: this.wikiPop.toPos, insert },
-        selection: { anchor: this.wikiPop.fromPos + insert.length },
-      })
-      this.closeWikiPopup()
-      view.focus()
+
+      // 1. [[wikilink]] — query the search API, insert [[path]].
+      const wikilink = async (ctx) => {
+        const m = ctx.matchBefore(/\[\[[^\]\n]*/)
+        if (!m) return null
+        if (inFence(ctx.state, ctx.pos)) return null
+        const q = m.text.slice(2)
+        if (!ctx.explicit && q.length < 1) return null
+        let results = []
+        try {
+          const r = await fetch('/api/search?vault=' + encodeURIComponent(self.activeVault) +
+                                 '&q=' + encodeURIComponent(q))
+          if (r.ok) results = (await r.json() || []).slice(0, 12)
+        } catch (e) { /* offline / aborted — show nothing */ }
+        if (results.length === 0) return null
+        return {
+          from: m.from, to: ctx.pos,
+          // Server already ranked/filtered by the query; CM's own filter
+          // would compare the full "[[casa" prefix against note-title
+          // labels and drop everything. Disable it.
+          filter: false,
+          options: results.map(res => {
+            const linkPath = res.path.replace(/\.md$/, '')
+            return {
+              label: res.title || linkPath.split('/').pop(),
+              detail: res.vault + (res.path.includes('/') ? ' · ' + res.path.replace(/\.md$/, '') : ''),
+              apply: '[[' + linkPath + ']]',
+              type: 'text',
+            }
+          }),
+        }
+      }
+
+      // 2. #tag — only when # is at a word boundary (not a heading: a
+      //    heading is `# ` with a space, our regex requires #\S).
+      const tag = async (ctx) => {
+        const m = ctx.matchBefore(/(?:^|\s)#[\w/\-]*/)
+        if (!m) return null
+        if (inFence(ctx.state, ctx.pos)) return null
+        const hashAt = m.text.indexOf('#')
+        const from = m.from + hashAt
+        const q = m.text.slice(hashAt + 1).toLowerCase()
+        // Bare `#` lists the top tags (capped below) — acts as a picker.
+        let tags = []
+        try {
+          const r = await fetch('/api/tags')
+          if (r.ok) tags = (await r.json()).tags || []
+        } catch (e) { /* */ }
+        const opts = tags
+          .filter(t => t.tag.toLowerCase().includes(q))
+          .slice(0, 15)
+          .map(t => ({ label: '#' + t.tag, detail: t.count + '×', apply: '#' + t.tag, type: 'keyword' }))
+        if (opts.length === 0) return null
+        return { from, to: ctx.pos, filter: false, options: opts }
+      }
+
+      // 3. /template — slash command at line start; inserts the expanded
+      //    template body in place of the whole line.
+      const slashTemplate = async (ctx) => {
+        const line = ctx.state.doc.lineAt(ctx.pos)
+        const before = ctx.state.sliceDoc(line.from, ctx.pos)
+        const mm = before.match(/^\/([\w\- ]*)$/)
+        if (!mm) return null
+        const q = mm[1].toLowerCase()
+        let tpls = []
+        try {
+          const r = await fetch('/api/templates?vault=' + encodeURIComponent(self.activeVault))
+          if (r.ok) tpls = (await r.json()).templates || []
+        } catch (e) { /* */ }
+        const opts = tpls
+          .filter(t => t.name.toLowerCase().includes(q))
+          .map(t => ({
+            label: '/' + t.name,
+            detail: 'template',
+            type: 'function',
+            apply: (view) => {
+              const body = self._expandTemplate(t.body, { title: self.noteTitle() })
+              view.dispatch({
+                changes: { from: line.from, to: ctx.pos, insert: body },
+                selection: { anchor: line.from + body.length },
+              })
+            },
+          }))
+        if (opts.length === 0) return null
+        return { from: line.from, to: ctx.pos, filter: false, options: opts }
+      }
+
+      // 4. Frontmatter keys — only inside the leading --- … --- block.
+      const FM_KEYS = ['title', 'tags', 'aliases', 'date', 'created', 'updated',
+        'author', 'status', 'category', 'project', 'pinned', 'description',
+        'cssclass', 'publish', 'source', 'url']
+      const frontmatterKey = (ctx) => {
+        const doc = ctx.state.doc
+        if (doc.lines < 2 || doc.line(1).text.trim() !== '---') return null
+        let closeLine = -1
+        for (let i = 2; i <= doc.lines; i++) {
+          if (doc.line(i).text.trim() === '---') { closeLine = i; break }
+        }
+        const cur = doc.lineAt(ctx.pos).number
+        if (closeLine === -1 || cur <= 1 || cur >= closeLine) return null
+        const m = ctx.matchBefore(/^[A-Za-z][\w\-]*/)
+        if (!m) return null
+        const q = m.text.toLowerCase()
+        const opts = FM_KEYS
+          .filter(k => k.startsWith(q))
+          .map(k => ({ label: k, apply: k + ': ', type: 'property' }))
+        if (opts.length === 0) return null
+        return { from: m.from, options: opts, validFor: /^[A-Za-z][\w\-]*$/ }
+      }
+
+      // Single routing source. Combining avoids a CM6 race: when sibling
+      // sync sources return null they can close the completion session
+      // before the async wikilink/tag fetch resolves. One source → one
+      // decision → no race.
+      const router = async (ctx) => {
+        // frontmatter (sync) wins if we're inside the --- block
+        const fm = frontmatterKey(ctx)
+        if (fm) return fm
+        // slash-template (line start)
+        const st = await slashTemplate(ctx)
+        if (st) return st
+        // wikilink
+        const wl = await wikilink(ctx)
+        if (wl) return wl
+        // tag
+        return await tag(ctx)
+      }
+      return [router]
     },
 
     // ── shares ────────────────────────────────────
