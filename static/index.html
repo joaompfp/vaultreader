@@ -264,6 +264,13 @@
             </svg>
             <span class="bl-badge" x-show="noteShares().length > 0" x-text="noteShares().length"></span>
           </button>
+          <!-- Teleported to <body> to escape #toolbar's `overflow-x:auto;
+               overflow-y:hidden` + `-webkit-mask-image` stack. Per spec
+               position:fixed should bypass overflow, but on iOS Safari (and
+               some Android Chromium) the combination clips the popover to
+               the toolbar's painting layer — so the popover renders at the
+               correct coords but is invisible. Teleport sidesteps it. -->
+          <template x-teleport="body">
           <div class="share-pop" x-show="sharePopoverOpen" :style="'top:'+sharePopY+'px;left:'+sharePopX+'px'"
                @click.stop @click.outside="sharePopoverOpen = false" style="display:none">
             <!-- Active shares list -->
@@ -331,6 +338,7 @@
               </template>
             </div>
           </div>
+          </template>
         </div>
       </template>
 

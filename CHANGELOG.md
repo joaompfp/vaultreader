@@ -4,6 +4,12 @@ All notable changes to VaultReader. Versioning is loose — there are no formal 
 
 Most-recent first.
 
+## 2026-05-27 — fix(mobile): teleport share popover to body
+
+The share/export popover was invisible on Android Chrome and iOS Safari — the popover rendered at the right viewport coordinates but its painting layer got clipped to `#toolbar`'s content box. The toolbar combines `overflow-x:auto; overflow-y:hidden` with `-webkit-mask-image` on mobile, and that combo defeats `position:fixed` escape on WebKit/Blink in spite of what the spec says.
+
+Fix: wrap `.share-pop` in `<template x-teleport="body">` so Alpine moves it out of the toolbar at runtime. The popover keeps the same Alpine scope (`sharePopoverOpen`, `noteShares()`, `@click.outside`) but is now a direct child of body, with no overflow/mask ancestor to clip it.
+
 ## 2026-04-30 — Stage 1: backend modularization
 
 `main.go` (3,588 lines, single file) split into 18 focused `package main` siblings — pure organisational change, runtime byte-identical (Go's package scope concatenates files at compile time, so the resulting binary is the same):
