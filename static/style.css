@@ -2331,6 +2331,21 @@ mark {
 
 /* ── New item button + dropdown ──────────────── */
 .btn-newnote { color: var(--accent); }
+/* + button in breadcrumb row — compact, only shown on mobile where the
+   toolbar one scrolls out of view due to overflow-x:auto. */
+.bc-newnote {
+  display: none;
+  flex-shrink: 0;
+  padding: 2px 4px;
+  min-height: unset;
+  height: 24px;
+  width: 24px;
+  border-radius: 4px;
+}
+.bc-newnote:hover { background: var(--bg3); }
+@media (max-width: 700px) {
+  .bc-newnote { display: inline-flex; align-items: center; justify-content: center; }
+}
 .btn-copylink.copied { color: #22c55e; }
 .btn-copybody.copied { color: #22c55e; }
 .btn-pasteappend[disabled] { opacity: .35; cursor: not-allowed; }
