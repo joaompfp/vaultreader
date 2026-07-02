@@ -2642,7 +2642,6 @@ mark {
   /* P1-008: Dropdown z-index and positioning (JS handles bounds) */
   .new-dropdown {
     position: fixed;                    /* Use viewport coordinates */
-    z-index: 500;                       /* Above toolbar (201) and sidebar (100) */
   }
   
   /* Ensure dropdown stays within viewport */
