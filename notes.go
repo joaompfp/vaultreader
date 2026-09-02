@@ -6,8 +6,10 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -454,6 +456,7 @@ func (s *server) handleGetNote(w http.ResponseWriter, r *http.Request) {
 	rendered := renderMarkdown(body)
 	rendered = renderCallouts(rendered)
 	rendered = renderWikilinks(rendered, vault, path, s.idx, s.vaultsDir)
+	rendered = rewriteNoteImageURLs(rendered, vault, path)
 
 	backlinks := s.idx.getBacklinks(vault, path)
 	if backlinks == nil {
@@ -770,4 +773,45 @@ func (s *server) handleBacklinks(w http.ResponseWriter, r *http.Request) {
 		backlinks = []BacklinkRef{}
 	}
 	jsonResponse(w, map[string]any{"backlinks": backlinks})
+}
+
+// rewriteNoteImageURLs rewrites relative `src` attributes in rendered note
+// HTML to absolute `/api/file?vault=X&path=Y` URLs, so markdown images like
+// `![](assets/figura.png)` resolve against the vault instead of the browser's
+// current path (which 404s). Mirrors pass 2 of rewriteShareImageURLs in
+// shares.go, but emits absolute /api/file URLs (the note preview has no
+// <base href>).
+//
+// Skipped: absolute paths (/…), scheme-bearing URLs (http://, https://, //…),
+// data: URIs, mailto:, fragment-only refs, and anything already pointing at
+// /api/file. Paths that escape the note's directory via `..` are left as-is.
+func rewriteNoteImageURLs(html, vault, notePath string) string {
+	noteDir := filepath.Dir(notePath)
+	reImg := regexp.MustCompile(`src="([^"]+)"`)
+	return reImg.ReplaceAllStringFunc(html, func(match string) string {
+		quoted := strings.TrimPrefix(match, `src="`)
+		quoted = strings.TrimSuffix(quoted, `"`)
+		// Skip already-rewritten, absolute, scheme-bearing, data:, or
+		// fragment-only refs.
+		if strings.HasPrefix(quoted, "/api/file?") ||
+			strings.HasPrefix(quoted, "/") ||
+			strings.HasPrefix(quoted, "#") ||
+			strings.Contains(quoted, "://") ||
+			strings.HasPrefix(quoted, "data:") ||
+			strings.HasPrefix(quoted, "mailto:") {
+			return match
+		}
+		decoded, err := url.QueryUnescape(strings.ReplaceAll(quoted, "&amp;", "&"))
+		if err != nil {
+			decoded = quoted
+		}
+		// Resolve the markdown-image path against the note's directory
+		// (matches Obsidian's "shortest path when possible" — explicit
+		// relative paths win). filepath.Join + Clean handles `../` walks.
+		joined := filepath.Clean(filepath.Join(noteDir, decoded))
+		if strings.HasPrefix(joined, "..") {
+			return match
+		}
+		return fmt.Sprintf(`src="/api/file?vault=%s&path=%s"`, urlEscape(vault), urlEscape(joined))
+	})
 }
