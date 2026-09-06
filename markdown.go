@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 
 	"gopkg.in/yaml.v3"
@@ -36,12 +37,84 @@ func restoreWikilinkPipes(s string) string {
 	return strings.ReplaceAll(s, wikilinkAliasPipeSentinel, "|")
 }
 
+// ─── Math (KaTeX) delimiter protection ──────────────────────────────────────
+//
+// goldmark follows CommonMark: a backslash before punctuation is an escape and
+// is consumed (`\(` renders as `(`). That destroys Obsidian-style math
+// delimiters before KaTeX ever sees them. We stash complete math spans
+// (`\(...\)`, `\[...\]`, `$$...$$`) behind sentinels before goldmark parses,
+// then restore them in the rendered HTML. Fenced code blocks are copied
+// verbatim so a stray `\(` inside a code fence can never be matched.
+
+var (
+	mathSpanRe     = regexp.MustCompile(`(?s)(\\\(.*?\\\)|\\\[.*?\\\]|\$\$.*?\$\$)`)
+	mathSentinelRe = regexp.MustCompile(`\x01MATH(\d+)\x01`)
+)
+
+func protectMathDelims(raw string) (string, []string) {
+	var spans []string
+	lines := strings.Split(raw, "\n")
+	var b strings.Builder
+	var buf []string
+	inFence := false
+	fenceChar := ""
+	flush := func() {
+		if len(buf) == 0 {
+			return
+		}
+		seg := strings.Join(buf, "\n")
+		seg = mathSpanRe.ReplaceAllStringFunc(seg, func(m string) string {
+			spans = append(spans, m)
+			return fmt.Sprintf("\x01MATH%d\x01", len(spans)-1)
+		})
+		b.WriteString(seg)
+		buf = buf[:0]
+	}
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		if !inFence && (strings.HasPrefix(trimmed, "```") || strings.HasPrefix(trimmed, "~~~")) {
+			flush()
+			fenceChar = trimmed[:3]
+			inFence = true
+			b.WriteString(line)
+			b.WriteString("\n")
+			continue
+		}
+		if inFence {
+			b.WriteString(line)
+			b.WriteString("\n")
+			if strings.HasPrefix(trimmed, fenceChar) {
+				inFence = false
+			}
+			continue
+		}
+		buf = append(buf, line)
+	}
+	flush()
+	return strings.TrimSuffix(b.String(), "\n"), spans
+}
+
+func restoreMathDelims(s string, spans []string) string {
+	return mathSentinelRe.ReplaceAllStringFunc(s, func(m string) string {
+		idx, err := strconv.Atoi(m[5 : len(m)-1])
+		if err == nil && idx >= 0 && idx < len(spans) {
+			// Escape HTML metacharacters so a `<` or `&` inside math can
+			// never break out of the span. The browser decodes entities
+			// back to the original text in the DOM, so KaTeX still sees
+			// the exact LaTeX source.
+			return htmlEscape(spans[idx])
+		}
+		return m
+	})
+}
+
 func renderMarkdown(raw string) string {
 	var buf bytes.Buffer
-	if err := md.Convert([]byte(protectWikilinkPipes(raw)), &buf); err != nil {
+	protected, spans := protectMathDelims(protectWikilinkPipes(raw))
+	if err := md.Convert([]byte(protected), &buf); err != nil {
 		return "<pre>" + raw + "</pre>"
 	}
-	return restoreWikilinkPipes(buf.String())
+	return restoreMathDelims(restoreWikilinkPipes(buf.String()), spans)
 }
 
 // expandEmbeds rewrites Obsidian embed syntax `![[target]]` into standard

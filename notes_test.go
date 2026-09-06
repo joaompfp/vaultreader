@@ -1,6 +1,9 @@
 package main
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestRewriteNoteImageURLs(t *testing.T) {
 	tests := []struct {
@@ -72,6 +75,58 @@ func TestRewriteNoteImageURLs(t *testing.T) {
 			got := rewriteNoteImageURLs(tt.html, tt.vault, tt.notePath)
 			if got != tt.want {
 				t.Errorf("rewriteNoteImageURLs() =\n  got  %s\n  want %s", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestProtectMathDelims(t *testing.T) {
+	tests := []struct {
+		name string
+		raw  string
+		want string
+	}{
+		{
+			name: "inline parens delimiters survive goldmark",
+			raw:  `Inline \( I^d = K/(K+L) \) math.`,
+			want: `<p>Inline \( I^d = K/(K+L) \) math.</p>`,
+		},
+		{
+			name: "block bracket delimiters survive",
+			raw:  `Block \[ \beta > \underline{\beta}(K) \] end.`,
+			want: `<p>Block \[ \beta &gt; \underline{\beta}(K) \] end.</p>`,
+		},
+		{
+			name: "dollar delimiters survive",
+			raw:  `Dollar $$ \tau^* = \frac{\alpha-2}{2\alpha-2} $$ end.`,
+			want: `<p>Dollar $$ \tau^* = \frac{\alpha-2}{2\alpha-2} $$ end.</p>`,
+		},
+		{
+			name: "math inside code fence untouched",
+			raw:  "```\n\\( not math \\)\n```\n\nAfter \\( real \\) math.",
+			want: "<pre><code>\\( not math \\)\n</code></pre>\n<p>After \\( real \\) math.</p>",
+		},
+		{
+			name: "escaped parens are treated as math (Obsidian semantics)",
+			raw:  `Escaped \(paren\) stays as math.`,
+			want: `<p>Escaped \(paren\) stays as math.</p>`,
+		},
+		{
+			name: "multiple spans in one line",
+			raw:  `A \(x\) and \(y\) and $$z$$.`,
+			want: `<p>A \(x\) and \(y\) and $$z$$.</p>`,
+		},
+		{
+			name: "math with html metacharacters is escaped",
+			raw:  `Set \( \{x \mid x < 1\} \) ok.`,
+			want: `<p>Set \( \{x \mid x &lt; 1\} \) ok.</p>`,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := strings.TrimSuffix(renderMarkdown(tt.raw), "\n")
+			if got != tt.want {
+				t.Errorf("renderMarkdown() =\n  got  %q\n  want %q", got, tt.want)
 			}
 		})
 	}
