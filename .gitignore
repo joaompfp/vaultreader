@@ -10,3 +10,4 @@ vaultreader
 
 # Build-time binaries (downloaded by Dockerfile)
 officecli
+.superpowers/

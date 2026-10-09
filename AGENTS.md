@@ -1,43 +1,109 @@
-<!-- gitnexus:start -->
-# GitNexus — Code Intelligence
+# AGENTS.md — VaultReader contributor and agent guide
 
-This project is indexed by GitNexus as **vaultreader** (1266 symbols, 1892 relationships, 84 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+A Go web app that serves Obsidian-compatible vaults: ~25 sibling `package main` files (route table in `routes.go`, `main.go` is startup only) plus a large `static/index.html` (Alpine.js SPA). The runtime image also carries `officecli` for DOCX export. User-facing docs live in `README.md` and `docs/`; this file is the map and the list of traps.
 
-> If any GitNexus tool warns the index is stale, run `npx gitnexus analyze` in terminal first.
+## Where things live
 
-## Always Do
+All Go files share `package main`, so cross-file references need no imports.
 
-- **MUST run impact analysis before editing any symbol.** Before modifying a function, class, or method, run `gitnexus_impact({target: "symbolName", direction: "upstream"})` and report the blast radius (direct callers, affected processes, risk level) to the user.
-- **MUST run `gitnexus_detect_changes()` before committing** to verify your changes only affect expected symbols and execution flows.
-- **MUST warn the user** if impact analysis returns HIGH or CRITICAL risk before proceeding with edits.
-- When exploring unfamiliar code, use `gitnexus_query({query: "concept"})` to find execution flows instead of grepping. It returns process-grouped results ranked by relevance.
-- When you need full context on a specific symbol — callers, callees, which execution flows it participates in — use `gitnexus_context({name: "symbolName"})`.
+| Want to change… | Look in… |
+|---|---|
+| Startup: flags, index build, rescanner, graceful shutdown | `main.go` |
+| URL → handler table, `feature()` gating, middleware chain (`handler()`) | `routes.go` |
+| Per-instance config validation, feature flags (`knownFeatures`), `share_base_url` | `config.go` |
+| `Remote-User` attribution (`userFrom`) and fail-closed `requireUser` middleware | `identity.go` |
+| `GET /api/instance`, `/health`, build `version` (`-ldflags -X main.version`) | `instance.go` |
+| Append-only `appdata/audit.jsonl` (`AuditEntry`, `s.audit(...)`) | `audit.go` |
+| 30 s stat-only rescan of every vault, shared `walkVaultFiles` | `rescan.go` |
+| Markdown rendering, wikilinks, callouts, embeds, frontmatter | `markdown.go` |
+| Note CRUD, save, upload, search HTTP, resolve, templates, backlinks | `notes.go` |
+| Search ranking and operators (`parseSearchQuery`, `searchVault`) | `search.go` |
+| Wikilink index (`buildAll`, resolve, `getBacklinks`) | `index.go` |
+| Share creation, view, asset, file (`rewriteShareImageURLs`) | `shares.go` |
+| Trash naming (`VRTRASH_…`) and handlers | `trash.go` |
+| Attachment listing and refcount | `attachments.go` |
+| Graph data (vault/folder/ego scopes) | `graph.go` |
+| Tag aggregation | `tags.go` |
+| Vault listing, tree, SPA index | `vaults.go` |
+| File serving, `safePath` / `vaultPath`, vault icons | `files.go` |
+| Stats endpoint | `stats.go` |
+| Syncthing status | `sync.go` |
+| WebDAV mount (read-only via method allowlist) | `webdav.go` |
+| `server` struct, `AdminConfig`, admin token, writable paths | `admin.go` |
+| Gzip middleware, JSON helpers, rate limiter | `http.go` |
+| Shared types, regexes, goldmark init, `embed.FS` | `data.go` |
+| DOCX export | `export.go` |
+| Alpine state | `static/index.html`, `function vaultApp()`, organised by `// ── Section ─` dividers |
+| CodeMirror wrapper (`__cmAPI`) | `static/index.html`, second `<script>` block |
+| Stylesheet | `static/style.css` |
+| Bundled libraries | `static/*.js`, `static/fonts/` |
 
-## Never Do
+## Conventions
 
-- NEVER edit a function, class, or method without first running `gitnexus_impact` on it.
-- NEVER ignore HIGH or CRITICAL risk warnings from impact analysis.
-- NEVER rename symbols with find-and-replace — use `gitnexus_rename` which understands the call graph.
-- NEVER commit changes without running `gitnexus_detect_changes()` to check affected scope.
+- Flat `package main`, one concern per file. Add a file only for a new concern.
+- Few dependencies (goldmark, `golang.org/x/net/webdav`, `gopkg.in/yaml.v3`). A new one needs a justification.
+- No JS build step. The frontend is hand-written plus bundled libraries loaded with `<script src>`.
+- Tests use real temporary directories, never filesystem mocks. `go test ./...` also runs in the Docker builder stage, so a failing test fails the image build.
+- Every change to `static/index.html` must pass a syntax check of the inline script before commit; a typo blanks the whole SPA:
+  ```bash
+  node -e "
+  const fs = require('fs');
+  const html = fs.readFileSync('static/index.html', 'utf8');
+  const idx = html.lastIndexOf('<script>');
+  const end = html.lastIndexOf('</script>');
+  fs.writeFileSync('/tmp/vr-check.js', html.substring(idx + 8, end));
+  " && node --check /tmp/vr-check.js
+  ```
+- Do not run repo-wide formatters; they rewrite files outside your change.
+- Update `CHANGELOG.md` for user-visible features and fixes.
+- Any new write endpoint must call `safePath` and `isWritable`, and call `s.audit(...)` next to the `isWritable` check. Mirror `handlePutNote` / `handleUpload`.
+- Any new optional route belongs behind `s.feature(...)` in `routes.go`. `AuditEntry` is a contract with external consumers of `audit.jsonl`; change it deliberately.
+- Never commit `appdata/`: it holds the admin token and share data.
 
-## Resources
+## Things that must not change
 
-| Resource | Use for |
-|----------|---------|
-| `gitnexus://repo/vaultreader/context` | Codebase overview, check index freshness |
-| `gitnexus://repo/vaultreader/clusters` | All functional areas |
-| `gitnexus://repo/vaultreader/processes` | All execution flows |
-| `gitnexus://repo/vaultreader/process/{name}` | Step-by-step execution trace |
+- Wikilink syntax and semantics: notes stay Obsidian-compatible. No VaultReader-specific markup.
+- The split between user-owned vaults and VaultReader-owned `appdata/`.
+- The `pinned: true` frontmatter convention and the per-note `attachments/` folder convention.
 
-## CLI
+## Gotchas
 
-| Task | Read this skill file |
-|------|---------------------|
-| Understand architecture / "How does X work?" | `.claude/skills/gitnexus/gitnexus-exploring/SKILL.md` |
-| Blast radius / "What breaks if I change X?" | `.claude/skills/gitnexus/gitnexus-impact-analysis/SKILL.md` |
-| Trace bugs / "Why is X failing?" | `.claude/skills/gitnexus/gitnexus-debugging/SKILL.md` |
-| Rename / extract / split / refactor | `.claude/skills/gitnexus/gitnexus-refactoring/SKILL.md` |
-| Tools, resources, schema reference | `.claude/skills/gitnexus/gitnexus-guide/SKILL.md` |
-| Index, status, clean, wiki CLI commands | `.claude/skills/gitnexus/gitnexus-cli/SKILL.md` |
+### Backend
+- `isWritable` is false when `rw_paths` is empty, so writes return 403 until entries are added.
+- `safePath` rejects `..`, absolute paths and Windows-style `\…`. Every endpoint taking a path must call it.
+- Dot-directories (including `.trash`) are never indexed; search, graph and backlinks skip them.
+- `PUT /api/note` returns 200 with `{"mtime"}`. `POST /api/note` returns 409 if the file exists (different conflict semantics; conflict detection lives only in PUT).
+- `DELETE /api/note` and `/api/folder` return `{"movedTo": ".trash/VRTRASH_<b64>_<unix>…"}`; the frontend undo flow passes that value to `/api/trash/restore`. Do not change the shape without updating `_showUndoToast`.
+- Trash names use base64-url of the original path, decoded by `decodeTrashName` with a `legacyDecodeTrashName` fallback.
+- `saveNote` runs `normalizeMarkdown` (trailing whitespace stripped, one trailing newline) on every save path. Do not bypass it.
+- Search operators: `tag:`, `path:`, `title:`, `modified:>Nd` / `<YYYY-MM-DD`. Image attachments honour only `path:` and `modified:`.
+- `/share/<token>/…` has sub-routes `/file?path=…` (image embeds, extension allowlist) and `/asset?name=…` (mermaid/katex/fonts, name allowlist). Adding another? Update the `len(parts) == 2` switch in `handleShareView`.
+- Share-page asset and file URLs are path-relative, anchored to `<base href="<token>/">`, so the page works under any proxy prefix. Do not emit absolute `/share/<token>/…` URLs.
+- Plain markdown images `![alt](path)` in shared notes are rewritten alongside `![[…]]` embeds (second pass in `rewriteShareImageURLs`). Keep it.
+- Goldmark HTML-escapes `&` to `&amp;` in attribute values; decode entities before parsing URLs out of rendered HTML.
 
-<!-- gitnexus:end -->
+### Routing
+- `/api/trash` is GET-only (405 otherwise); delete via `/api/trash/empty` (optional `?path=`).
+- `/api/shares/revoke` is DELETE-only with `?token=`; bulk revoke is `/api/shares/revoke-all`.
+- WebDAV at `/webdav/` is read-only through a method allowlist; the `Allow:` header on OPTIONS still lists mutating verbs (cosmetic).
+
+### Alpine.js
+- `:class="[a, {b: c}]"` degrades to `[object Object]` in the bundled Alpine; use string concatenation.
+- `$watch('searchOpen', …)` resets `searchQuery` on open. Programmatic openers must open the overlay, set the query in `$nextTick`, then call `doSearch()`.
+- Opening a modal triggers `trapFocus('modalOverlay')`. The `secondaryLabel` / `onSecondary` slots give three-button modals.
+
+### CodeMirror
+- `static/codemirror.bundle.js` is a curated one-shot esbuild bundle of the public `@codemirror/*` packages (`esbuild entry.js --bundle --format=iife --global-name=CM --minify --target=es2020`); there is no in-repo build step. To rebuild, use a temp dir with an `entry.js` re-exporting the needed symbols and a `package.json` pinning versions, then copy the output back to `static/`. Do not redirect stderr into the bundle.
+- Find/replace is the stock CM6 panel (`search({ top: true })` + `searchKeymap`). Bracket pairing is `closeBrackets()`. Heading fold is `foldGutter()`.
+
+## Known limits
+
+- Search is a full filesystem walk per query; attachment refcount is O(notes × attachments); the index is rebuilt in full at startup (plus the 30 s stat-only rescan).
+- `/api/tags` sees only frontmatter tags, not inline `#tags`.
+- `\[…\]` math blocks do not render (goldmark eats the leading `\`); `$$…$$` and `\(…\)` do, bare `$…$` is deliberately off.
+- Test coverage is partial: `safePath`/`isWritable` table tests, `expandEmbeds`, `resolveWikilinkTarget` and `handleUpload` are still missing.
+
+## Boundaries
+
+- Always: run `node --check` on the inline script before committing `static/index.html`; verify UI changes in a real browser, not just from the diff.
+- Never: mock the filesystem in tests; add a JS build step; skip `safePath` / `isWritable` on a write endpoint; commit `appdata/`.
