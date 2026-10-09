@@ -4,6 +4,7 @@ package main
 
 import (
 	"encoding/json"
+	"io/fs"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -191,5 +192,28 @@ func TestBasePathSharePage(t *testing.T) {
 	css := do(t, h, "GET", "/vaultreader/share/"+e.Token+"/asset?name=katex.min.css", "", nil).Body.String()
 	if strings.Contains(css, "url(/") || !strings.Contains(css, "url(asset?name=fonts/") {
 		t.Fatalf("katex css font urls not relative")
+	}
+}
+
+// Only <head> asset attributes and the codemirror bundle tag are rewritten;
+// the inline application script must come through byte for byte.
+func TestBasePathRewritesOnlyHeadAndBundle(t *testing.T) {
+	raw, err := fs.ReadFile(staticFiles, "static/index.html")
+	if err != nil {
+		t.Fatal(err)
+	}
+	headRaw, restRaw, _ := strings.Cut(string(raw), "</head>")
+	wantRewrites := strings.Count(headRaw, ` src="/`) + strings.Count(headRaw, ` href="/`) + 1
+	out := string(withBasePath(raw, "/vr"))
+	got := strings.Count(out, ` src="/vr/`) + strings.Count(out, ` href="/vr/`)
+	if got != wantRewrites {
+		t.Fatalf("rewrote %d attributes, want %d", got, wantRewrites)
+	}
+	_, restOut, _ := strings.Cut(out, "</head>")
+	if restOut != strings.Replace(restRaw, codemirrorTag, `<script src="/vr/codemirror.bundle.js">`, 1) {
+		t.Fatal("body changed beyond the codemirror bundle tag")
+	}
+	if !strings.Contains(out, "<meta charset=\"UTF-8\">\n  <meta name=\"vr-base\" content=\"/vr\">") {
+		t.Fatal("vr-base meta must directly follow <meta charset>")
 	}
 }

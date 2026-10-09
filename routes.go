@@ -18,10 +18,11 @@ func (s *server) routes() *http.ServeMux {
 	}
 	staticHandler := http.FileServer(http.FS(subFS))
 
+	index := s.indexHandler()
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/" || r.URL.Path == "/index.html" {
-			s.handleIndex(w, r)
+			index(w, r)
 			return
 		}
 		staticHandler.ServeHTTP(w, r)
@@ -46,7 +47,7 @@ func (s *server) routes() *http.ServeMux {
 	// SPA — the frontend reads location.pathname on load and fetches the
 	// note via /api/note. Real URLs make right-click→new-tab, bookmarks,
 	// browser back/forward, and link sharing work natively.
-	mux.HandleFunc("/n/", s.handleIndex)
+	mux.HandleFunc("/n/", index)
 	mux.HandleFunc("/api/admin/config", s.handleAdminConfig)
 	mux.HandleFunc("/api/writable-paths", s.handleWritablePaths)
 	mux.HandleFunc("/api/instance", s.handleInstance)

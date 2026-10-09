@@ -79,32 +79,53 @@ const spaCSP = "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-ev
 	"media-src 'self' blob:; font-src 'self' data:; connect-src 'self'; frame-src 'self'; " +
 	"object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'"
 
-func (s *server) handleIndex(w http.ResponseWriter, r *http.Request) {
+// indexHandler serves the SPA shell. base_path is fixed at startup, so the
+// rewritten shell is computed once here, not per request.
+func (s *server) indexHandler() http.HandlerFunc {
 	data, err := fs.ReadFile(staticFiles, "static/index.html")
-	if err != nil {
-		http.Error(w, "index.html not found", 500)
-		return
+	if err == nil {
+		data = withBasePath(data, s.basePath())
 	}
-	data = withBasePath(data, s.basePath())
-	h := w.Header()
-	h.Set("Content-Type", "text/html; charset=utf-8")
-	h.Set("Content-Security-Policy", spaCSP)
-	h.Set("X-Content-Type-Options", "nosniff")
-	h.Set("Referrer-Policy", "same-origin")
-	_, _ = w.Write(data)
+	return func(w http.ResponseWriter, r *http.Request) {
+		if err != nil {
+			http.Error(w, "index.html not found", 500)
+			return
+		}
+		h := w.Header()
+		h.Set("Content-Type", "text/html; charset=utf-8")
+		h.Set("Content-Security-Policy", spaCSP)
+		h.Set("X-Content-Type-Options", "nosniff")
+		h.Set("Referrer-Policy", "same-origin")
+		_, _ = w.Write(data)
+	}
 }
 
+// codemirrorTag is the one asset tag outside <head>: the editor bundle.
+const codemirrorTag = `<script src="/codemirror.bundle.js">`
+
 // withBasePath tells the shell its public prefix: a <meta name="vr-base">
-// the frontend reads once, and the root-absolute src="/…" / href="/…"
-// attributes of the bundled assets rewritten to "<base>/…". base is
-// validated to URL-safe characters (validBasePath), so no escaping is
-// needed. With no base the asset URLs stay as they are.
+// (right after <meta charset>) the frontend reads once, and the
+// root-absolute src="/…" / href="/…" attributes of the bundled assets
+// rewritten to "<base>/…". Only the <head> section and the codemirror
+// bundle tag are rewritten; the inline application script is left alone.
+// base is validated to URL-safe characters (validBasePath), so no escaping
+// is needed. With no base the asset URLs stay as they are.
 func withBasePath(page []byte, base string) []byte {
-	meta := []byte(`<meta name="vr-base" content="` + base + `">`)
-	page = bytes.Replace(page, []byte("<head>"), append([]byte("<head>\n  "), meta...), 1)
+	const charset = `<meta charset="UTF-8">`
+	meta := `<meta name="vr-base" content="` + base + `">`
+	page = bytes.Replace(page, []byte(charset), []byte(charset+"\n  "+meta), 1)
 	if base == "" {
 		return page
 	}
-	page = bytes.ReplaceAll(page, []byte(` src="/`), []byte(` src="`+base+`/`))
-	return bytes.ReplaceAll(page, []byte(` href="/`), []byte(` href="`+base+`/`))
+	head, rest, found := bytes.Cut(page, []byte("</head>"))
+	if !found {
+		return page
+	}
+	rewrite := func(b []byte) []byte {
+		b = bytes.ReplaceAll(b, []byte(` src="/`), []byte(` src="`+base+`/`))
+		return bytes.ReplaceAll(b, []byte(` href="/`), []byte(` href="`+base+`/`))
+	}
+	rest = bytes.Replace(rest, []byte(codemirrorTag),
+		[]byte(`<script src="`+base+`/codemirror.bundle.js">`), 1)
+	return append(append(rewrite(head), "</head>"...), rest...)
 }
