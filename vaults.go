@@ -56,12 +56,27 @@ func (s *server) handleTree(w http.ResponseWriter, r *http.Request) {
 	jsonResponse(w, nodes)
 }
 
+// spaCSP is the Content-Security-Policy for the SPA shell (/ and /n/*).
+// Second layer behind DOMPurify. The bundled Alpine build needs
+// 'unsafe-eval' and the shell uses inline scripts (no build step, so no
+// nonces); the protection that matters is connect-src / form-action /
+// object-src / base-uri / frame-ancestors. img-src allows https: because
+// notes embed external images. /share/* sends its own nonce-based CSP.
+const spaCSP = "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; " +
+	"style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; " +
+	"media-src 'self' blob:; font-src 'self' data:; connect-src 'self'; frame-src 'self'; " +
+	"object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'"
+
 func (s *server) handleIndex(w http.ResponseWriter, r *http.Request) {
 	data, err := fs.ReadFile(staticFiles, "static/index.html")
 	if err != nil {
 		http.Error(w, "index.html not found", 500)
 		return
 	}
-	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	h := w.Header()
+	h.Set("Content-Type", "text/html; charset=utf-8")
+	h.Set("Content-Security-Policy", spaCSP)
+	h.Set("X-Content-Type-Options", "nosniff")
+	h.Set("Referrer-Policy", "same-origin")
 	_, _ = w.Write(data)
 }

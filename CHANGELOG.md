@@ -4,6 +4,11 @@ All notable changes to VaultReader. Versioning is loose — there are no formal 
 
 Most-recent first.
 
+## 2026-10-09 — CSP on the SPA shell
+
+**Security**
+- `/` and `/n/*` now send a `Content-Security-Policy` (`connect-src 'self'`, `object-src 'none'`, `base-uri 'self'`, `form-action 'self'`, `frame-ancestors 'self'`; scripts still need `'unsafe-inline'`/`'unsafe-eval'`), plus `X-Content-Type-Options: nosniff` and `Referrer-Policy: same-origin`. Second layer behind DOMPurify. See `docs/security.md`.
+
 ## 2026-10-09 — Team instance (team.joao.date)
 
 A colleague can now edit `work/jll` collaboratively without seeing anything else. Design: `docs/superpowers/specs/2026-10-09-shared-team-instance-design.md`. Model: **a second container on the same image** with a physically isolated mount, not per-user ACLs.

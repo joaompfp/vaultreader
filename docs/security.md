@@ -181,15 +181,15 @@ The `/share/<token>/file?path=<X>` route (used by image embeds in shared notes) 
 
 ## Headers
 
-VaultReader sets only the content-level headers described above (`nosniff` + `sandbox` on raw files, a nonce CSP on the share page). Everything else — HSTS, X-Frame-Options, a CSP for the SPA shell — is the proxy's job. If you're deploying without a proxy (don't), at minimum add:
+VaultReader sets the content-level headers described above (`nosniff` + `sandbox` on raw files, a nonce CSP on the share page) and, on the SPA shell (`/` and `/n/*`, `spaCSP` in `vaults.go`), a second layer behind DOMPurify:
 
-```nginx
-add_header X-Frame-Options "DENY";
-add_header Referrer-Policy "strict-origin-when-cross-origin";
-add_header Content-Security-Policy "default-src 'self' 'unsafe-inline' data:; script-src 'self'; style-src 'self' 'unsafe-inline';";
+```
+Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-eval'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: https:; media-src 'self' blob:; font-src 'self' data:; connect-src 'self'; frame-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'
+X-Content-Type-Options: nosniff
+Referrer-Policy: same-origin
 ```
 
-Note: the inline `<script>` blocks in `index.html` require `'unsafe-inline'` for scripts — there's no nonce strategy. CodeMirror / Mermaid / KaTeX also use eval/Function dynamically. If strict CSP is required, adopt a build-step that nonces the inlines.
+`script-src` keeps `'unsafe-inline'` (the inline `<script>` blocks have no nonce strategy without a build step) and `'unsafe-eval'` (the bundled Alpine build compiles expressions with `Function`). The value is in the rest: `connect-src 'self'` stops fetch/XHR exfiltration, `form-action`/`base-uri`/`object-src` close form, `<base>` and plugin hijacks, and `frame-ancestors 'self'` prevents clickjacking. `img-src` allows `https:` because notes embed external images. `/api/*` and `/webdav/` carry no shell CSP. HSTS is the proxy's job.
 
 ## What's deliberately weak
 
