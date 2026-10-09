@@ -105,7 +105,7 @@ func (s *server) safePath(vaultP, notePath string) (string, bool) {
 This blocks `../etc/passwd`, absolute paths, and Windows-style `\foo\bar`. Verified by integration test against `?path=../etc/foo.md` returning 400.
 
 ### Writable paths
-`isWritable(vault, path)` checks the supplied `vault/path` against every entry in `rw_paths`:
+`isWritable(vault, path)` cleans the path, refuses anything escaping the vault or with a hidden segment (one starting with `.`: `.git`, `.obsidian`, `.trash`, …), then checks `vault/path` against every entry in `rw_paths`:
 
 ```go
 for _, rw := range rwPaths {
@@ -116,13 +116,18 @@ for _, rw := range rwPaths {
 return false
 ```
 
+Hidden paths are refused whatever `rw_paths` say (403, "hidden paths … are not writable"): they hold code that git hooks or Obsidian desktop plugins run, so a teammate who can write the shared folder must not be able to write them. `.trash` is changed only by the server's own delete, restore and empty code, never through a request path.
+
 When the list is empty, every write returns 403. Add `"personal"` to allow the entire `personal` vault. Add `"personal/agents/skills"` to only allow writes inside that subtree.
 
 This applies to:
 - `PUT /api/note`, `POST /api/note`, `DELETE /api/note`
 - `POST /api/upload`
 - `POST /api/move`, `POST /api/folder`, `DELETE /api/folder`
+- `PATCH /api/folder` (both ends)
 - `DELETE /api/attachments`
+- `POST /api/trash/restore` (the restore destination) and `DELETE /api/trash/empty` (each entry's original path)
+- `POST /api/shares/create` with `writable: true`, and `PUT /share/<token>` (re-checked at write time)
 
 ### Body caps
 - **Note PUT**: no explicit cap, relies on the rate limiter and Go's default `MaxBytesReader` (none). A pathological client could flood with huge bodies. Add a cap if your deployment is exposed.
