@@ -74,6 +74,8 @@ Use `expires_at` for sensitive shares. Treat share URLs like API keys.
 ### Rate limit
 240 requests/minute per IP, sliding window. Identifies the IP via `X-Real-IP`, falling back to `X-Forwarded-For` (left-most hop), falling back to `r.RemoteAddr`.
 
+GET/HEAD of `/api/file`, `/api/vault-icon` and embedded static assets are exempt (`rateExempt` in `routes.go`): they are read-only and one page view of an image-heavy note fans out into hundreds of them. Every other request — all mutating `/api/*`, `/share/*`, `/webdav/`, the shell — counts.
+
 This is a soft DoS mitigation, not a security boundary. A determined attacker can rotate IPs.
 
 ## Data plane

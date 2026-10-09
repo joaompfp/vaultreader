@@ -10,6 +10,7 @@ Most-recent first.
 - `/` and `/n/*` now send a `Content-Security-Policy` (`connect-src 'self'`, `object-src 'none'`, `base-uri 'self'`, `form-action 'self'`, `frame-ancestors 'self'`; scripts still need `'unsafe-inline'`/`'unsafe-eval'`), plus `X-Content-Type-Options: nosniff` and `Referrer-Policy: same-origin`. Second layer behind DOMPurify. See `docs/security.md`.
 
 **Fixed**
+- **Rate limiter no longer breaks image-heavy notes.** GET/HEAD of `/api/file`, `/api/vault-icon` and embedded static assets skip the 240 req/min/IP limiter (read-only, cacheable); a note with ~150 embeds used to 429 its own images and then the app's API calls. Mutating `/api/*`, `/share/*`, `/webdav/` and the shell stay limited.
 - **Red "Cannot read properties of undefined (reading 'after')" banner** when opening notes whose raw-HTML `<h1>`–`<h3>` headings repeat (e.g. pasted tables with repeated section headers). Goldmark gives raw HTML headings no id, so the outline's `id:text` x-for key collided, and Alpine 3.14's x-for crashed on the duplicate key — then kept erroring on later navigation (Back/Forward). The outline is now keyed by position.
 
 ## 2026-10-09 — Team instance (team.joao.date)

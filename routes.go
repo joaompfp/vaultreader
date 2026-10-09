@@ -4,6 +4,7 @@ import (
 	"io/fs"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -66,5 +67,25 @@ func (s *server) routes() *http.ServeMux {
 
 // handler wraps the mux in the middleware chain used in production.
 func (s *server) handler() http.Handler {
-	return gzipMiddleware(originGuard(s.requireUser(newRateLimiter(s.routes(), 240, time.Minute))))
+	return gzipMiddleware(originGuard(s.requireUser(newRateLimiter(s.routes(), 240, time.Minute, rateExempt))))
+}
+
+// rateExempt: read-only, cacheable GETs that a single page view fans out
+// into (note image embeds, vault icons, embedded static assets) skip the
+// per-IP limiter, so an image-heavy note can't 429 itself. Everything
+// else (/api/* incl. mutations, /share/*, /webdav/, the shell) is limited.
+func rateExempt(r *http.Request) bool {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		return false
+	}
+	p := r.URL.Path
+	if p == "/api/file" || p == "/api/vault-icon" {
+		return true
+	}
+	if p == "/" || p == "/index.html" || strings.HasPrefix(p, "/api/") || strings.HasPrefix(p, "/share/") ||
+		strings.HasPrefix(p, "/webdav/") || strings.HasPrefix(p, "/n/") {
+		return false
+	}
+	st, err := fs.Stat(staticFiles, "static"+p)
+	return err == nil && !st.IsDir()
 }

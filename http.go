@@ -140,20 +140,26 @@ func isTrustedProxyPeer(host string) bool {
 	return false
 }
 
-// rateLimiter per-IP sliding window.
+// rateLimiter per-IP sliding window. Requests for which exempt returns
+// true bypass the bucket entirely.
 type rateLimiter struct {
 	handler http.Handler
+	exempt  func(*http.Request) bool
 	mu sync.Mutex
 	visitors map[string][]time.Time
 	limit int
 	window time.Duration
 }
 
-func newRateLimiter(h http.Handler, limit int, window time.Duration) *rateLimiter {
-	return &rateLimiter{handler: h, visitors: make(map[string][]time.Time), limit: limit, window: window}
+func newRateLimiter(h http.Handler, limit int, window time.Duration, exempt func(*http.Request) bool) *rateLimiter {
+	return &rateLimiter{handler: h, exempt: exempt, visitors: make(map[string][]time.Time), limit: limit, window: window}
 }
 
 func (rl *rateLimiter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if rl.exempt != nil && rl.exempt(r) {
+		rl.handler.ServeHTTP(w, r)
+		return
+	}
 	peer := r.RemoteAddr
 	if idx := strings.LastIndex(peer, ":"); idx != -1 { peer = peer[:idx] }
 	ip := peer
