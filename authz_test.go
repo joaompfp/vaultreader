@@ -104,3 +104,68 @@ func TestIsWritableCleansPath(t *testing.T) {
 		t.Fatalf("read-only note overwritten: %q", b)
 	}
 }
+
+// Share creation validates the target like any other handler, and an
+// editable share can only point at a writable path.
+func TestShareCreateValidatesPath(t *testing.T) {
+	s := newTestServer(t, AdminConfig{RWPaths: []string{"team/rw"}})
+	v := filepath.Join(s.vaultsDir, "team")
+	writeFile(t, filepath.Join(v, "ro", "a.md"), "# A\n")
+	writeFile(t, filepath.Join(v, "rw", "b.md"), "# B\n")
+	h := s.handler()
+	cases := []struct {
+		body string
+		want int
+	}{
+		{`{"vault":"team","path":"../../escape.md","writable":true}`, 400},
+		{`{"vault":"team","path":"/etc/passwd"}`, 400},
+		{`{"vault":"nope","path":"a.md"}`, 400},
+		{`{"vault":"team","path":"ro/a.md","writable":true}`, 403},
+		{`{"vault":"team","path":"rw/../ro/a.md","writable":true}`, 403},
+	}
+	for _, c := range cases {
+		if rec := do(t, h, "POST", "/api/shares/create", c.body, nil); rec.Code != c.want {
+			t.Errorf("%s: code = %d %s, want %d", c.body, rec.Code, rec.Body.String(), c.want)
+		}
+	}
+	if n := len(s.shares.list()); n != 0 {
+		t.Fatalf("%d shares created by refused requests", n)
+	}
+	// Positive controls: read-only share of a read-only note, editable
+	// share of a writable note.
+	for _, b := range []string{`{"vault":"team","path":"ro/a.md"}`, `{"vault":"team","path":"rw/b.md","writable":true}`} {
+		if rec := do(t, h, "POST", "/api/shares/create", b, nil); rec.Code != 200 {
+			t.Fatalf("%s: code = %d %s, want 200", b, rec.Code, rec.Body.String())
+		}
+	}
+}
+
+// A share save re-checks the path at write time: RWPaths may have changed
+// since the share was made, and old share files may hold any path.
+func TestSharePutRequiresWritableAndSafePath(t *testing.T) {
+	s := newTestServer(t, AdminConfig{RWPaths: []string{"team/rw"}})
+	v := filepath.Join(s.vaultsDir, "team")
+	writeFile(t, filepath.Join(v, "ro", "a.md"), "# original\n")
+	h := s.handler()
+
+	ro := s.shares.create("team", "ro/a.md", true, 0, "", "test")
+	if rec := do(t, h, "PUT", "/share/"+ro.Token, `{"raw":"# pwned\n"}`, nil); rec.Code != 403 {
+		t.Fatalf("PUT to read-only path = %d %s, want 403", rec.Code, rec.Body.String())
+	}
+	if b, _ := os.ReadFile(filepath.Join(v, "ro", "a.md")); string(b) != "# original\n" {
+		t.Fatalf("read-only note overwritten via share: %q", b)
+	}
+
+	esc := s.shares.create("team", "../escape.md", true, 0, "", "test")
+	if rec := do(t, h, "PUT", "/share/"+esc.Token, `{"raw":"x"}`, nil); rec.Code == 200 {
+		t.Fatalf("PUT outside the vault accepted: %s", rec.Body.String())
+	}
+	if exists(filepath.Join(s.vaultsDir, "escape.md")) {
+		t.Fatal("share PUT wrote outside the vault")
+	}
+
+	ok := s.shares.create("team", "rw/new.md", true, 0, "", "test")
+	if rec := do(t, h, "PUT", "/share/"+ok.Token, `{"raw":"# fine\n"}`, nil); rec.Code != 200 {
+		t.Fatalf("positive control PUT = %d %s", rec.Code, rec.Body.String())
+	}
+}
