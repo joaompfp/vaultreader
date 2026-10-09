@@ -849,7 +849,10 @@
       </button>
     </div>
     <div class="outline-list">
-      <template x-for="h in outlineItems()" :key="h.id + ':' + h.text">
+      <!-- Keyed by position: raw-HTML headings (html.WithUnsafe) get no
+           goldmark id, so id+text repeats and Alpine's x-for crashes on
+           duplicate keys ("reading 'after'"). -->
+      <template x-for="(h, i) in outlineItems()" :key="i">
         <a class="outline-item"
            :class="'outline-h' + h.level + (outlineActiveId === h.id ? ' active' : '')"
            :href="'#' + h.id"

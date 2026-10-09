@@ -4,10 +4,13 @@ All notable changes to VaultReader. Versioning is loose — there are no formal 
 
 Most-recent first.
 
-## 2026-10-09 — CSP on the SPA shell
+## 2026-10-09 — CSP on the SPA shell + outline crash fix
 
 **Security**
 - `/` and `/n/*` now send a `Content-Security-Policy` (`connect-src 'self'`, `object-src 'none'`, `base-uri 'self'`, `form-action 'self'`, `frame-ancestors 'self'`; scripts still need `'unsafe-inline'`/`'unsafe-eval'`), plus `X-Content-Type-Options: nosniff` and `Referrer-Policy: same-origin`. Second layer behind DOMPurify. See `docs/security.md`.
+
+**Fixed**
+- **Red "Cannot read properties of undefined (reading 'after')" banner** when opening notes whose raw-HTML `<h1>`–`<h3>` headings repeat (e.g. pasted tables with repeated section headers). Goldmark gives raw HTML headings no id, so the outline's `id:text` x-for key collided, and Alpine 3.14's x-for crashed on the duplicate key — then kept erroring on later navigation (Back/Forward). The outline is now keyed by position.
 
 ## 2026-10-09 — Team instance (team.joao.date)
 
