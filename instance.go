@@ -14,6 +14,7 @@ type InstanceInfo struct {
 	Features     map[string]bool `json:"features"`
 	RWPaths      []string        `json:"rw_paths"`
 	ShareBaseURL string          `json:"share_base_url"`
+	BasePath     string          `json:"base_path"`
 	DefaultNote  string          `json:"default_note"`
 }
 
@@ -32,6 +33,7 @@ func (s *server) handleInstance(w http.ResponseWriter, r *http.Request) {
 		Features:     s.resolvedFeatures(),
 		RWPaths:      rw,
 		ShareBaseURL: s.shareBaseURL(r),
+		BasePath:     s.basePath(),
 		DefaultNote:  defaultNote,
 	})
 }

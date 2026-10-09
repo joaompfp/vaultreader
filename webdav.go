@@ -16,16 +16,15 @@ import (
 // newWebDAVHandler returns a read-only WebDAV handler over the vaults dir.
 // Mounted at /webdav/. Only GET, HEAD, OPTIONS, PROPFIND are allowed; all
 // mutating verbs (PUT, DELETE, MKCOL, COPY, MOVE, LOCK) get 405.
+// PROPFIND hrefs are built from the handler's Prefix, so it gets the
+// public base_path too (requests arrive here with base_path stripped).
 func (s *server) newWebDAVHandler() http.Handler {
-	dav := &webdav.Handler{
-		Prefix:     "/webdav",
-		FileSystem: webdav.Dir(s.vaultsDir),
-		LockSystem: webdav.NewMemLS(),
-		Logger: func(r *http.Request, err error) {
-			if err != nil {
-				log.Printf("webdav %s %s: %v", r.Method, r.URL.Path, err)
-			}
-		},
+	fsys := webdav.Dir(s.vaultsDir)
+	locks := webdav.NewMemLS()
+	logger := func(r *http.Request, err error) {
+		if err != nil {
+			log.Printf("webdav %s %s: %v", r.Method, r.URL.Path, err)
+		}
 	}
 	readOnlyMethods := map[string]bool{
 		"GET": true, "HEAD": true, "OPTIONS": true, "PROPFIND": true,
@@ -43,6 +42,13 @@ func (s *server) newWebDAVHandler() http.Handler {
 			w.Header().Set("Allow", "GET, HEAD, OPTIONS, PROPFIND")
 			http.Error(w, "method not allowed (read-only WebDAV)", http.StatusMethodNotAllowed)
 			return
+		}
+		base := s.basePath()
+		dav := &webdav.Handler{Prefix: base + "/webdav", FileSystem: fsys, LockSystem: locks, Logger: logger}
+		if base != "" {
+			r = r.Clone(r.Context())
+			r.URL.Path = base + r.URL.Path
+			r.URL.RawPath = ""
 		}
 		dav.ServeHTTP(w, r)
 	})

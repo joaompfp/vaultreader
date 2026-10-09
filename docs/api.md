@@ -28,6 +28,7 @@ Everything the SPA needs to adapt to the instance it is talking to.
   "features": {"shares": true, "share_writable": false, "webdav": false, "sync_status": false, "trash_empty": false},
   "rw_paths": ["team"],
   "share_base_url": "https://team.example.com/share/",
+  "base_path": "",
   "default_note": ""
 }
 ```

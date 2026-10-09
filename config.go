@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"regexp"
 	"strings"
 )
 
@@ -33,7 +34,33 @@ func validateConfig(c AdminConfig) error {
 	if c.ShareBaseURL != "" && !strings.HasSuffix(c.ShareBaseURL, "/") {
 		return fmt.Errorf("share_base_url %q must end with /", c.ShareBaseURL)
 	}
+	if c.BasePath != "" && !validBasePath(c.BasePath) {
+		return fmt.Errorf("base_path %q must look like \"/prefix\" (leading /, no trailing /, no . or .. segments, URL-safe characters)", c.BasePath)
+	}
 	return nil
+}
+
+// basePathRe: one or more "/segment" parts of unreserved URL characters,
+// so the value can be spliced into HTML and URLs without escaping.
+var basePathRe = regexp.MustCompile(`^(/[A-Za-z0-9._~-]+)+$`)
+
+func validBasePath(p string) bool {
+	if !basePathRe.MatchString(p) {
+		return false
+	}
+	for _, seg := range strings.Split(p[1:], "/") {
+		if seg == "." || seg == ".." {
+			return false
+		}
+	}
+	return true
+}
+
+// basePath is the public URL prefix the app is served under ("" = root).
+func (s *server) basePath() string {
+	s.cfgMu.RLock()
+	defer s.cfgMu.RUnlock()
+	return s.cfg.BasePath
 }
 
 func (s *server) enabled(name string) bool {
@@ -53,7 +80,7 @@ func (s *server) resolvedFeatures() map[string]bool {
 
 // shareBaseURL is the prefix the UI puts in front of a share token. An
 // explicit share_base_url wins; otherwise it is derived from the request
-// as <scheme>://<host>/share/.
+// as <scheme>://<host><base_path>/share/.
 func (s *server) shareBaseURL(r *http.Request) string {
 	s.cfgMu.RLock()
 	explicit := s.cfg.ShareBaseURL
@@ -61,7 +88,7 @@ func (s *server) shareBaseURL(r *http.Request) string {
 	if explicit != "" {
 		return explicit
 	}
-	return requestScheme(r) + "://" + r.Host + "/share/"
+	return requestScheme(r) + "://" + r.Host + s.basePath() + "/share/"
 }
 
 // requestScheme is "https" or "http": X-Forwarded-Proto when the peer is

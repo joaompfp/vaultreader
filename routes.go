@@ -69,8 +69,67 @@ func (s *server) routes() *http.ServeMux {
 
 // handler wraps the mux in the middleware chain used in production.
 func (s *server) handler() http.Handler {
-	return gzipMiddleware(originGuard(s.requireUser(newRateLimiter(s.routes(), 240, time.Minute, rateExempt))))
+	return s.stripBasePath(gzipMiddleware(originGuard(s.requireUser(newRateLimiter(s.routes(), 240, time.Minute, rateExempt)))))
 }
+
+// stripBasePath makes everything behind it see root-relative paths, so
+// routes, requireUser exemptions, originGuard and the rate limiter never
+// deal with base_path. A request may arrive with the prefix (served
+// directly) or without it (a proxy already stripped it); both work.
+// base_path is the *public* prefix, so root-relative redirects get it
+// prepended either way. "<base>" alone redirects to "<base>/".
+func (s *server) stripBasePath(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		base := s.basePath()
+		if base == "" {
+			next.ServeHTTP(w, r)
+			return
+		}
+		if r.URL.Path == base {
+			target := base + "/"
+			if r.URL.RawQuery != "" {
+				target += "?" + r.URL.RawQuery
+			}
+			http.Redirect(w, r, target, http.StatusMovedPermanently)
+			return
+		}
+		if strings.HasPrefix(r.URL.Path, base+"/") {
+			r2 := r.Clone(r.Context())
+			r2.URL.Path = strings.TrimPrefix(r.URL.Path, base)
+			r2.URL.RawPath = strings.TrimPrefix(r.URL.RawPath, base)
+			r = r2
+		}
+		next.ServeHTTP(&basePathWriter{ResponseWriter: w, base: base}, r)
+	})
+}
+
+// basePathWriter prepends base to root-relative Location headers
+// (ServeMux path-cleaning and trailing-slash redirects).
+type basePathWriter struct {
+	http.ResponseWriter
+	base        string
+	wroteHeader bool
+}
+
+func (w *basePathWriter) WriteHeader(code int) {
+	if !w.wroteHeader {
+		w.wroteHeader = true
+		h := w.Header()
+		if loc := h.Get("Location"); strings.HasPrefix(loc, "/") && !strings.HasPrefix(loc, "//") {
+			h.Set("Location", w.base+loc)
+		}
+	}
+	w.ResponseWriter.WriteHeader(code)
+}
+
+func (w *basePathWriter) Write(b []byte) (int, error) {
+	if !w.wroteHeader {
+		w.WriteHeader(http.StatusOK)
+	}
+	return w.ResponseWriter.Write(b)
+}
+
+func (w *basePathWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
 
 // rateExempt: read-only, cacheable GETs that a single page view fans out
 // into (note image embeds, vault icons, embedded static assets) skip the

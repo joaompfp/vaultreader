@@ -327,10 +327,6 @@ func (s *server) handleShareAsset(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	name := r.URL.Query().Get("name")
-	// Need the token to rewrite KaTeX CSS font URLs back into asset URLs.
-	rest := strings.TrimPrefix(r.URL.Path, "/share/")
-	token := strings.SplitN(rest, "/", 2)[0]
-
 	embedPath, ok := shareAssetAllowlist[name]
 	if !ok {
 		// Allow KaTeX font files at the path "fonts/<file>"
@@ -349,12 +345,12 @@ func (s *server) handleShareAsset(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	// KaTeX CSS contains relative `url(fonts/X)` references; rewrite to
-	// absolute /share/TOKEN/asset?name=fonts/X URLs so the browser fetches
-	// them under the same share-auth bypass.
+	// `url(asset?name=fonts/X)`, which resolves against the stylesheet's
+	// own URL (…/<token>/asset?name=katex.min.css) — so fonts load under
+	// the same share-auth bypass whatever prefix the share page is under
+	// (/share, <base_path>/share, a proxy alias).
 	if name == "katex.min.css" {
-		data = []byte(strings.ReplaceAll(string(data),
-			"url(fonts/",
-			"url(/share/"+token+"/asset?name=fonts/"))
+		data = []byte(strings.ReplaceAll(string(data), "url(fonts/", "url(asset?name=fonts/"))
 	}
 	switch filepath.Ext(name) {
 	case ".js":

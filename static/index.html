@@ -655,27 +655,27 @@
           <span class="viewer-name" x-text="activePath"></span>
           <span class="viewer-size" x-show="viewerSize" x-text="(viewerSize / 1024).toFixed(1) + ' KB'"></span>
           <span style="flex:1"></span>
-          <a class="btn btn-sm" :href="'/api/file?vault=' + encodeURIComponent(activeVault) + '&path=' + encodeURIComponent(activePath)" target="_blank" rel="noopener" title="Open in new tab">
+          <a class="btn btn-sm" :href="VR_BASE + '/api/file?vault=' + encodeURIComponent(activeVault) + '&path=' + encodeURIComponent(activePath)" target="_blank" rel="noopener" title="Open in new tab">
             <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
             Open
           </a>
         </div>
         <template x-if="viewerKind === 'image'">
           <div class="viewer-image">
-            <img :src="'/api/file?vault=' + encodeURIComponent(activeVault) + '&path=' + encodeURIComponent(activePath)" :alt="activePath">
+            <img :src="VR_BASE + '/api/file?vault=' + encodeURIComponent(activeVault) + '&path=' + encodeURIComponent(activePath)" :alt="activePath">
           </div>
         </template>
         <template x-if="viewerKind === 'pdf'">
-          <iframe class="viewer-pdf" :src="'/api/file?vault=' + encodeURIComponent(activeVault) + '&path=' + encodeURIComponent(activePath)"></iframe>
+          <iframe class="viewer-pdf" :src="VR_BASE + '/api/file?vault=' + encodeURIComponent(activeVault) + '&path=' + encodeURIComponent(activePath)"></iframe>
         </template>
         <template x-if="viewerKind === 'text'">
           <pre class="viewer-text" x-text="viewerText"></pre>
         </template>
         <template x-if="viewerKind === 'audio'">
-          <audio class="viewer-audio" controls preload="metadata" :src="'/api/file?vault=' + encodeURIComponent(activeVault) + '&path=' + encodeURIComponent(activePath)"></audio>
+          <audio class="viewer-audio" controls preload="metadata" :src="VR_BASE + '/api/file?vault=' + encodeURIComponent(activeVault) + '&path=' + encodeURIComponent(activePath)"></audio>
         </template>
         <template x-if="viewerKind === 'video'">
-          <video class="viewer-video" controls preload="metadata" :src="'/api/file?vault=' + encodeURIComponent(activeVault) + '&path=' + encodeURIComponent(activePath)"></video>
+          <video class="viewer-video" controls preload="metadata" :src="VR_BASE + '/api/file?vault=' + encodeURIComponent(activeVault) + '&path=' + encodeURIComponent(activePath)"></video>
         </template>
       </div>
 
@@ -1294,7 +1294,7 @@
         <div class="settings-list">
           <template x-for="a in filteredAttachments()" :key="a.path">
             <div class="att-item" :class="{ orphan: a.refCount === 0 }">
-              <img class="att-thumb" :src="'/api/file?vault=' + encodeURIComponent(a.vault) + '&path=' + encodeURIComponent(a.path)" loading="lazy" alt="">
+              <img class="att-thumb" :src="VR_BASE + '/api/file?vault=' + encodeURIComponent(a.vault) + '&path=' + encodeURIComponent(a.path)" loading="lazy" alt="">
               <div class="att-meta">
                 <div class="att-path" x-text="a.path"></div>
                 <div class="att-sub">
@@ -1588,6 +1588,12 @@ window.__cmAPI = {
 
 <!-- ─── Alpine App ─────────────────────────────── -->
 <script>
+// Public URL prefix ("" at the root, e.g. "/vaultreader" under base_path),
+// injected by the server as <meta name="vr-base">. Every app URL the
+// frontend builds (/api/*, /n/*, /share/*) starts with it; it is a global
+// so Alpine expressions and callbacks with their own `this` can use it.
+const VR_BASE = document.querySelector('meta[name="vr-base"]')?.content || ''
+
 function vaultApp() {
   return {
     // ── HTML sanitising ────────────────────────────
@@ -1597,6 +1603,15 @@ function vaultApp() {
     // DOMPurify → nothing rendered.
     _safeHtml(html) {
       return window.DOMPurify ? DOMPurify.sanitize(html || '', { ADD_ATTR: ['target'] }) : ''
+    },
+    // Server-rendered note HTML carries root-absolute app URLs (embed
+    // images src="/api/file?…", wikilinks href="/n/…") — the same HTML
+    // feeds share pages and exports, so the prefix is added here, once,
+    // on HTML fresh from /api/note (never on already-rebased noteHtml).
+    _noteHtml(html) {
+      const safe = this._safeHtml(html)
+      if (!VR_BASE) return safe
+      return safe.replace(/(\s(?:src|href)=")\/(api\/file\?|n\/)/g, '$1' + VR_BASE + '/$2')
     },
 
     // ── Focus trapping ─────────────────────────────
@@ -1971,7 +1986,7 @@ function vaultApp() {
       } catch(_) { this.savedSearches = [] }
 
       try {
-        const res = await fetch('/api/vaults')
+        const res = await fetch(VR_BASE + '/api/vaults')
         this.vaults = await res.json()
         if (this.vaults.length > 0) {
           this.activeVault = this.vaults[0]
@@ -2010,7 +2025,7 @@ function vaultApp() {
           if (this.activeVault !== st.vault || this.activePath !== st.path) {
             await this._routePath()
           }
-        } else if (window.location.pathname === '/' || window.location.pathname === '/index.html') {
+        } else if (window.location.pathname === VR_BASE + '/' || window.location.pathname === VR_BASE + '/index.html') {
           // popped back to root — clear note view
           this.activeVault = this.vaults[0] || ''
           this.activePath = ''
@@ -2042,7 +2057,7 @@ function vaultApp() {
       try {
         // Sync status is separate (refreshSyncStatus): /api/sync-status is
         // feature-gated and 404s on instances without it.
-        const sr = await fetch('/api/stats').then(r => r.json())
+        const sr = await fetch(VR_BASE + '/api/stats').then(r => r.json())
         this.totalNotes = sr.totalNotes || 0
         this.vaultStats = sr.vaults || []
       } catch(e) { console.error('stats:', e) }
@@ -2050,7 +2065,7 @@ function vaultApp() {
 
     async refreshSyncStatus() {
       try {
-        const sy = await fetch('/api/sync-status').then(r => r.json())
+        const sy = await fetch(VR_BASE + '/api/sync-status').then(r => r.json())
         this.syncAvailable = sy.available
         this.syncState = sy.state
         this.syncMessage = sy.message || ''
@@ -2081,7 +2096,7 @@ function vaultApp() {
       this.cwd = path
       this.allNodes = []
       try {
-        const res = await fetch('/api/tree?vault=' + encodeURIComponent(vault))
+        const res = await fetch(VR_BASE + '/api/tree?vault=' + encodeURIComponent(vault))
         const tree = await res.json()
         this.allNodes = this.flattenTree(tree)
       } catch(e) { console.error('enterDir:', e) }
@@ -2205,7 +2220,7 @@ function vaultApp() {
         if (p === '') continue
         segs.push(encodeURIComponent(p))
       }
-      return '/n/' + segs.join('/')
+      return VR_BASE + '/n/' + segs.join('/')
     },
 
     // iOS WebKit throws SecurityError on pushState/replaceState for reasons
@@ -2221,8 +2236,9 @@ function vaultApp() {
     // Returns true if a note URL was matched and loaded.
     async _routePath() {
       const pn = window.location.pathname
-      if (!pn.startsWith('/n/')) return false
-      const rest = pn.slice('/n/'.length)
+      const notePrefix = VR_BASE + '/n/'
+      if (!pn.startsWith(notePrefix)) return false
+      const rest = pn.slice(notePrefix.length)
       if (!rest) return false
       const segs = rest.split('/').map(s => decodeURIComponent(s))
       const vault = segs[0]
@@ -2282,7 +2298,7 @@ function vaultApp() {
 
       // Fetch and render the note
       try {
-        const res = await fetch('/api/note?vault=' + encodeURIComponent(vault) + '&path=' + encodeURIComponent(path))
+        const res = await fetch(VR_BASE + '/api/note?vault=' + encodeURIComponent(vault) + '&path=' + encodeURIComponent(path))
         if (res.status === 404) {
           this.noteHtml = '<div class="note-missing"><p>This note no longer exists.</p></div>'
           this.noteRaw = ''
@@ -2292,7 +2308,7 @@ function vaultApp() {
         }
         const data = await res.json()
         this.noteRaw = data.raw || ''
-        this.noteHtml = this._safeHtml(data.html)
+        this.noteHtml = this._noteHtml(data.html)
         this.noteFrontmatter = data.frontmatter || {}
         this.noteMTime = data.mtime || 0
         this.noteSize = data.size || 0
@@ -2309,7 +2325,7 @@ function vaultApp() {
       if (!this.activeVault) return
       this.tplPicker = { open: true, loading: true, list: [] }
       try {
-        const r = await fetch('/api/templates?vault=' + encodeURIComponent(this.activeVault))
+        const r = await fetch(VR_BASE + '/api/templates?vault=' + encodeURIComponent(this.activeVault))
         if (r.ok) {
           const d = await r.json()
           this.tplPicker.list = d.templates || []
@@ -2353,7 +2369,7 @@ function vaultApp() {
           const path = prefix + name + (name.endsWith('.md') ? '' : '.md')
           const body = this._expandTemplate(tpl.body, { title: name })
           try {
-            const res = await fetch('/api/note?vault=' + encodeURIComponent(this.activeVault) +
+            const res = await fetch(VR_BASE + '/api/note?vault=' + encodeURIComponent(this.activeVault) +
                                     '&path=' + encodeURIComponent(path), {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
@@ -2443,7 +2459,7 @@ function vaultApp() {
           // path, so the server's per-note locks don't contend.
           const results = await Promise.all(items.map(async (p) => {
             const isFolder = dirs.has(p)
-            const url = (isFolder ? '/api/folder' : '/api/note') +
+            const url = (isFolder ? VR_BASE + '/api/folder' : VR_BASE + '/api/note') +
                         '?vault=' + encodeURIComponent(vault) +
                         '&path=' + encodeURIComponent(p)
             try {
@@ -2491,7 +2507,7 @@ function vaultApp() {
         pickerNodes: [],
       }
       try {
-        const r = await fetch('/api/tree?vault=' + encodeURIComponent(this.activeVault))
+        const r = await fetch(VR_BASE + '/api/tree?vault=' + encodeURIComponent(this.activeVault))
         if (r.ok) this.movePicker.pickerNodes = await r.json()
       } catch(e) { console.error('bulk move tree:', e) }
     },
@@ -2523,12 +2539,12 @@ function vaultApp() {
         if (t._bulk && t._bulk.length > 0) {
           for (const e of t._bulk) {
             try {
-              await fetch('/api/trash/restore?vault=' + encodeURIComponent(t.vault) +
+              await fetch(VR_BASE + '/api/trash/restore?vault=' + encodeURIComponent(t.vault) +
                 '&path=' + encodeURIComponent(e.trashPath), { method: 'POST' })
             } catch(err) { console.error('bulk undo:', e.trashPath, err) }
           }
         } else {
-          const res = await fetch('/api/trash/restore?vault=' + encodeURIComponent(t.vault) +
+          const res = await fetch(VR_BASE + '/api/trash/restore?vault=' + encodeURIComponent(t.vault) +
             '&path=' + encodeURIComponent(t.trashPath), { method: 'POST' })
           if (!res.ok) {
             this.modal = { open: true, title: 'Undo failed', body: 'HTTP ' + res.status,
@@ -2588,7 +2604,7 @@ function vaultApp() {
       if (drag.isDir && (targetDir === drag.path || targetDir.startsWith(drag.path + '/'))) return
       const newPath = (targetDir ? targetDir + '/' : '') + drag.name
       try {
-        const res = await fetch('/api/move?vault=' + encodeURIComponent(this.activeVault) +
+        const res = await fetch(VR_BASE + '/api/move?vault=' + encodeURIComponent(this.activeVault) +
           '&from=' + encodeURIComponent(drag.path) +
           '&to=' + encodeURIComponent(newPath), { method: 'POST' })
         if (res.status === 409) {
@@ -2650,7 +2666,7 @@ function vaultApp() {
       }
       // Unknown type — open the file URL in a new tab so the browser
       // decides what to do with it (download / use a plugin).
-      window.open('/api/file?vault=' + encodeURIComponent(vault) +
+      window.open(VR_BASE + '/api/file?vault=' + encodeURIComponent(vault) +
         '&path=' + encodeURIComponent(item.path), '_blank', 'noopener')
     },
 
@@ -2731,7 +2747,7 @@ function vaultApp() {
       // For text-like files, fetch the body so we can render in <pre>.
       if (kind === 'text') {
         try {
-          const r = await fetch('/api/file?vault=' + encodeURIComponent(vault) +
+          const r = await fetch(VR_BASE + '/api/file?vault=' + encodeURIComponent(vault) +
             '&path=' + encodeURIComponent(path))
           this.viewerText = r.ok ? await r.text() : '(failed to load)'
         } catch(e) { this.viewerText = '(error: ' + e.message + ')' }
@@ -2771,7 +2787,7 @@ function vaultApp() {
       this.cwd = parts.join('/')
 
       try {
-        const url = '/api/note?vault=' + encodeURIComponent(vault) +
+        const url = VR_BASE + '/api/note?vault=' + encodeURIComponent(vault) +
                     '&path=' + encodeURIComponent(path)
         const res = await fetch(url)
         if (res.status === 404) {
@@ -2784,7 +2800,7 @@ function vaultApp() {
         if (!res.ok) throw new Error('HTTP ' + res.status)
         const data = await res.json()
         this.noteRaw = data.raw || ''
-        this.noteHtml = this._safeHtml(data.html)
+        this.noteHtml = this._noteHtml(data.html)
         this.noteFrontmatter = data.frontmatter || {}
         this.noteMTime = data.mtime || 0
         this.noteSize = data.size || 0
@@ -2835,12 +2851,12 @@ function vaultApp() {
 
     async rerenderPreview() {
       if (this.isDirty) await this.saveNow()
-      const url = '/api/note?vault=' + encodeURIComponent(this.activeVault) +
+      const url = VR_BASE + '/api/note?vault=' + encodeURIComponent(this.activeVault) +
                   '&path=' + encodeURIComponent(this.activePath)
       try {
         const res = await fetch(url)
         const data = await res.json()
-        this.noteHtml = this._safeHtml(data.html)
+        this.noteHtml = this._noteHtml(data.html)
         this.noteFrontmatter = data.frontmatter || {}
         this.noteMTime = data.mtime || 0
         this.noteSize = data.size || 0
@@ -2961,12 +2977,12 @@ function vaultApp() {
       const vault = this.activeVault
       let justCreated = false
       try {
-        const probe = await fetch('/api/note?vault=' + encodeURIComponent(vault) +
+        const probe = await fetch(VR_BASE + '/api/note?vault=' + encodeURIComponent(vault) +
                                   '&path=' + encodeURIComponent(path))
         if (probe.status === 404) {
           // Create with a tiny template
           const template = `# ${dateStr}\n\n`
-          const create = await fetch('/api/note?vault=' + encodeURIComponent(vault) +
+          const create = await fetch(VR_BASE + '/api/note?vault=' + encodeURIComponent(vault) +
                                      '&path=' + encodeURIComponent(path), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -3103,7 +3119,7 @@ function vaultApp() {
       this.tagsLoading = true
       this.tagsFilter = ''
       try {
-        const r = await fetch('/api/tags')
+        const r = await fetch(VR_BASE + '/api/tags')
         if (!r.ok) { this.tagsList = []; return }
         const data = await r.json()
         this.tagsList = data.tags || []
@@ -3287,7 +3303,7 @@ function vaultApp() {
           if (this.graphVault) params.set('vault', this.graphVault)
           if (this.graphFolder) params.set('folder', this.graphFolder)
         }
-        const url = '/api/graph' + (params.toString() ? '?' + params.toString() : '')
+        const url = VR_BASE + '/api/graph' + (params.toString() ? '?' + params.toString() : '')
         const r = await fetch(url)
         if (!r.ok) return
         const data = await r.json()
@@ -3597,7 +3613,7 @@ function vaultApp() {
       const vault = (target && target.vault) || this.activeVault
       const path  = (target && target.path)  || this.activePath
       if (!vault || !path) throw new Error('no target')
-      const res = await fetch('/api/note?vault=' + encodeURIComponent(vault) +
+      const res = await fetch(VR_BASE + '/api/note?vault=' + encodeURIComponent(vault) +
         '&path=' + encodeURIComponent(path), {
         method: 'PUT',
         headers: { 'Content-Type': 'text/plain; charset=utf-8' },
@@ -3619,7 +3635,7 @@ function vaultApp() {
       this.saveStatus = 'saving'
       const sent = this.noteRaw
       try {
-        let url = '/api/note?vault=' + encodeURIComponent(this.activeVault) +
+        let url = VR_BASE + '/api/note?vault=' + encodeURIComponent(this.activeVault) +
                   '&path=' + encodeURIComponent(this.activePath)
         if (!force && this.noteMTime > 0) {
           url += '&ifMTime=' + this.noteMTime
@@ -3702,7 +3718,7 @@ function vaultApp() {
       if (this.saveStatus === 'saving' || this.saveTimer) return // our own write is in flight/pending
       const v = this.activeVault, p = this.activePath
       const moved = () => this.activeVault !== v || this.activePath !== p
-      const q = '/api/note?vault=' + encodeURIComponent(v) + '&path=' + encodeURIComponent(p)
+      const q = VR_BASE + '/api/note?vault=' + encodeURIComponent(v) + '&path=' + encodeURIComponent(p)
       let meta
       try {
         const r = await fetch(q + '&meta=1')
@@ -3780,7 +3796,7 @@ function vaultApp() {
           if (!safe) return
           const targetPath = (this.cwd ? this.cwd + '/' : '') + safe + '.md'
           try {
-            await fetch('/api/note?vault=' + encodeURIComponent(this.activeVault) +
+            await fetch(VR_BASE + '/api/note?vault=' + encodeURIComponent(this.activeVault) +
                         '&path=' + encodeURIComponent(targetPath), {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
@@ -3820,7 +3836,7 @@ function vaultApp() {
       const name = a.dataset.name
       if (!name) return
       try {
-        const res = await fetch('/api/resolve?name=' + encodeURIComponent(name) + '&vault=' + encodeURIComponent(this.activeVault))
+        const res = await fetch(VR_BASE + '/api/resolve?name=' + encodeURIComponent(name) + '&vault=' + encodeURIComponent(this.activeVault))
         if (res.ok) {
           const d = await res.json()
           this.openNote(d.vault, d.path)
@@ -3915,11 +3931,11 @@ function vaultApp() {
       try {
         await this._saveNote(after)
         // Re-render
-        const r = await fetch('/api/note?vault=' + encodeURIComponent(this.activeVault) +
+        const r = await fetch(VR_BASE + '/api/note?vault=' + encodeURIComponent(this.activeVault) +
           '&path=' + encodeURIComponent(this.activePath))
         if (r.ok) {
           const d = await r.json()
-          this.noteHtml = this._safeHtml(d.html)
+          this.noteHtml = this._noteHtml(d.html)
           this.noteMTime = d.mtime || 0
           this.$nextTick(() => { this.rerenderMermaid(); this.rerenderMath(); this.decorateCodeBlocks() })
         }
@@ -3937,11 +3953,11 @@ function vaultApp() {
           await this._saveNote(before, { vault, path })
           if (this.activeVault === vault && this.activePath === path) {
             this.noteRaw = before
-            const r2 = await fetch('/api/note?vault=' + encodeURIComponent(vault) +
+            const r2 = await fetch(VR_BASE + '/api/note?vault=' + encodeURIComponent(vault) +
               '&path=' + encodeURIComponent(path))
             if (r2.ok) {
               const d2 = await r2.json()
-              this.noteHtml = this._safeHtml(d2.html)
+              this.noteHtml = this._noteHtml(d2.html)
               this.noteMTime = d2.mtime || 0
               this.$nextTick(() => { this.rerenderMermaid(); this.rerenderMath(); this.decorateCodeBlocks() })
             }
@@ -4041,7 +4057,7 @@ function vaultApp() {
         // drop the vault filter so e.g. tag:work hits results from every
         // vault (the Tags modal lists tags from all vaults).
         const goCrossVault = /^\s*(tag|modified)\s*:/i.test(this.searchQuery)
-        let url = '/api/search?q=' + encodeURIComponent(this.searchQuery)
+        let url = VR_BASE + '/api/search?q=' + encodeURIComponent(this.searchQuery)
         if (!goCrossVault) url += '&vault=' + encodeURIComponent(this.activeVault)
         const res = await fetch(url)
         this.searchResults = await res.json()
@@ -4055,7 +4071,7 @@ function vaultApp() {
       this.searchOpen = false
       // Image attachments open in a new tab (raw file). Notes open normally.
       if (r.kind === 'image') {
-        const url = '/api/file?vault=' + encodeURIComponent(r.vault) +
+        const url = VR_BASE + '/api/file?vault=' + encodeURIComponent(r.vault) +
                     '&path=' + encodeURIComponent(r.path)
         window.open(url, '_blank')
         return
@@ -4148,7 +4164,7 @@ function vaultApp() {
         onConfirm: async (name) => {
           const path = prefix + name + (name.endsWith('.md') ? '' : '.md')
           try {
-            const res = await fetch('/api/note?vault=' + encodeURIComponent(this.activeVault) +
+            const res = await fetch(VR_BASE + '/api/note?vault=' + encodeURIComponent(this.activeVault) +
               '&path=' + encodeURIComponent(path), {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
@@ -4178,7 +4194,7 @@ function vaultApp() {
           this.modal.open = false
           try {
             const vault = this.activeVault
-            const res = await fetch('/api/note?vault=' + encodeURIComponent(vault) +
+            const res = await fetch(VR_BASE + '/api/note?vault=' + encodeURIComponent(vault) +
               '&path=' + encodeURIComponent(path), { method: 'DELETE' })
             if (!res.ok) {
               const msg = await res.text().catch(() => 'Delete failed')
@@ -4217,7 +4233,7 @@ function vaultApp() {
       // confirm so the user knows what's about to break.
       let backlinks = []
       try {
-        const r = await fetch('/api/backlinks?vault=' + encodeURIComponent(this.activeVault) +
+        const r = await fetch(VR_BASE + '/api/backlinks?vault=' + encodeURIComponent(this.activeVault) +
                               '&path=' + encodeURIComponent(path))
         if (r.ok) {
           const data = await r.json()
@@ -4234,7 +4250,7 @@ function vaultApp() {
           const newPath = (dir ? dir + '/' : '') + newName + (newName.endsWith('.md') ? '' : '.md')
           if (newPath === path) { this.modal.open = false; return }
           try {
-            const res = await fetch('/api/move?vault=' + encodeURIComponent(this.activeVault) +
+            const res = await fetch(VR_BASE + '/api/move?vault=' + encodeURIComponent(this.activeVault) +
               '&from=' + encodeURIComponent(path) +
               '&to=' + encodeURIComponent(newPath), { method: 'POST' })
             if (res.status === 409) { this.modal.error = 'A note with that name already exists.'; return }
@@ -4279,7 +4295,7 @@ function vaultApp() {
         onConfirm: async (name) => {
           const path = prefix + name
           try {
-            const res = await fetch('/api/folder?vault=' + encodeURIComponent(this.activeVault) +
+            const res = await fetch(VR_BASE + '/api/folder?vault=' + encodeURIComponent(this.activeVault) +
               '&path=' + encodeURIComponent(path), { method: 'POST' })
             if (res.status === 409) { this.modal.error = 'A folder with that name already exists.'; return }
             if (!res.ok) { this.modal.error = 'Error creating folder.'; return }
@@ -4302,7 +4318,7 @@ function vaultApp() {
         onConfirm: async () => {
           try {
             const vault = this.activeVault
-            const res = await fetch('/api/folder?vault=' + encodeURIComponent(vault) +
+            const res = await fetch(VR_BASE + '/api/folder?vault=' + encodeURIComponent(vault) +
               '&path=' + encodeURIComponent(path), { method: 'DELETE' })
             if (!res.ok) {
               const msg = await res.text().catch(() => 'Delete failed')
@@ -4340,7 +4356,7 @@ function vaultApp() {
           const newPath = (dir ? dir + '/' : '') + newName
           if (newPath === path) { this.modal.open = false; return }
           try {
-            const res = await fetch('/api/folder?vault=' + encodeURIComponent(this.activeVault) +
+            const res = await fetch(VR_BASE + '/api/folder?vault=' + encodeURIComponent(this.activeVault) +
               '&from=' + encodeURIComponent(path) +
               '&to=' + encodeURIComponent(newPath), { method: 'PATCH' })
             if (res.status === 409) { this.modal.error = 'A folder with that name already exists.'; return }
@@ -4573,7 +4589,7 @@ function vaultApp() {
         fd.append('vault', this.activeVault)
         fd.append('notePath', this.activePath)
         fd.append('file', file)
-        const res = await fetch('/api/upload', { method: 'POST', body: fd })
+        const res = await fetch(VR_BASE + '/api/upload', { method: 'POST', body: fd })
         if (!res.ok) {
           const txt = await res.text().catch(() => '')
           throw new Error('HTTP ' + res.status + ' ' + txt)
@@ -4627,7 +4643,7 @@ function vaultApp() {
         fd.append('vault', this.activeVault)
         fd.append('notePath', this.activePath)
         fd.append('file', file)
-        const res = await fetch('/api/upload', { method: 'POST', body: fd })
+        const res = await fetch(VR_BASE + '/api/upload', { method: 'POST', body: fd })
         if (!res.ok) {
           const txt = await res.text().catch(() => '')
           throw new Error('HTTP ' + res.status + ' ' + txt)
@@ -4636,7 +4652,7 @@ function vaultApp() {
         const embed = '![[' + data.path + ']]'
         // Append to noteRaw with two newlines for spacing, then PUT.
         const newRaw = this.noteRaw.replace(/\s*$/, '') + '\n\n' + embed + '\n'
-        const putRes = await fetch('/api/note?vault=' + encodeURIComponent(this.activeVault) +
+        const putRes = await fetch(VR_BASE + '/api/note?vault=' + encodeURIComponent(this.activeVault) +
           '&path=' + encodeURIComponent(this.activePath) +
           (this.noteMTime ? '&ifMTime=' + this.noteMTime : ''),
           { method: 'PUT', headers: { 'Content-Type': 'text/plain; charset=utf-8' }, body: newRaw })
@@ -4699,7 +4715,7 @@ function vaultApp() {
         if (!ctx.explicit && q.length < 1) return null
         let results = []
         try {
-          const r = await fetch('/api/search?vault=' + encodeURIComponent(self.activeVault) +
+          const r = await fetch(VR_BASE + '/api/search?vault=' + encodeURIComponent(self.activeVault) +
                                  '&q=' + encodeURIComponent(q))
           if (r.ok) results = (await r.json() || []).slice(0, 12)
         } catch (e) { /* offline / aborted — show nothing */ }
@@ -4734,7 +4750,7 @@ function vaultApp() {
         // Bare `#` lists the top tags (capped below) — acts as a picker.
         let tags = []
         try {
-          const r = await fetch('/api/tags')
+          const r = await fetch(VR_BASE + '/api/tags')
           if (r.ok) tags = (await r.json()).tags || []
         } catch (e) { /* */ }
         const opts = tags
@@ -4755,7 +4771,7 @@ function vaultApp() {
         const q = mm[1].toLowerCase()
         let tpls = []
         try {
-          const r = await fetch('/api/templates?vault=' + encodeURIComponent(self.activeVault))
+          const r = await fetch(VR_BASE + '/api/templates?vault=' + encodeURIComponent(self.activeVault))
           if (r.ok) tpls = (await r.json()).templates || []
         } catch (e) { /* */ }
         const opts = tpls
@@ -4858,7 +4874,7 @@ function vaultApp() {
       this.docxTemplates = []
       if (!this.activeVault || !this.activePath) return
       try {
-        const r = await fetch('/api/templates/docx' +
+        const r = await fetch(VR_BASE + '/api/templates/docx' +
           '?vault=' + encodeURIComponent(this.activeVault) +
           '&path=' + encodeURIComponent(this.activePath))
         if (!r.ok) return
@@ -4869,7 +4885,7 @@ function vaultApp() {
 
     async quickShare(writable, ttlSecs) {
       try {
-        const r = await fetch('/api/shares/create', {
+        const r = await fetch(VR_BASE + '/api/shares/create', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -4909,7 +4925,7 @@ function vaultApp() {
       vault = vault || this.activeVault
       path  = path  || this.activePath
       if (!vault || !path) return
-      let url = '/api/note/export?format=docx' +
+      let url = VR_BASE + '/api/note/export?format=docx' +
                 '&vault=' + encodeURIComponent(vault) +
                 '&path='  + encodeURIComponent(path)
       if (templatePath) url += '&template=' + encodeURIComponent(templatePath)
@@ -4969,7 +4985,7 @@ function vaultApp() {
     async revokeShareFromPop(token) {
       if (!confirm('Revoke this share link? It will stop working immediately.')) return
       try {
-        await fetch('/api/shares/revoke?token=' + encodeURIComponent(token), { method: 'DELETE' })
+        await fetch(VR_BASE + '/api/shares/revoke?token=' + encodeURIComponent(token), { method: 'DELETE' })
         await this.loadActiveShares()
       } catch(e) { console.error('revoke:', e) }
     },
@@ -4984,7 +5000,7 @@ function vaultApp() {
     async createShare() {
       const { vault, path, writable, ttl, label } = this.shareModal
       try {
-        const r = await fetch('/api/shares/create', {
+        const r = await fetch(VR_BASE + '/api/shares/create', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ vault, path, writable, ttl: parseInt(ttl) || 0, label })
@@ -5006,27 +5022,27 @@ function vaultApp() {
 
     async loadActiveShares() {
       try {
-        const r = await fetch('/api/shares')
+        const r = await fetch(VR_BASE + '/api/shares')
         if (r.ok) this.activeShares = await r.json()
       } catch(e) { console.error('shares fetch:', e) }
     },
 
     async loadInstance() {
       try {
-        const r = await fetch('/api/instance', { signal: AbortSignal.timeout(5000) })
+        const r = await fetch(VR_BASE + '/api/instance', { signal: AbortSignal.timeout(5000) })
         if (r.ok) this.instance = { ...this.instance, ...(await r.json()) }
       } catch(e) { console.error('instance fetch:', e) }
     },
     // Missing feature key = enabled, same rule as the server.
     feat(name) { return (this.instance.features || {})[name] !== false },
-    shareURL(token) { return (this.instance.share_base_url || location.origin + '/share/') + token },
+    shareURL(token) { return (this.instance.share_base_url || location.origin + VR_BASE + '/share/') + token },
     // Public read of just the rw_paths list — runs on init for non-admin
     // sessions so isWritable() can return correct values for UI gating.
     // Admin Settings still loads the full config (with admin_token) when
     // the user opens that tab.
     async loadWritablePaths() {
       try {
-        const r = await fetch('/api/writable-paths')
+        const r = await fetch(VR_BASE + '/api/writable-paths')
         if (r.ok) {
           const data = await r.json()
           this.adminConfig.rw_paths = data.rw_paths || []
@@ -5037,7 +5053,7 @@ function vaultApp() {
     async revokeShare(token) {
       if (!confirm('Revoke this share link? It will stop working immediately.')) return
       try {
-        await fetch('/api/shares/revoke?token=' + encodeURIComponent(token), { method: 'DELETE' })
+        await fetch(VR_BASE + '/api/shares/revoke?token=' + encodeURIComponent(token), { method: 'DELETE' })
         await this.loadActiveShares()
       } catch(e) { console.error('revoke:', e) }
     },
@@ -5061,7 +5077,7 @@ function vaultApp() {
       // Return fallback immediately, fetch in background
       if (!this._iconPending[key]) {
         this._iconPending[key] = true
-        fetch(`/api/vault-icon?vault=${encodeURIComponent(key)}`)
+        fetch(VR_BASE + `/api/vault-icon?vault=${encodeURIComponent(key)}`)
           .then(r => {
             if (r.status === 204) {
               // No custom icon — keep fallback
@@ -5094,7 +5110,7 @@ function vaultApp() {
       // Lazy-load tab-specific data
       if (this.settingsTab === 'admin') {
         try {
-          const r = await fetch('/api/admin/config')
+          const r = await fetch(VR_BASE + '/api/admin/config')
           if (r.ok) this.adminConfig = await r.json()
         } catch(e) { console.error('admin config fetch:', e) }
       }
@@ -5112,7 +5128,7 @@ function vaultApp() {
       this.attachmentsLoading = true
       this.attachmentsVault = vault || this.activeVault || (this.vaults[0] || '')
       try {
-        const r = await fetch('/api/attachments?vault=' + encodeURIComponent(this.attachmentsVault))
+        const r = await fetch(VR_BASE + '/api/attachments?vault=' + encodeURIComponent(this.attachmentsVault))
         if (!r.ok) { this.attachments = []; return }
         const data = await r.json()
         this.attachments = data.items || []
@@ -5150,7 +5166,7 @@ function vaultApp() {
         danger: true,
         onConfirm: async () => {
           try {
-            await fetch('/api/attachments?vault=' + encodeURIComponent(item.vault) +
+            await fetch(VR_BASE + '/api/attachments?vault=' + encodeURIComponent(item.vault) +
                         '&path=' + encodeURIComponent(item.path), { method: 'DELETE' })
             await this.loadAttachments(item.vault)
           } catch(e) {
@@ -5173,7 +5189,7 @@ function vaultApp() {
         onConfirm: async () => {
           for (const item of orphans) {
             try {
-              await fetch('/api/attachments?vault=' + encodeURIComponent(item.vault) +
+              await fetch(VR_BASE + '/api/attachments?vault=' + encodeURIComponent(item.vault) +
                           '&path=' + encodeURIComponent(item.path), { method: 'DELETE' })
             } catch(e) { console.error('delete orphan', item.path, e) }
           }
@@ -5188,7 +5204,7 @@ function vaultApp() {
       try {
         const merged = []
         for (const v of this.vaults) {
-          const r = await fetch('/api/trash?vault=' + encodeURIComponent(v))
+          const r = await fetch(VR_BASE + '/api/trash?vault=' + encodeURIComponent(v))
           if (!r.ok) continue
           const data = await r.json()
           for (const it of (data.items || [])) {
@@ -5200,7 +5216,7 @@ function vaultApp() {
     },
     async restoreTrashItem(vault, path) {
       try {
-        const r = await fetch('/api/trash/restore?vault=' + encodeURIComponent(vault) +
+        const r = await fetch(VR_BASE + '/api/trash/restore?vault=' + encodeURIComponent(vault) +
                               '&path=' + encodeURIComponent(path), { method: 'POST' })
         if (!r.ok) throw new Error('HTTP ' + r.status)
         await this.loadTrashItems()
@@ -5211,7 +5227,7 @@ function vaultApp() {
     },
     async permanentlyDeleteTrashItem(vault, path) {
       try {
-        const r = await fetch('/api/trash/empty?vault=' + encodeURIComponent(vault) +
+        const r = await fetch(VR_BASE + '/api/trash/empty?vault=' + encodeURIComponent(vault) +
                               '&path=' + encodeURIComponent(path), { method: 'DELETE' })
         if (!r.ok) throw new Error('HTTP ' + r.status)
         await this.loadTrashItems()
@@ -5231,7 +5247,7 @@ function vaultApp() {
         onConfirm: async () => {
           for (const v of this.vaults) {
             try {
-              await fetch('/api/trash/empty?vault=' + encodeURIComponent(v), { method: 'DELETE' })
+              await fetch(VR_BASE + '/api/trash/empty?vault=' + encodeURIComponent(v), { method: 'DELETE' })
             } catch(e) { console.error('empty trash for', v, e) }
           }
           await this.loadTrashItems()
@@ -5253,7 +5269,7 @@ function vaultApp() {
         onConfirm: async () => {
           // Single batch call — avoids per-token rate-limit hits.
           try {
-            await fetch('/api/shares/revoke-all', { method: 'DELETE' })
+            await fetch(VR_BASE + '/api/shares/revoke-all', { method: 'DELETE' })
           } catch(e) { console.error('revoke-all', e) }
           await this.loadActiveShares()
         },
@@ -5277,7 +5293,7 @@ function vaultApp() {
 
     async adminSave() {
       try {
-        await fetch('/api/admin/config', {
+        await fetch(VR_BASE + '/api/admin/config', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(this.adminConfig)
@@ -5288,7 +5304,7 @@ function vaultApp() {
     async adminRestart() {
       if (!confirm('Restart the container? The page will reload in a few seconds.')) return
       this.adminRestarting = true
-      try { await fetch('/api/admin/restart', { method: 'POST' }) } catch(e) {}
+      try { await fetch(VR_BASE + '/api/admin/restart', { method: 'POST' }) } catch(e) {}
       setTimeout(() => location.reload(), 4000)
     },
 
@@ -5313,7 +5329,7 @@ function vaultApp() {
       // load vault tree for the picker
       const nodes = []
       try {
-        const res = await fetch('/api/tree?vault=' + encodeURIComponent(this.activeVault))
+        const res = await fetch(VR_BASE + '/api/tree?vault=' + encodeURIComponent(this.activeVault))
         if (res.ok) nodes.push(...(await res.json()))
       } catch(e) {}
       this.movePicker = {
@@ -5383,7 +5399,7 @@ function vaultApp() {
           const toPath = pickerCwd ? pickerCwd + '/' + basename : basename
           if (toPath === p) continue
           try {
-            const res = await fetch('/api/move?vault=' + encodeURIComponent(vault) +
+            const res = await fetch(VR_BASE + '/api/move?vault=' + encodeURIComponent(vault) +
                                     '&from=' + encodeURIComponent(p) +
                                     '&to=' + encodeURIComponent(toPath), { method: 'POST' })
             if (res.ok && this.activePath === p) movedActive = toPath
@@ -5405,7 +5421,7 @@ function vaultApp() {
         return
       }
       try {
-        const url = '/api/move?vault=' + encodeURIComponent(vault) +
+        const url = VR_BASE + '/api/move?vault=' + encodeURIComponent(vault) +
                     '&from=' + encodeURIComponent(fromPath) +
                     '&to=' + encodeURIComponent(toPath)
         const res = await fetch(url, { method: 'POST' })

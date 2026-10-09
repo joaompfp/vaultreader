@@ -3,6 +3,7 @@
 package main
 
 import (
+	"bytes"
 	"io/fs"
 	"net/http"
 	"os"
@@ -84,10 +85,26 @@ func (s *server) handleIndex(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "index.html not found", 500)
 		return
 	}
+	data = withBasePath(data, s.basePath())
 	h := w.Header()
 	h.Set("Content-Type", "text/html; charset=utf-8")
 	h.Set("Content-Security-Policy", spaCSP)
 	h.Set("X-Content-Type-Options", "nosniff")
 	h.Set("Referrer-Policy", "same-origin")
 	_, _ = w.Write(data)
+}
+
+// withBasePath tells the shell its public prefix: a <meta name="vr-base">
+// the frontend reads once, and the root-absolute src="/…" / href="/…"
+// attributes of the bundled assets rewritten to "<base>/…". base is
+// validated to URL-safe characters (validBasePath), so no escaping is
+// needed. With no base the asset URLs stay as they are.
+func withBasePath(page []byte, base string) []byte {
+	meta := []byte(`<meta name="vr-base" content="` + base + `">`)
+	page = bytes.Replace(page, []byte("<head>"), append([]byte("<head>\n  "), meta...), 1)
+	if base == "" {
+		return page
+	}
+	page = bytes.ReplaceAll(page, []byte(` src="/`), []byte(` src="`+base+`/`))
+	return bytes.ReplaceAll(page, []byte(` href="/`), []byte(` href="`+base+`/`))
 }

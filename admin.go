@@ -24,6 +24,7 @@ type AdminConfig struct {
 
 	RequireUser  bool            `json:"require_user,omitempty"`   // 401 without Remote-User (team instance)
 	ShareBaseURL string          `json:"share_base_url,omitempty"` // public prefix for share links; empty = derived from the request
+	BasePath     string          `json:"base_path,omitempty"`      // public URL prefix, e.g. "/vaultreader"; empty = served at /
 	DefaultNote  string          `json:"default_note,omitempty"`   // "vault/path.md" opened when nothing is restored
 	VaultOrder   []string        `json:"vault_order,omitempty"`    // vaults listed first, in this order; the rest follow alphabetically
 	Features     map[string]bool `json:"features,omitempty"`       // missing key = enabled; see knownFeatures
