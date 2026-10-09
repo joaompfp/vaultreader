@@ -29,6 +29,8 @@ func (s *server) newWebDAVHandler() http.Handler {
 	readOnlyMethods := map[string]bool{
 		"GET": true, "HEAD": true, "OPTIONS": true, "PROPFIND": true,
 	}
+	base := s.basePath() // fixed at startup
+	dav := &webdav.Handler{Prefix: base + "/webdav", FileSystem: fsys, LockSystem: locks, Logger: logger}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Vault bytes on the app origin: same Content-Type decision as
 		// /api/file (never sniffed), and every response sandboxed since
@@ -43,8 +45,6 @@ func (s *server) newWebDAVHandler() http.Handler {
 			http.Error(w, "method not allowed (read-only WebDAV)", http.StatusMethodNotAllowed)
 			return
 		}
-		base := s.basePath()
-		dav := &webdav.Handler{Prefix: base + "/webdav", FileSystem: fsys, LockSystem: locks, Logger: logger}
 		if base != "" {
 			r = r.Clone(r.Context())
 			r.URL.Path = base + r.URL.Path
