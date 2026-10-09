@@ -11,6 +11,7 @@ import (
 )
 
 func TestEnabledDefaultsToTrue(t *testing.T) {
+	withFakeOfficecli(t)
 	s := newTestServer(t, AdminConfig{})
 	for _, f := range knownFeatures {
 		if !s.enabled(f) {

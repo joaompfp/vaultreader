@@ -27,6 +27,10 @@ func main() {
 
 	log.Printf("vaultreader starting — vaults=%s port=%s", *vaultsDir, *port)
 
+	if !officecliInstalled() {
+		log.Printf("officecli not found on PATH — DOCX export disabled")
+	}
+
 	idx := newIndex()
 
 	// Check if vaults dir exists, warn but don't fail (might be mounted later)

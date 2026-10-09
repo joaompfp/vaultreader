@@ -1,0 +1,9 @@
+.git
+.github
+.superpowers
+.gitnexus
+.worktrees
+appdata
+docs
+*.md
+!CHANGELOG.md

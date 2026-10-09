@@ -1,0 +1,45 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and push multi-arch image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          build-args: GIT_SHA=${{ github.ref_name }}
+          tags: |
+            ghcr.io/joaompfp/vaultreader:${{ github.ref_name }}
+            ghcr.io/joaompfp/vaultreader:latest
+      - name: Extract release notes from CHANGELOG
+        run: |
+          tag="${GITHUB_REF_NAME}"
+          # Section "## <tag>" (also "## [<tag>]" or "## <tag> - date") up to the next "## ".
+          awk -v t="$tag" -v t2="${tag#v}" '
+            /^## /{ if (on) exit; h=$0; gsub(/[\[\]]/,"",h);
+                    if (index(h,"## " t)==1 || index(h,"## " t2)==1) { on=1; next } }
+            on' CHANGELOG.md > notes.md
+          [ -s notes.md ] || echo "Release ${tag}" > notes.md
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --notes-file notes.md

@@ -1,34 +1,35 @@
 # VaultReader — example Docker Compose
-# Copy this to docker-compose.yml and adjust paths/ports for your setup.
+# Copy to docker-compose.yml and adjust the paths.
 
 services:
   vaultreader:
-    image: ghcr.io/vaultreader/vaultreader:latest   # or build locally
-    # build:
-    #   context: .
-    #   dockerfile: Dockerfile
+    image: ghcr.io/joaompfp/vaultreader:latest
     container_name: vaultreader
     ports:
-      - "8080:8080"           # adjust host port as needed
+      - "8080:8080"
     volumes:
-      - /path/to/your/vaults:/vaults:rw    # mount your Obsidian vaults
-      - /path/to/appdata:/appdata:rw       # persists vault icons + customisations
+      - /path/to/your/vaults:/vaults:rw   # folders here are the vaults
+      - /path/to/appdata:/appdata:rw      # config.json, shares, vault icons
     restart: unless-stopped
-    environment:
-      # Optional: Syncthing integration (omit if not using Syncthing)
-      # SYNCTHING_API_KEY: "your-syncthing-api-key"
-      # SYNCTHING_API_URL: "http://syncthing:8384"
-      pass: "true"  # placeholder so env block is valid
+    # environment:
+    #   # Optional Syncthing integration (sync status in the sidebar)
+    #   SYNCTHING_API_KEY: "your-syncthing-api-key"
+    #   SYNCTHING_API_URL: "http://syncthing:8384"
 
-    # ── Traefik reverse proxy (optional) ──────────────────────────────────────
-    # Remove everything below if you're not using Traefik.
+    # ── Behind a forward-auth reverse proxy (optional) ───────────────────────
+    # Put VaultReader on a private network and let the proxy (Authelia,
+    # Authentik, oauth2-proxy, Traefik forward-auth, ...) authenticate users.
+    # The proxy passes the authenticated user in the Remote-User header.
+    # Set "require_user": true in /appdata/config.json so requests without
+    # that header are rejected (401), and never publish port 8080 directly.
     # networks:
     #   - proxy
-    # labels:
+    # labels:                      # Traefik example
     #   - "traefik.enable=true"
-    #   - "traefik.http.routers.vaultreader.rule=Host(`notes.yourdomain.com`)"
+    #   - "traefik.http.routers.vaultreader.rule=Host(`notes.example.com`)"
     #   - "traefik.http.routers.vaultreader.entrypoints=websecure"
     #   - "traefik.http.routers.vaultreader.tls.certresolver=letsencrypt"
+    #   - "traefik.http.routers.vaultreader.middlewares=forward-auth@docker"
     #   - "traefik.http.services.vaultreader.loadbalancer.server.port=8080"
 
 # networks:

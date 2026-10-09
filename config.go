@@ -6,14 +6,16 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"os/exec"
 	"regexp"
 	"strings"
 )
 
 // knownFeatures lists every toggle an instance may switch off in
 // config.json → "features". A missing key means enabled, so an empty
-// config reproduces the original single-user behaviour.
-var knownFeatures = []string{"shares", "share_writable", "webdav", "sync_status", "trash_empty"}
+// config reproduces the original single-user behaviour. export_docx is
+// additionally off whenever officecli is not installed (see enabled).
+var knownFeatures = []string{"shares", "share_writable", "webdav", "sync_status", "trash_empty", "export_docx"}
 
 func validateConfig(c AdminConfig) error {
 	for k := range c.Features {
@@ -66,8 +68,17 @@ func (s *server) basePath() string {
 func (s *server) enabled(name string) bool {
 	s.cfgMu.RLock()
 	defer s.cfgMu.RUnlock()
+	if name == "export_docx" && !officecliInstalled() {
+		return false
+	}
 	v, ok := s.cfg.Features[name]
 	return !ok || v
+}
+
+// officecliInstalled reports whether the DOCX exporter's binary is on PATH.
+func officecliInstalled() bool {
+	_, err := exec.LookPath(officecliBin)
+	return err == nil
 }
 
 func (s *server) resolvedFeatures() map[string]bool {

@@ -118,3 +118,27 @@ func TestTemplateStripBuiltinStylesUntouched(t *testing.T) {
 		t.Fatalf("got %+v idx %d", cmds, pIdx)
 	}
 }
+
+// export_docx is on only when officecli is installed: without it the
+// feature reports off and both export routes 404.
+func TestExportDocxFeatureFollowsOfficecli(t *testing.T) {
+	t.Setenv("PATH", t.TempDir()) // no officecli here
+	s := newTestServer(t, AdminConfig{})
+	if s.resolvedFeatures()["export_docx"] {
+		t.Fatal("export_docx enabled without officecli on PATH")
+	}
+	for _, p := range []string{"/api/note/export?vault=team&path=a.md&format=docx", "/api/templates/docx?vault=team&path=a.md"} {
+		if rec := do(t, s.handler(), "GET", p, "", nil); rec.Code != 404 {
+			t.Fatalf("%s: code %d, want 404", p, rec.Code)
+		}
+	}
+
+	withFakeOfficecli(t)
+	if !s.resolvedFeatures()["export_docx"] {
+		t.Fatal("export_docx disabled although officecli is on PATH")
+	}
+	off := newTestServer(t, AdminConfig{Features: map[string]bool{"export_docx": false}})
+	if off.resolvedFeatures()["export_docx"] {
+		t.Fatal("config export_docx=false ignored")
+	}
+}

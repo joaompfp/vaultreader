@@ -329,7 +329,7 @@
               </button>
             </div>
             <!-- Export — sibling section so it doesn't read as a share-link option -->
-            <div class="share-pop-section share-pop-section-export" x-show="activeVault && activePath">
+            <div class="share-pop-section share-pop-section-export" x-show="activeVault && activePath && feat('export_docx')">
               <div class="share-pop-head">Export as .docx</div>
               <!-- Blank docx (always shown). Skips the heavy template route. -->
               <button class="share-pop-quick" @click="sharePopoverOpen=false; exportNoteDocx()">
@@ -4382,7 +4382,7 @@ function vaultApp() {
         items.push({ label: 'Move to…', action: () => this.promptMoveItem(item.path, false) })
         items.push({ label: 'Share…', action: () => this.openShareModal(item.path) })
         if (/\.md$/i.test(item.path)) {
-          items.push({ label: 'Export as .docx', action: () => this.exportNoteDocx(this.activeVault, item.path) })
+          if (this.feat('export_docx')) items.push({ label: 'Export as .docx', action: () => this.exportNoteDocx(this.activeVault, item.path) })
         }
         items.push({ label: 'Delete', danger: true, action: () => this.deleteNote(item.path) })
       } else {
@@ -4872,7 +4872,7 @@ function vaultApp() {
 
     async loadDocxTemplates() {
       this.docxTemplates = []
-      if (!this.activeVault || !this.activePath) return
+      if (!this.feat('export_docx') || !this.activeVault || !this.activePath) return
       try {
         const r = await fetch(VR_BASE + '/api/templates/docx' +
           '?vault=' + encodeURIComponent(this.activeVault) +

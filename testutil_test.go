@@ -56,3 +56,16 @@ func do(t *testing.T, h http.Handler, method, target, body string, headers map[s
 	h.ServeHTTP(rec, req)
 	return rec
 }
+
+// withFakeOfficecli puts an executable named officecli alone on PATH, so
+// tests that expect export_docx enabled do not depend on the host.
+func withFakeOfficecli(t *testing.T) {
+	t.Helper()
+	bin := t.TempDir()
+	p := filepath.Join(bin, officecliBin)
+	writeFile(t, p, "#!/bin/sh\n")
+	if err := os.Chmod(p, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", bin)
+}

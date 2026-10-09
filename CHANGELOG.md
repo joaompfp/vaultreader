@@ -6,6 +6,10 @@ Most-recent first.
 
 ## Unreleased
 
+**Added**
+- **`export_docx` feature**: DOCX export (and its template listing) is on only when `officecli` is on PATH at runtime and not switched off in `features`; otherwise both routes 404 and the UI hides the export entries.
+- **Multi-arch image** (linux/amd64 + linux/arm64) with a SHA-256-verified officecli download, a `Makefile`, GitHub Actions CI and a tag-triggered release workflow publishing to `ghcr.io/joaompfp/vaultreader`.
+
 **Changed**
 - **`share_base_url` is derived when unset**: `<scheme>://<host>/share/` from the request (scheme from `X-Forwarded-Proto` when the peer is a trusted proxy, else the connection's TLS state). `/api/instance` returns the derived value. Previously the default was a hardcoded host; set `share_base_url` explicitly to keep a public alias such as `https://example.com/notes/`.
 - **DOCX title pages are template-generic**: any template with a `<w:titlePg/>` title page keeps it; a title-page paragraph whose style ID or content-control tag (case-insensitive) equals or starts with `CoverTitle`/`Title` gets the note title, one starting with `Date` gets today's date. Word's built-in `Title`/`Date` paragraph styles are not placeholders (exact style IDs are skipped; content-control tags with those values still count). Templates without a title page get no substitution. Previously this only applied to templates under a specific folder with specific style names.
