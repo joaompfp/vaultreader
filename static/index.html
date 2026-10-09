@@ -3229,6 +3229,13 @@ function vaultApp() {
     },
     closeGraph() {
       this.graphOpen = false
+      // The layout simulation, the fit animation and the delayed label
+      // refresh all outlive the overlay; stop them before tearing down.
+      clearTimeout(this._graphLabelTimer)
+      if (this._graphLayoutInstance) {
+        try { this._graphLayoutInstance.stop() } catch(_) {}
+        this._graphLayoutInstance = null
+      }
       if (this._cy) {
         try { this._cy.destroy() } catch(_) {}
         this._cy = null
@@ -3314,6 +3321,7 @@ function vaultApp() {
         const r = await fetch(url)
         if (!r.ok) return
         const data = await r.json()
+        if (!this.graphOpen) return   // closed while the graph was loading
         const nodeCount = data.nodes.length
         const elements = [
           ...data.nodes.map(n => ({
@@ -3467,7 +3475,7 @@ function vaultApp() {
         // dragging doesn't yank your viewport around.
         let _firstLayoutDone = false
         this._cy.on('layoutstop', () => {
-          if (_firstLayoutDone) return
+          if (_firstLayoutDone || !this._cy) return
           _firstLayoutDone = true
           if (this.graphCenter) {
             const c = this._cy.getElementById(this.graphCenter)
@@ -3485,6 +3493,7 @@ function vaultApp() {
         // Zoom-aware label visibility. Only show non-center labels when the
         // user has zoomed in enough; never let labels collide at default zoom.
         const updateLabels = () => {
+          if (!this._cy) return   // graph closed mid-animation
           const z = this._cy.zoom()
           const showAll = z >= 1.8       // 8px font × 1.8 ≈ 14px rendered
           this._cy.batch(() => {
@@ -3499,13 +3508,15 @@ function vaultApp() {
         }
         this._cy.on('zoom', updateLabels)
         // Run once after initial settle (delayed so the fit animation finishes)
-        setTimeout(updateLabels, 1500)
+        clearTimeout(this._graphLabelTimer)
+        this._graphLabelTimer = setTimeout(updateLabels, 1500)
 
         // Live reflow on drag — restart the cola simulation whenever the
         // user grabs a node, so the rest of the graph re-settles around it.
         // Default cola stops after maxSimulationTime; this kicks it back to
         // life only on interaction (no idle CPU cost).
         this._graphReflow = () => {
+          if (!this._cy) return
           // Cancel any layout currently running, run a brief one.
           if (this._graphLayoutInstance) {
             try { this._graphLayoutInstance.stop() } catch(_) {}
