@@ -47,8 +47,8 @@ func replaceCmds(idx, txt string) []batchCmd {
 }
 
 // Any template with a <w:titlePg/> title page keeps it: a paragraph whose
-// style or content-control tag starts with CoverTitle/Title (any case)
-// gets the note title, one starting with Date gets today; the body after
+// style or content-control tag names the title (CoverTitle…, any case)
+// gets the note title, one naming the date (Date…) gets today; the body after
 // the break is stripped.
 func TestTemplateStripTitlePage(t *testing.T) {
 	path := writeDocx(t,
@@ -73,18 +73,56 @@ func TestTemplateStripTitlePage(t *testing.T) {
 	}
 }
 
-// Style-based placeholders (e.g. "CoverTitleAcme", "TitleX") match by
-// prefix, case-insensitively.
+// Style-based title placeholders match by the "CoverTitle" prefix,
+// case-insensitively; other "Title…" styles are ordinary formatting.
 func TestTemplateStripStylePrefix(t *testing.T) {
 	path := writeDocx(t,
 		`<w:p><w:pPr><w:pStyle w:val="CoverTitleAcme"/></w:pPr><w:r><w:t>x</w:t></w:r></w:p>`+
-			`<w:p><w:pPr><w:pStyle w:val="TITLEx"/></w:pPr><w:r><w:t>x</w:t></w:r></w:p>`+
+			`<w:p><w:pPr><w:pStyle w:val="COVERTITLEx"/></w:pPr><w:r><w:t>x</w:t></w:r></w:p>`+
+			`<w:p><w:pPr><w:pStyle w:val="TitlePageBackground"/></w:pPr><w:r><w:t>keep</w:t></w:r></w:p>`+
 			`<w:p><w:pPr><w:pStyle w:val="CoverSubtitleAcme"/><w:sectPr><w:titlePg/></w:sectPr></w:pPr></w:p>`)
 	paras, tables, _ := scanBody(path)
 	cmds, pIdx, _ := templateStripCmds(paras, tables, "N", "D")
 	want := append(replaceCmds("1", "N"), replaceCmds("2", "N")...)
-	if !reflect.DeepEqual(cmds, want) || pIdx != 3 {
+	if !reflect.DeepEqual(cmds, want) || pIdx != 4 {
 		t.Fatalf("got %+v idx %d", cmds, pIdx)
+	}
+}
+
+// coverRole only claims keys that name a placeholder: "TitlePage…",
+// "title-logo" and "DateFormat" tags are other parts of a cover page.
+func TestCoverRoleKeys(t *testing.T) {
+	cases := []struct {
+		style string
+		tag   string
+		want  string
+	}{
+		{style: "CoverTitleAcme", want: "title"},
+		{style: "covertitle", want: "title"},
+		{style: "DateX", want: "date"},
+		{style: "dateAcme", want: "date"},
+		{style: "Title", want: ""}, // Word built-in
+		{style: "Date", want: ""},  // Word built-in
+		{style: "TitlePageBackground", want: ""},
+		{style: "title-logo", want: ""},
+		{style: "TitleX", want: ""},
+		{style: "CoverSubtitle", want: ""},
+		{tag: "Title", want: "title"},
+		{tag: "coverTitle", want: "title"},
+		{tag: "CoverTitleMain", want: "title"},
+		{tag: "DATE", want: "date"},
+		{tag: "title-logo", want: ""},
+		{tag: "TitlePageBackground", want: ""},
+		{tag: "DateFormat", want: ""},
+	}
+	for _, c := range cases {
+		p := bodyPara{styleID: c.style}
+		if c.tag != "" {
+			p.tags = []string{c.tag}
+		}
+		if got := coverRole(p); got != c.want {
+			t.Errorf("style %q tag %q: coverRole = %q, want %q", c.style, c.tag, got, c.want)
+		}
 	}
 }
 

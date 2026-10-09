@@ -1155,31 +1155,47 @@ func templateStripCmds(paras []bodyPara, tables []bodyTable, noteTitle, today st
 }
 
 // coverRole classifies a title-page paragraph by its style ID or the tag
-// of a content control inside it (case-insensitive): a key equal to or
-// starting with "CoverTitle" or "Title" is the title placeholder, one
-// starting with "Date" the date placeholder. "CoverSubtitle…" matches
-// neither. Word's built-in "Title" and "Date" paragraph styles are plain
-// formatting, not placeholders, so a style ID equal to exactly "Title" or
-// "Date" does not count (a content-control tag with that value does).
-// Returns "title", "date" or "".
+// of a content control inside it (case-insensitive). Returns "title",
+// "date" or "".
+//
+//   - Styles: one starting with "CoverTitle" is the title placeholder, one
+//     starting with "Date" the date placeholder (e.g. CoverTitleAcme,
+//     DateAcme). Word's built-in "Title" and "Date" paragraph styles are
+//     plain formatting, not placeholders, and other "Title…" styles
+//     (TitlePageBackground, title-logo) are other parts of a cover page.
+//   - Content-control tags: exactly "Title" or one starting with
+//     "CoverTitle" is the title, exactly "Date" the date.
+//
+// "CoverSubtitle…" matches neither.
 func coverRole(p bodyPara) string {
-	if r := keyRole(p.styleID); r != "" && !strings.EqualFold(p.styleID, r) {
+	if r := styleRole(p.styleID); r != "" {
 		return r
 	}
 	for _, t := range p.tags {
-		if r := keyRole(t); r != "" {
+		if r := tagRole(t); r != "" {
 			return r
 		}
 	}
 	return ""
 }
 
-func keyRole(k string) string {
-	k = strings.ToLower(k)
+func styleRole(style string) string {
+	k := strings.ToLower(style)
 	switch {
-	case strings.HasPrefix(k, "covertitle"), strings.HasPrefix(k, "title"):
+	case strings.HasPrefix(k, "covertitle"):
 		return "title"
-	case strings.HasPrefix(k, "date"):
+	case strings.HasPrefix(k, "date") && k != "date":
+		return "date"
+	}
+	return ""
+}
+
+func tagRole(tag string) string {
+	k := strings.ToLower(tag)
+	switch {
+	case k == "title", strings.HasPrefix(k, "covertitle"):
+		return "title"
+	case k == "date":
 		return "date"
 	}
 	return ""
