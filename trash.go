@@ -194,21 +194,40 @@ func (s *server) handleTrashEmpty(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	trashDir := filepath.Join(vp, ".trash")
+	// Deletion here is permanent, so each entry needs its original path
+	// to be writable — the same rule that let it be deleted in the first
+	// place (trash/restore check it too).
+	writableEntry := func(name string) bool {
+		orig, ok := decodeTrashName(name)
+		if !ok {
+			orig = legacyDecodeTrashName(name)
+		}
+		return s.isWritable(vault, orig)
+	}
 	path := r.URL.Query().Get("path")
 	if path != "" {
 		// Delete single item
 		full := filepath.Join(vp, strings.ReplaceAll(path, "/", string(os.PathSeparator)))
 		// safety check — the bare HasPrefix(full, trashDir) is fooled by a
-		// sibling like ".trashfoo"; require either equality with trashDir
-		// (which deletes nothing useful but is safe) or a real subpath.
-		if full != trashDir && !strings.HasPrefix(full, trashDir+string(os.PathSeparator)) {
+		// sibling like ".trashfoo"; require a real subpath.
+		if !strings.HasPrefix(full, trashDir+string(os.PathSeparator)) {
 			http.Error(w, "invalid path", http.StatusBadRequest)
+			return
+		}
+		entry := strings.SplitN(strings.TrimPrefix(full, trashDir+string(os.PathSeparator)), string(os.PathSeparator), 2)[0]
+		if !writableEntry(entry) {
+			errResponse(w, 403, "path is not writable")
 			return
 		}
 		os.RemoveAll(full)
 	} else {
-		// Empty entire trash
-		os.RemoveAll(trashDir)
+		// Empty the trash: only entries from writable paths.
+		entries, _ := os.ReadDir(trashDir)
+		for _, e := range entries {
+			if writableEntry(e.Name()) {
+				os.RemoveAll(filepath.Join(trashDir, e.Name()))
+			}
+		}
 		os.MkdirAll(trashDir, 0755)
 	}
 	w.WriteHeader(http.StatusNoContent)

@@ -169,3 +169,41 @@ func TestSharePutRequiresWritableAndSafePath(t *testing.T) {
 		t.Fatalf("positive control PUT = %d %s", rec.Code, rec.Body.String())
 	}
 }
+
+// Emptying the trash deletes permanently, so it only touches entries whose
+// original path is writable.
+func TestTrashEmptyRequiresWritable(t *testing.T) {
+	s := newTestServer(t, AdminConfig{RWPaths: []string{"team/rw"}})
+	v := filepath.Join(s.vaultsDir, "team")
+	roName := makeTrashName("ro/a.md", 1)
+	rwName := makeTrashName("rw/b.md", 1)
+	rw2Name := makeTrashName("rw/c.md", 1)
+	for _, n := range []string{roName, rwName, rw2Name} {
+		writeFile(t, filepath.Join(v, ".trash", n), "x\n")
+	}
+	h := s.handler()
+
+	if rec := do(t, h, "DELETE", "/api/trash/empty?vault=team&path=.trash/"+roName, "", nil); rec.Code != 403 {
+		t.Fatalf("single read-only = %d %s, want 403", rec.Code, rec.Body.String())
+	}
+	if !exists(filepath.Join(v, ".trash", roName)) {
+		t.Fatal("read-only trash entry deleted")
+	}
+	if rec := do(t, h, "DELETE", "/api/trash/empty?vault=team&path=.trash/"+rw2Name, "", nil); rec.Code != 204 {
+		t.Fatalf("single writable = %d %s, want 204", rec.Code, rec.Body.String())
+	}
+	if exists(filepath.Join(v, ".trash", rw2Name)) {
+		t.Fatal("writable trash entry not deleted")
+	}
+
+	// The trash dir itself is not an entry (RemoveAll on it used to wipe all).
+	if rec := do(t, h, "DELETE", "/api/trash/empty?vault=team&path=.trash", "", nil); rec.Code != 400 || !exists(filepath.Join(v, ".trash", roName)) {
+		t.Fatalf("path=.trash = %d, want 400 and nothing deleted", rec.Code)
+	}
+	if rec := do(t, h, "DELETE", "/api/trash/empty?vault=team", "", nil); rec.Code != 204 {
+		t.Fatalf("empty all = %d %s", rec.Code, rec.Body.String())
+	}
+	if !exists(filepath.Join(v, ".trash", roName)) || exists(filepath.Join(v, ".trash", rwName)) {
+		t.Fatal("empty-all must delete only entries from writable paths")
+	}
+}
