@@ -26,6 +26,20 @@ jobs:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Compute image tags
+        id: tags
+        run: |
+          tags="ghcr.io/joaompfp/vaultreader:${GITHUB_REF_NAME}"
+          # Pre-releases (tag contains '-') never move :latest.
+          case "$GITHUB_REF_NAME" in
+            *-*) ;;
+            *) tags="${tags}"$'\n'"ghcr.io/joaompfp/vaultreader:latest" ;;
+          esac
+          {
+            echo "list<<EOF"
+            echo "$tags"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
       - name: Build and push multi-arch image
         uses: docker/build-push-action@v6
         with:
@@ -33,19 +47,28 @@ jobs:
           platforms: linux/amd64,linux/arm64
           push: true
           build-args: GIT_SHA=${{ github.ref_name }}
-          tags: |
-            ghcr.io/joaompfp/vaultreader:${{ github.ref_name }}
-            ghcr.io/joaompfp/vaultreader:latest
+          tags: ${{ steps.tags.outputs.list }}
       - name: Extract release notes from CHANGELOG
         run: |
           tag="${GITHUB_REF_NAME}"
-          # Section "## <tag>" (also "## [<tag>]" or "## <tag> - date") up to the next "## ".
+          # Section "## <tag>" (also "## [<tag>]" or "## <tag> - date") up to
+          # the next "## ". The version is matched as a whole word, so v1.0.1
+          # never selects the v1.0.10 section.
           awk -v t="$tag" -v t2="${tag#v}" '
             /^## /{ if (on) exit; h=$0; gsub(/[\[\]]/,"",h);
-                    if (index(h,"## " t)==1 || index(h,"## " t2)==1) { on=1; next } }
+                    split(h, f, /[ \t]+/);
+                    if (f[2] == t || f[2] == t2) { on=1; next} }
             on' CHANGELOG.md > notes.md
           [ -s notes.md ] || echo "Release ${tag}" > notes.md
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --notes-file notes.md
+        run: |
+          flags=""
+          case "$GITHUB_REF_NAME" in *-*) flags="--prerelease" ;; esac
+          # Idempotent: a re-run edits the existing release instead of failing.
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release edit "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --notes-file notes.md $flags
+          else
+            gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME" --notes-file notes.md $flags
+          fi
