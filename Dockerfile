@@ -18,6 +18,9 @@ RUN CGO_ENABLED=0 go test ./...
 ARG GIT_SHA=dev
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=$TARGETARCH \
     go build -buildvcs=false -ldflags="-s -w -X main.version=${GIT_SHA}" -trimpath -o vaultreader .
+# License texts for the runtime image, world-readable whatever the
+# build context's permissions.
+RUN install -d -m 0755 /out/doc/vaultreader && install -m 0644 LICENSE THIRD_PARTY_NOTICES.md /out/doc/vaultreader/
 
 # Stage 2: officecli download, checked against pinned SHA-256 sums (taken from
 # the release's SHA256SUMS). Bump version and both sums together.
@@ -45,6 +48,7 @@ LABEL org.opencontainers.image.source="https://github.com/joaompfp/vaultreader" 
       org.opencontainers.image.title="VaultReader"
 COPY --from=officecli --chmod=0755 /tmp/officecli /usr/local/bin/officecli
 COPY --from=builder /app/vaultreader /vaultreader
+COPY --from=builder /out/doc/ /usr/share/doc/
 VOLUME ["/vaults", "/appdata"]
 EXPOSE 8080
 ENTRYPOINT ["/vaultreader"]

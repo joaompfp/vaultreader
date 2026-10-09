@@ -7,3 +7,4 @@ appdata
 docs
 *.md
 !CHANGELOG.md
+!THIRD_PARTY_NOTICES.md
