@@ -30,7 +30,13 @@
 </head>
 <body>
 
-<div id="app" x-data="vaultApp()" x-init="init()">
+<div id="app" x-data="vaultApp()" x-init="init()" :class="{ 'has-banner': demoBannerVisible() }">
+
+  <!-- Public-demo notice (config demo_mode); dismissible for the session -->
+  <div class="demo-banner" role="status" x-show="demoBannerVisible()" x-cloak style="display:none">
+    <span>Public demo — changes are reset every hour</span>
+    <button type="button" class="demo-banner-close" @click="dismissDemoBanner()" aria-label="Dismiss">&times;</button>
+  </div>
 
   <div class="sidebar-scrim" x-show="sidebarOpen" @click="sidebarOpen = false"></div>
 
@@ -1674,7 +1680,8 @@ function vaultApp() {
     noteMTime: 0,
     // Per-instance capabilities from /api/instance. Defaults reproduce
     // the original single-user behaviour if the fetch fails.
-    instance: { version: '', user: '', features: {}, share_base_url: '', default_note: '' },
+    instance: { version: '', user: '', features: {}, share_base_url: '', default_note: '', demo_mode: false },
+    demoBannerDismissed: (() => { try { return sessionStorage.getItem('vr-demo-banner') === '1' } catch(_) { return false } })(),
     noteSize: 0,
     backlinks: [],
     mode: 'preview',
@@ -5034,6 +5041,11 @@ function vaultApp() {
       } catch(e) { console.error('instance fetch:', e) }
     },
     // Missing feature key = enabled, same rule as the server.
+    demoBannerVisible() { return !!this.instance.demo_mode && !this.demoBannerDismissed },
+    dismissDemoBanner() {
+      this.demoBannerDismissed = true
+      try { sessionStorage.setItem('vr-demo-banner', '1') } catch(_) {}
+    },
     feat(name) { return (this.instance.features || {})[name] !== false },
     shareURL(token) { return (this.instance.share_base_url || location.origin + VR_BASE + '/share/') + token },
     // Public read of just the rw_paths list — runs on init for non-admin
