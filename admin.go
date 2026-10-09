@@ -20,11 +20,12 @@ import (
 
 type AdminConfig struct {
 	AdminToken string   `json:"admin_token,omitempty"` // secret token for admin endpoints; empty = admin disabled
-	RWPaths    []string `json:"rw_paths"`              // vault-relative paths that allow writes, e.g. "pessoal/agents/hermes/skills"
+	RWPaths    []string `json:"rw_paths"`              // vault-relative paths that allow writes, e.g. "notes/agents/skills"
 
 	RequireUser  bool            `json:"require_user,omitempty"`   // 401 without Remote-User (team instance)
-	ShareBaseURL string          `json:"share_base_url,omitempty"` // public prefix for share links; default joao.date/notas/
+	ShareBaseURL string          `json:"share_base_url,omitempty"` // public prefix for share links; empty = derived from the request
 	DefaultNote  string          `json:"default_note,omitempty"`   // "vault/path.md" opened when nothing is restored
+	VaultOrder   []string        `json:"vault_order,omitempty"`    // vaults listed first, in this order; the rest follow alphabetically
 	Features     map[string]bool `json:"features,omitempty"`       // missing key = enabled; see knownFeatures
 }
 
@@ -92,8 +93,8 @@ func (s *server) saveConfig() error {
 }
 
 // isWritable returns true if vault+path is under one of the configured RW paths.
-// rw_paths are vault-rooted, e.g. "pessoal" (whole vault) or "pessoal/agents/hermes/skills" (subfolder).
-// vault is e.g. "pessoal"; path is vault-relative e.g. "agents/hermes/skills/foo.md".
+// rw_paths are vault-rooted, e.g. "notes" (whole vault) or "notes/agents/skills" (subfolder).
+// vault is e.g. "notes"; path is vault-relative e.g. "agents/skills/foo.md".
 func (s *server) isWritable(vault, path string) bool {
 	s.cfgMu.RLock()
 	defer s.cfgMu.RUnlock()

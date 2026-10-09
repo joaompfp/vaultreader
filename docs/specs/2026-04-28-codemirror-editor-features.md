@@ -28,11 +28,11 @@ Each is independent and can ship separately, but they're specified together beca
 
 The bundled `static/mermaid.min.js` is v10.9. Block diagrams require v11+. To include the **Block** Mermaid starter, we upgrade first.
 
-**Steps** (per the existing skill doc procedure):
+**Steps:**
 
 1. Download `https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js` → save to `static/mermaid.min.js`.
-2. Smoke-test in a browser tab pointing at `notes.joao.date`: open the canonical sample diagram (the LIS10 PEP org chart referenced in the skill doc) and confirm it still renders. Also open one note containing a `flowchart`, one `gantt`, one `sequenceDiagram` — pick from the live vaults — and confirm none regressed.
-3. If a regression is found, revert the file (one-file change), document the v10/v11 syntax delta in the skill doc, and reduce the starter set to v10-compatible ones (i.e. drop Block).
+2. Smoke-test in a browser tab pointing at a running instance: open a complex sample diagram (e.g. a large org chart) and confirm it still renders. Also open one note containing a `flowchart`, one `gantt`, one `sequenceDiagram` and confirm none regressed.
+3. If a regression is found, revert the file (one-file change), document the v10/v11 syntax delta, and reduce the starter set to v10-compatible ones (i.e. drop Block).
 4. Commit as a separate commit before the toolbar work.
 
 Risk: low. Mermaid v10 → v11 release notes flag breaking changes only in `mindmap` and `quadrantChart` (neither used in this app). All five starter diagrams (flowchart, sequence, gantt, pie, block) are v11-stable.

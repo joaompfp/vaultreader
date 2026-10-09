@@ -11,13 +11,13 @@ import (
 	"testing"
 )
 
-// newTestServer builds a server over real temp dirs with one vault "jll".
+// newTestServer builds a server over real temp dirs with one vault "team".
 func newTestServer(t *testing.T, cfg AdminConfig) *server {
 	t.Helper()
 	root := t.TempDir()
 	vaults := filepath.Join(root, "vaults")
 	appdata := filepath.Join(root, "appdata")
-	for _, d := range []string{filepath.Join(vaults, "jll"), appdata} {
+	for _, d := range []string{filepath.Join(vaults, "team"), appdata} {
 		if err := os.MkdirAll(d, 0o755); err != nil {
 			t.Fatal(err)
 		}

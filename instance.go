@@ -31,7 +31,7 @@ func (s *server) handleInstance(w http.ResponseWriter, r *http.Request) {
 		User:         userFrom(r),
 		Features:     s.resolvedFeatures(),
 		RWPaths:      rw,
-		ShareBaseURL: s.shareBaseURL(),
+		ShareBaseURL: s.shareBaseURL(r),
 		DefaultNote:  defaultNote,
 	})
 }

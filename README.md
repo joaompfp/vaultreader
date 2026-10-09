@@ -6,7 +6,7 @@ A self-hosted web reader and editor for [Obsidian](https://obsidian.md) vaults. 
 ![Docker](https://img.shields.io/badge/Docker-scratch-lightgrey)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
-> **Status:** personal project, used daily at `notes.joao.date`. PRs welcome but no SLA. The project is in active development; features land in main without long deprecation cycles.
+> **Status:** personal project, used daily by its author. PRs welcome but no SLA. The project is in active development; features land in main without long deprecation cycles.
 
 ## What it is
 

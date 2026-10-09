@@ -9,8 +9,8 @@ import (
 
 func TestInstanceInfo(t *testing.T) {
 	s := newTestServer(t, AdminConfig{
-		RWPaths:      []string{"jll"},
-		ShareBaseURL: "https://team.joao.date/share/",
+		RWPaths:      []string{"team"},
+		ShareBaseURL: "https://team.example.com/share/",
 		Features:     map[string]bool{"webdav": false},
 	})
 	rec := do(t, s.handler(), "GET", "/api/instance", "", map[string]string{"Remote-User": "alice"})
@@ -21,7 +21,7 @@ func TestInstanceInfo(t *testing.T) {
 	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
 		t.Fatal(err)
 	}
-	if got.User != "alice" || got.Version != version || got.ShareBaseURL != "https://team.joao.date/share/" {
+	if got.User != "alice" || got.Version != version || got.ShareBaseURL != "https://team.example.com/share/" {
 		t.Fatalf("unexpected %+v", got)
 	}
 	if got.Features["webdav"] || !got.Features["shares"] || len(got.Features) != len(knownFeatures) {
@@ -36,5 +36,17 @@ func TestHealthReportsVersion(t *testing.T) {
 	_ = json.Unmarshal(rec.Body.Bytes(), &got)
 	if got["status"] != "ok" || got["version"] != version {
 		t.Fatalf("health %v", got)
+	}
+}
+
+func TestInstanceInfoDerivesShareBaseURL(t *testing.T) {
+	s := newTestServer(t, AdminConfig{})
+	rec := do(t, s.handler(), "GET", "http://notes.example.com/api/instance", "", nil)
+	var got InstanceInfo
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	if got.ShareBaseURL != "http://notes.example.com/share/" {
+		t.Fatalf("share_base_url = %q", got.ShareBaseURL)
 	}
 }

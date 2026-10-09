@@ -27,7 +27,7 @@ appdata/
 ├── shares.json     — active share tokens (auto-managed, do not edit by hand)
 ├── audit.jsonl     — append-only log of who changed what (auto-managed)
 └── icons/
-    ├── pessoal.png
+    ├── personal.png
     ├── work.svg
     └── …
 ```
@@ -40,9 +40,9 @@ This directory is not in git. Mount it as a writable volume in production.
 {
   "admin_token": "long-random-string-or-empty",
   "rw_paths": [
-    "pessoal",
-    "pessoal/agents",
-    "work/jll/active"
+    "personal",
+    "personal/agents",
+    "work/team/active"
   ]
 }
 ```
@@ -50,7 +50,7 @@ This directory is not in git. Mount it as a writable volume in production.
 | Field | Type | Default | Description |
 |---|---|---|---|
 | `admin_token` | string | `""` | Required for `/api/admin/*` endpoints. Empty disables the admin API entirely (returns `403 admin not configured`). |
-| `rw_paths` | string[] | `[]` | Path prefixes (vault-relative) that allow writes. Read-only by default — adding `"pessoal"` makes the entire `pessoal` vault writable; adding `"pessoal/agents"` only allows writes inside that subtree. |
+| `rw_paths` | string[] | `[]` | Path prefixes (vault-relative) that allow writes. Read-only by default — adding `"personal"` makes the entire `personal` vault writable; adding `"personal/agents"` only allows writes inside that subtree. |
 
 #### Per-instance options (all optional)
 
@@ -59,8 +59,8 @@ Defaults reproduce the original single-user behaviour, so an existing `config.js
 ```json
 {
   "require_user": true,
-  "rw_paths": ["jll"],
-  "share_base_url": "https://team.joao.date/share/",
+  "rw_paths": ["team"],
+  "share_base_url": "https://team.example.com/share/",
   "default_note": "",
   "features": {
     "shares": true,
@@ -75,8 +75,9 @@ Defaults reproduce the original single-user behaviour, so an existing `config.js
 | Field | Default | Team instance | Effect |
 |---|---|---|---|
 | `require_user` | `false` | `true` | `401` for any request without a non-empty `Remote-User` header, except `/share/*` and `/health`. Fail-closed for instances that must only be reached through the auth proxy |
-| `share_base_url` | `https://joao.date/notas/` | `https://team.joao.date/share/` | Prefix the UI puts in front of a share token. Must end with `/` |
-| `default_note` | `""` | `""` | `"vault/path.md"` opened when no note is restored (main instance: `pessoal/inbox/tarefas.md`). Must contain a `/` |
+| `share_base_url` | `""` (derived) | `https://team.example.com/share/` | Prefix the UI puts in front of a share token. Must end with `/`. Empty = derived from the request as `<scheme>://<host>/share/` (scheme from `X-Forwarded-Proto` when the peer is a trusted proxy, else TLS state); set it for a public alias such as `https://example.com/notes/` |
+| `default_note` | `""` | `""` | `"vault/path.md"` opened when no note is restored (e.g. `personal/inbox/todo.md`). Must contain a `/` |
+| `vault_order` | `[]` | `[]` | Vault names listed first in the sidebar and stats, in this order (absent names skipped); the rest follow alphabetically |
 | `features.shares` | `true` | `true` | `/api/shares*` and `/share/*` |
 | `features.share_writable` | `true` | `false` | `false` → creating a share with `writable: true` returns `403`; existing writable shares are served read-only |
 | `features.webdav` | `true` | `false` | `/webdav/` |
@@ -124,7 +125,7 @@ Auto-managed. Do not edit by hand — the format is:
   "entries": [
     {
       "token": "94a75c66...",
-      "vault": "pessoal",
+      "vault": "personal",
       "path": "viagens/Lisbon trip.md",
       "writable": false,
       "created_at": 1775590996,
@@ -168,7 +169,7 @@ Obsidian's Templater syntax (`<% tp.date.now(...) %>`) renders literally — Vau
 
 ### `appdata/audit.jsonl`
 
-One JSON line per mutation, appended by the app: `{"ts":…,"user":"alice","action":"save","vault":"jll","path":"LIS10/x.md","to":"","bytes":1234}`. Actions: `save`, `create`, `upload`, `move`, `delete`, `restore`, `share`, `revoke`. A host-side timer (`vault-commit-authors`) reads it from a stored byte offset to make per-author git commits (see `docs/security.md`). Rotating or truncating it is safe: when the file is smaller than the stored offset the committer logs it and starts again from byte 0. Lines appended since the last run (≤ 5 min) that are rotated away before it runs lose their attribution and land in the fallback `vr(sync)` commit instead.
+One JSON line per mutation, appended by the app: `{"ts":…,"user":"alice","action":"save","vault":"team","path":"project/x.md","to":"","bytes":1234}`. Actions: `save`, `create`, `upload`, `move`, `delete`, `restore`, `share`, `revoke`. A host-side timer (`vault-commit-authors`) reads it from a stored byte offset to make per-author git commits (see `docs/security.md`). Rotating or truncating it is safe: when the file is smaller than the stored offset the committer logs it and starts again from byte 0. Lines appended since the last run (≤ 5 min) that are rotated away before it runs lose their attribution and land in the fallback `vr(sync)` commit instead.
 
 ### `<vault>/.trash/`
 

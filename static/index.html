@@ -1349,8 +1349,8 @@
 
         <p class="settings-hint" style="margin-top: 12px">
           Writable paths are configured in <code>appdata/config.json</code> via the <code>rw_paths</code> array.
-          A vault's name (e.g. <code>pessoal</code>) makes the whole vault writable; a path
-          (e.g. <code>pessoal/agents/hermes/skills</code>) opens up just that subtree.
+          A vault's name (e.g. <code>notes</code>) makes the whole vault writable; a path
+          (e.g. <code>notes/agents/skills</code>) opens up just that subtree.
         </p>
 
         <div class="settings-divider"></div>
@@ -1659,7 +1659,7 @@ function vaultApp() {
     noteMTime: 0,
     // Per-instance capabilities from /api/instance. Defaults reproduce
     // the original single-user behaviour if the fetch fails.
-    instance: { version: '', user: '', features: {}, share_base_url: 'https://joao.date/notas/', default_note: '' },
+    instance: { version: '', user: '', features: {}, share_base_url: '', default_note: '' },
     noteSize: 0,
     backlinks: [],
     mode: 'preview',
@@ -5019,7 +5019,7 @@ function vaultApp() {
     },
     // Missing feature key = enabled, same rule as the server.
     feat(name) { return (this.instance.features || {})[name] !== false },
-    shareURL(token) { return this.instance.share_base_url + token },
+    shareURL(token) { return (this.instance.share_base_url || location.origin + '/share/') + token },
     // Public read of just the rw_paths list — runs on init for non-admin
     // sessions so isWritable() can return correct values for UI gating.
     // Admin Settings still loads the full config (with admin_token) when

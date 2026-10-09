@@ -745,9 +745,10 @@ func sanitizeDocxFilename(s string) string {
 // bodyPara is one paragraph (w:p) directly under w:body, captured by
 // scanBody for use by the template-strip logic.
 type bodyPara struct {
-	index      int    // 1-based ordinal among /body/p[]
-	styleID    string // contents of <w:pStyle w:val="...">; "" if Normal
-	hasTitlePg bool   // <w:sectPr><w:titlePg/></w:sectPr> on this paragraph
+	index      int      // 1-based ordinal among /body/p[]
+	styleID    string   // contents of <w:pStyle w:val="...">; "" if Normal
+	tags       []string // <w:tag w:val="..."> of content controls inside it
+	hasTitlePg bool     // <w:sectPr><w:titlePg/></w:sectPr> on this paragraph
 }
 
 // bodyTable is one /body/tbl[] entry — currently only its index, plus
@@ -759,7 +760,7 @@ type bodyTable struct {
 
 // noteTitleFor returns a display title for the note — the basename
 // without .md extension. Cheap; used for placeholder substitution on
-// JLL title-page templates.
+// title-page templates.
 func noteTitleFor(notePath string) string {
 	base := filepath.Base(notePath)
 	return strings.TrimSuffix(base, ".md")
@@ -914,6 +915,14 @@ func scanBody(docxPath string) (paras []bodyPara, tables []bodyTable, ok bool) {
 					}
 				}
 			}
+			if curPara != nil && t.Name.Local == "tag" {
+				for _, a := range t.Attr {
+					if a.Name.Local == "val" {
+						curPara.tags = append(curPara.tags, a.Value)
+						break
+					}
+				}
+			}
 			if curPara != nil && t.Name.Local == "titlePg" {
 				curPara.hasTitlePg = true
 			}
@@ -1021,97 +1030,11 @@ func (s *server) renderDocx(raw, vault, notePath, templateFull string) (string, 
 	// appending the note. Chrome (styles, headers, footers, watermark,
 	// section properties) lives outside /body's p/tbl children and is
 	// preserved by the underlying docx structure.
-	//
-	// JLL-style templates have a title page separated by a <w:titlePg/>
-	// section break. We keep paragraphs in that title section, replace
-	// the Cover-Title placeholder text with the note's title, and strip
-	// only the body that follows. Non-JLL / no-title-page templates
-	// strip everything.
 	if usingTemplate {
-		paras, tables, scanOK := scanBody(outFile)
-		if scanOK {
-			titleEnd := -1
-			for _, p := range paras {
-				if p.hasTitlePg {
-					titleEnd = p.index
-					break
-				}
-			}
-			isJLL := strings.Contains(strings.ToLower(templateFull), "/jll/")
-
-			noteTitle := noteTitleFor(notePath)
-			if isJLL && titleEnd > 0 {
-				// Update title-page placeholders in place.
-				for _, p := range paras[:titleEnd] {
-					switch p.styleID {
-					case "CoverTitleJLL":
-						// remove the existing runs, then add a fresh one
-						// with the note title. Two runs is typical; remove
-						// up to 8 defensively.
-						for k := 0; k < 8; k++ {
-							ctx.cmds = append(ctx.cmds, batchCmd{
-								Op: "remove", Path: fmt.Sprintf("/body/p[%d]/r[1]", p.index),
-							})
-						}
-						ctx.cmds = append(ctx.cmds, batchCmd{
-							Op: "add", Parent: fmt.Sprintf("/body/p[%d]", p.index),
-							Type: "run", Props: map[string]any{"text": noteTitle},
-						})
-					case "DateJLL":
-						for k := 0; k < 8; k++ {
-							ctx.cmds = append(ctx.cmds, batchCmd{
-								Op: "remove", Path: fmt.Sprintf("/body/p[%d]/r[1]", p.index),
-							})
-						}
-						ctx.cmds = append(ctx.cmds, batchCmd{
-							Op: "add", Parent: fmt.Sprintf("/body/p[%d]", p.index),
-							Type: "run", Props: map[string]any{"text": time.Now().Format("2 January 2006")},
-						})
-					}
-				}
-				// Strip body paragraphs AFTER the title page. They occupy
-				// indices titleEnd+1..len(paras); after each removal the
-				// list shifts, so always target /body/p[titleEnd+1].
-				bodyParaCount := len(paras) - titleEnd
-				for i := 0; i < bodyParaCount; i++ {
-					ctx.cmds = append(ctx.cmds, batchCmd{
-						Op: "remove", Path: fmt.Sprintf("/body/p[%d]", titleEnd+1),
-					})
-				}
-				// Strip tables that fell after the title-page break.
-				bodyTblCount := 0
-				firstBodyTbl := -1
-				for _, t := range tables {
-					if !t.titlePage {
-						bodyTblCount++
-						if firstBodyTbl < 0 {
-							firstBodyTbl = t.index
-						}
-					}
-				}
-				for i := 0; i < bodyTblCount; i++ {
-					ctx.cmds = append(ctx.cmds, batchCmd{
-						Op: "remove", Path: fmt.Sprintf("/body/tbl[%d]", firstBodyTbl),
-					})
-				}
-				// Walker's new paragraphs will land after the (kept) title
-				// page. Seed paraIdx so /body/p[N] addressing is correct.
-				ctx.paraIdx = titleEnd
-				ctx.tableIdx = 0
-				for _, t := range tables {
-					if t.titlePage {
-						ctx.tableIdx++
-					}
-				}
-			} else {
-				// Nuke all /body/p[] and /body/tbl[].
-				for i := 0; i < len(paras); i++ {
-					ctx.cmds = append(ctx.cmds, batchCmd{Op: "remove", Path: "/body/p[1]"})
-				}
-				for i := 0; i < len(tables); i++ {
-					ctx.cmds = append(ctx.cmds, batchCmd{Op: "remove", Path: "/body/tbl[1]"})
-				}
-			}
+		if paras, tables, ok := scanBody(outFile); ok {
+			cmds, pIdx, tIdx := templateStripCmds(paras, tables, noteTitleFor(notePath), time.Now().Format("2 January 2006"))
+			ctx.cmds = append(ctx.cmds, cmds...)
+			ctx.paraIdx, ctx.tableIdx = pIdx, tIdx
 		}
 	}
 	for n := root.FirstChild(); n != nil; n = n.NextSibling() {
@@ -1160,6 +1083,93 @@ func (s *server) renderDocx(raw, vault, notePath, templateFull string) (string, 
 
 	success = true
 	return outFile, cleanup, nil
+}
+
+// templateStripCmds returns the batch commands that clear a template's
+// body before the note is appended, plus the /body/p and /body/tbl counts
+// left in place (the walker's starting indices).
+//
+// A template with a title page (a <w:titlePg/> section break) keeps that
+// page: placeholders on it (see coverRole) get the note title or today's
+// date, and only the body after the break is stripped. Other templates
+// are stripped entirely.
+func templateStripCmds(paras []bodyPara, tables []bodyTable, noteTitle, today string) (cmds []batchCmd, paraIdx, tableIdx int) {
+	titleEnd := -1
+	for _, p := range paras {
+		if p.hasTitlePg {
+			titleEnd = p.index
+			break
+		}
+	}
+	if titleEnd <= 0 {
+		for i := 0; i < len(paras); i++ {
+			cmds = append(cmds, batchCmd{Op: "remove", Path: "/body/p[1]"})
+		}
+		for i := 0; i < len(tables); i++ {
+			cmds = append(cmds, batchCmd{Op: "remove", Path: "/body/tbl[1]"})
+		}
+		return cmds, 0, 0
+	}
+	// Replace title-page placeholders in place: remove the existing runs
+	// (two is typical; up to 8 defensively), then add one fresh run.
+	replace := func(idx int, txt string) {
+		for k := 0; k < 8; k++ {
+			cmds = append(cmds, batchCmd{Op: "remove", Path: fmt.Sprintf("/body/p[%d]/r[1]", idx)})
+		}
+		cmds = append(cmds, batchCmd{
+			Op: "add", Parent: fmt.Sprintf("/body/p[%d]", idx),
+			Type: "run", Props: map[string]any{"text": txt},
+		})
+	}
+	for _, p := range paras[:titleEnd] {
+		switch coverRole(p) {
+		case "title":
+			replace(p.index, noteTitle)
+		case "date":
+			replace(p.index, today)
+		}
+	}
+	// Strip body paragraphs AFTER the title page. They occupy indices
+	// titleEnd+1..len(paras); after each removal the list shifts, so
+	// always target /body/p[titleEnd+1].
+	for i := 0; i < len(paras)-titleEnd; i++ {
+		cmds = append(cmds, batchCmd{Op: "remove", Path: fmt.Sprintf("/body/p[%d]", titleEnd+1)})
+	}
+	// Strip tables that fell after the title-page break.
+	bodyTblCount, firstBodyTbl := 0, -1
+	for _, t := range tables {
+		if t.titlePage {
+			tableIdx++
+		} else {
+			bodyTblCount++
+			if firstBodyTbl < 0 {
+				firstBodyTbl = t.index
+			}
+		}
+	}
+	for i := 0; i < bodyTblCount; i++ {
+		cmds = append(cmds, batchCmd{Op: "remove", Path: fmt.Sprintf("/body/tbl[%d]", firstBodyTbl)})
+	}
+	// The walker's new paragraphs land after the kept title page.
+	return cmds, titleEnd, tableIdx
+}
+
+// coverRole classifies a title-page paragraph by its style ID or the tag
+// of a content control inside it (case-insensitive): a key equal to or
+// starting with "CoverTitle" or "Title" is the title placeholder, one
+// starting with "Date" the date placeholder. "CoverSubtitle…" matches
+// neither. Returns "title", "date" or "".
+func coverRole(p bodyPara) string {
+	for _, k := range append([]string{p.styleID}, p.tags...) {
+		k = strings.ToLower(k)
+		switch {
+		case strings.HasPrefix(k, "covertitle"), strings.HasPrefix(k, "title"):
+			return "title"
+		case strings.HasPrefix(k, "date"):
+			return "date"
+		}
+	}
+	return ""
 }
 
 // errorLine scans officecli output for a line that looks like a failure

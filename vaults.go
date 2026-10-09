@@ -11,26 +11,36 @@ import (
 
 // ─── Vaults ───────────────────────────────────────────────────────────────────
 
-// preferred vault display order — vaults not listed here appear alphabetically after
-var vaultOrder = []string{"agent-wiki", "pessoal", "work", "pcp", "sosracismo", "projects"}
-
 func (s *server) handleVaults(w http.ResponseWriter, r *http.Request) {
 	entries, err := os.ReadDir(s.vaultsDir)
 	if err != nil {
 		http.Error(w, err.Error(), 500)
 		return
 	}
-	found := map[string]bool{}
+	var names []string
 	for _, e := range entries {
 		if e.IsDir() && !shouldSkip(e.Name()) {
-			found[e.Name()] = true
+			names = append(names, e.Name())
 		}
 	}
-	// ordered first, then any extras alphabetically
-	var vaults []string
-	for _, v := range vaultOrder {
+	vaults := s.orderVaults(names)
+	jsonResponse(w, vaults)
+}
+
+// orderVaults returns names with config vault_order entries first (in
+// that order; absent ones skipped), then the rest alphabetically.
+func (s *server) orderVaults(names []string) []string {
+	s.cfgMu.RLock()
+	order := append([]string{}, s.cfg.VaultOrder...)
+	s.cfgMu.RUnlock()
+	found := map[string]bool{}
+	for _, n := range names {
+		found[n] = true
+	}
+	out := []string{}
+	for _, v := range order {
 		if found[v] {
-			vaults = append(vaults, v)
+			out = append(out, v)
 			delete(found, v)
 		}
 	}
@@ -39,8 +49,7 @@ func (s *server) handleVaults(w http.ResponseWriter, r *http.Request) {
 		extra = append(extra, v)
 	}
 	sort.Strings(extra)
-	vaults = append(vaults, extra...)
-	jsonResponse(w, vaults)
+	return append(out, extra...)
 }
 
 func (s *server) handleTree(w http.ResponseWriter, r *http.Request) {

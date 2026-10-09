@@ -4,6 +4,16 @@ All notable changes to VaultReader. Versioning is loose — there are no formal 
 
 Most-recent first.
 
+## Unreleased
+
+**Changed**
+- **`share_base_url` is derived when unset**: `<scheme>://<host>/share/` from the request (scheme from `X-Forwarded-Proto` when the peer is a trusted proxy, else the connection's TLS state). `/api/instance` returns the derived value. Previously the default was a hardcoded host; set `share_base_url` explicitly to keep a public alias such as `https://example.com/notes/`.
+- **DOCX title pages are template-generic**: any template with a `<w:titlePg/>` title page keeps it; a title-page paragraph whose style ID or content-control tag (case-insensitive) equals or starts with `CoverTitle`/`Title` gets the note title, one starting with `Date` gets today's date. Previously this only applied to templates under a specific folder with specific style names.
+- **Vault order is configurable**: new optional `vault_order` (vault names listed first, the rest alphabetically). The built-in order list is gone; without `vault_order` vaults are alphabetical.
+- Share page footer links to the project repository.
+- Go module path is `github.com/joaompfp/vaultreader`.
+- Tests, docs and examples use neutral names (`team`, `alice`/`bob`, `*.example.com`).
+
 ## 2026-10-09 — CSP on the SPA shell + outline crash fix
 
 **Security**
@@ -15,19 +25,19 @@ Most-recent first.
 - **Red "Cannot read properties of undefined (reading 'after')" banner** when opening notes whose raw-HTML `<h1>`–`<h3>` headings repeat (e.g. pasted tables with repeated section headers). Goldmark gives raw HTML headings no id, so the outline's `id:text` x-for key collided, and Alpine 3.14's x-for crashed on the duplicate key — then kept erroring on later navigation (Back/Forward). The outline is now keyed by position.
 - **Outline works for raw-HTML headings.** Id-less `<h1>`–`<h3>` get a positional `h-<index>` id in the rendered preview (and in the outline), so clicking them scrolls and scroll-spy highlights them; no row is marked active before the first scroll-spy hit.
 
-## 2026-10-09 — Team instance (team.joao.date)
+## 2026-10-09 — Team instance
 
-A colleague can now edit `work/jll` collaboratively without seeing anything else. Design: `docs/superpowers/specs/2026-10-09-shared-team-instance-design.md`. Model: **a second container on the same image** with a physically isolated mount, not per-user ACLs.
+A colleague can now edit one shared folder (e.g. `work/team`) collaboratively without seeing anything else. Model: **a second container on the same image** with a physically isolated mount, not per-user ACLs.
 
 **New**
-- **Per-instance config** (`config.go`): `require_user`, `share_base_url`, `default_note`, `features.{shares,share_writable,webdav,sync_status,trash_empty}`. Defaults reproduce the old behaviour; a disabled feature's route returns 404; an unknown feature key fails startup. Replaces the hardcoded `joao.date/notas/` share prefix and the hardcoded default note in `index.html`.
+- **Per-instance config** (`config.go`): `require_user`, `share_base_url`, `default_note`, `features.{shares,share_writable,webdav,sync_status,trash_empty}`. Defaults reproduce the old behaviour; a disabled feature's route returns 404; an unknown feature key fails startup. Replaces the hardcoded share prefix and the hardcoded default note in `index.html`.
 - **Identity** (`identity.go`): `Remote-User` is read for attribution; with `require_user: true` requests without it get 401 (`/share/*` and `/health` exempt). Unauthenticated on the main instance (attribution only).
 - **`GET /api/instance`** (version, user, features, rw_paths, share base URL, default note); the SPA hides disabled UI and shows user + build in the footer. `/health` now returns `{"status":"ok","version":"<sha>"}`.
 - **Audit log** (`audit.go`): append-only `appdata/audit.jsonl` (save/create/upload/move/delete/restore/share/revoke). Share entries record `created_by`. A host systemd timer (`vault-commit-authors`, every 5 min) turns the logs into per-author `vr(<user>)` git commits in `work/`; remaining changes are committed as the fallback author. It stages only files `git status --porcelain -z` reports, so vanished or ignored paths cannot wedge a run.
 - **30 s stat rescan** (`rescan.go`): edits made outside the app (Obsidian, Syncthing, the other instance) reach search/backlinks without a restart.
 - **Open-note freshness** in the UI: `GET /api/note?...&meta=1` returns `{mtime,size}`; the page re-checks on focus and every 60 s, reloads a clean preview silently, and warns (never overwrites the buffer) when you are editing.
-- **`deploy.sh`** is now the only deploy entry point: stamps the git SHA, builds once, recreates both containers. `go test` runs in the Docker builder stage. `f3nix-health` alerts (never deploys) on image drift between the two containers.
-- **Infra**: `compose/vaultreader-jll.yml` on its own bridge `vr_jll_net` (172.23.0.0/24, off `t2_proxy`); Authelia rules for group `jll-team` (`team.joao.date`, plus `ifc.joao.date`), a public `/share/` bypass for the team site, and a `deny` wall for the `external` group on every other `*.joao.date` host. See `docs/authelia.md`.
+- **Single deploy entry point** (in the reference deployment): a script stamps the git SHA, builds once and recreates both containers. `go test` runs in the Docker builder stage. A health check alerts (never deploys) on image drift between the two containers (`/health` reports the version).
+- **Infra**: the team container sits on its own Docker bridge (off the shared proxy network); Authelia rules for the team group, a public `/share/` bypass for the team site, and a `deny` wall for the `external` group on every other host of the domain. See `docs/authelia.md`.
 
 **Fixed (security)**
 - **Trash restore** accepted arbitrary paths: it now only takes `.trash/<name>`, validates the decoded destination with `safePath` and requires it to be writable.
@@ -35,14 +45,14 @@ A colleague can now edit `work/jll` collaboratively without seeing anything else
 - **`.trash` search leak**: the index and rescanner skip every dot-directory, so soft-deleted notes no longer appear in search, graph or backlinks.
 
 **Fixed (final review)**
-- **Stored XSS via note HTML** (critical): note HTML reached `x-html` unsanitised, so a note written on the team instance could run script on `notes.joao.date`. Every vault-derived HTML sink now goes through vendored DOMPurify (`static/purify.min.js`, fails closed); Mermaid runs `securityLevel: 'strict'` and shows parse errors as text; raw `.html/.htm/.xhtml/.svg/.xml` files are served with `Content-Security-Policy: sandbox` and every raw file with `nosniff`; the share page gets a nonce-only `script-src` CSP and an escaped title.
+- **Stored XSS via note HTML** (critical): note HTML reached `x-html` unsanitised, so a note written on the team instance could run script on the main instance. Every vault-derived HTML sink now goes through vendored DOMPurify (`static/purify.min.js`, fails closed); Mermaid runs `securityLevel: 'strict'` and shows parse errors as text; raw `.html/.htm/.xhtml/.svg/.xml` files are served with `Content-Security-Policy: sandbox` and every raw file with `nosniff`; the share page gets a nonce-only `script-src` CSP and an escaped title.
 - **Trash restore** no longer overwrites a note recreated at the original path: `409 a note already exists at the original path`.
 - **Conflict detection** is exact: PUT `/api/note` 409s whenever `ifMTime` differs from the on-disk mtime (the 1-second slop let a concurrent write be overwritten), and the open-note freshness check treats any mtime difference as a change.
 - **Committer**: resets its offset when `audit.jsonl` shrinks (rotation/truncation), runs `git reset -q` before each window so pre-staged files are not swept into an author's commit, and uses `GIT_LITERAL_PATHSPECS=1`. `work/.gitignore` ignores Syncthing and `*.tmp-vaultreader` temp files.
 - **Config**: `config.json` is decoded strictly — an unknown key (e.g. `require_usr`) fails startup.
 - **Shares**: the share popover and Settings → Shared list show `by <user>` (`created_by`); the share page says "Editable" only when the share is writable *and* `share_writable` is enabled.
 - **Tests** pin `require_user` edge cases (`//api/vaults` 401, `/share/../api/vaults` 301, POST without user 401).
-- **Infra**: `vaultreader-jll` runs with `no-new-privileges`; its `/share/` router uses `chain-no-auth-public@file` (rate limit + public headers).
+- **Infra**: the team container runs with `no-new-privileges`; its `/share/` router uses `chain-no-auth-public@file` (rate limit + public headers).
 - **Rescan**: the rescanner snapshots before the startup index build, so files edited during the build are re-read on the first pass.
 - **Raw-file content sniffing** (XSS): `/api/file`, `/share/<token>/file` and direct file shares now always set their own `Content-Type` (hardcoded media/PDF map; text-like files as `text/plain`, the rest `application/octet-stream`) and sandbox everything except media and PDF, so a `.md` or extensionless file starting with `<!--`/`<div` can no longer be sniffed into same-origin HTML; the share page CSP adds `frame-src 'none'; child-src 'none'`.
 - **WebDAV sniffing**: `/webdav/` GET/HEAD use the same server-chosen `Content-Type` as `/api/file`, and every WebDAV response carries `nosniff` + `Content-Security-Policy: sandbox`; vault-icon responses send `nosniff`.
@@ -87,10 +97,7 @@ webdav.go          37  read-only WebDAV mount with method allowlist
 
 **Verification:** every endpoint smoke-tested after every commit; final integrated smoke test exercises all 14 module surfaces (vaults, writable-paths, stats, note, search, graph, tags, attachments, trash, templates, sync-status, shares, file/icon, traversal-block, webdav, /, /health) — all passing. Baseline `/api/vaults` byte-identical at every commit.
 
-Spec: [docs/superpowers/specs/2026-04-29-modularization-design.md](docs/superpowers/specs/2026-04-29-modularization-design.md).
-Plan: [docs/superpowers/plans/2026-04-29-modularization.md](docs/superpowers/plans/2026-04-29-modularization.md).
-
-**Stage 2 (frontend modularization) was attempted and abandoned 2026-04-30.** The progressive-override / ES-modules approach raced Alpine 3.x's auto-bootstrap — by the time the mixin module graph finished loading, Alpine had already constructed the component from the (now-incomplete) inline factory. Sidebar broke (file icons rendered as literal "undefined"). All Stage 2 commits were reverted before reaching `main`; the broken `refactor/frontend-modules` branch was deleted. See the "Stage 2 retrospective" in the spec for what would actually work in a future retry. The inline `vaultApp()` factory remains in `static/index.html`, organized into ~50 well-named sections via comment dividers.
+**Stage 2 (frontend modularization) was attempted and abandoned 2026-04-30.** The progressive-override / ES-modules approach raced Alpine 3.x's auto-bootstrap — by the time the mixin module graph finished loading, Alpine had already constructed the component from the (now-incomplete) inline factory. Sidebar broke (file icons rendered as literal "undefined"). All Stage 2 commits were reverted before reaching `main`; the broken `refactor/frontend-modules` branch was deleted. The inline `vaultApp()` factory remains in `static/index.html`, organized into ~50 well-named sections via comment dividers.
 
 ## 2026-04-29 — Per-kind icons + toolbar gating for non-md items
 
@@ -139,7 +146,7 @@ Plan: [docs/superpowers/plans/2026-04-29-modularization.md](docs/superpowers/pla
 
 ## 2026-04-29 — Shared-note image rendering
 
-- **Fix: images broken in shared notes accessed via `/notas/<token>` proxy alias.** The rewriter was emitting absolute `/share/<token>/file?…` URLs; on the public `joao.date` host the `/share/*` path has no Traefik route, so every embed 404'd. Switched to path-relative URLs (`file?path=…` + `asset?name=…`) anchored to a `<base href="<token>/">` tag. Works under both `/share/<token>` and `/notas/<token>` without the server needing to know the proxy prefix.
+- **Fix: images broken in shared notes accessed via `/notas/<token>` proxy alias.** The rewriter was emitting absolute `/share/<token>/file?…` URLs; on the public apex host (e.g. `example.com`) the `/share/*` path has no Traefik route, so every embed 404'd. Switched to path-relative URLs (`file?path=…` + `asset?name=…`) anchored to a `<base href="<token>/">` tag. Works under both `/share/<token>` and `/notas/<token>` without the server needing to know the proxy prefix.
 - **Plain markdown images now resolved against the note directory.** Previously only Obsidian wikilink embeds (`![[img.png]]`) reached the share-file route — `![alt](sub/img.png)` syntax leaked the literal `sub/img.png` href, which the browser tried against `/notas/...` and 404'd. Now both forms route through `file?path=…`. Fixes embeds in notes that use vanilla markdown image syntax (e.g. converted-from-PDF reports).
 
 ## 2026-04-29/30 — Polish wave (Tiers 1–4)
@@ -226,7 +233,7 @@ A two-day burst that took VaultReader from "polished reader with basic edits" to
   - Folder-scoped — pass `?folder=<vault-relative-path>`.
   - Ego-graph — pass `?center=<vault:path>&depth=N` (1-5 hops via outbound + inbound).
   Toolbar icon is context-aware: opens ego-graph rooted at the current note if any, folder-scoped otherwise. Header has a clickable scope breadcrumb and depth ± controls. Click a node = open the note; shift-click = re-center the graph; Cmd/Ctrl-click = open in a new tab. Center node renders larger and bolder.
-- **Tag pane.** Toolbar tag-icon → 600px overlay with filter input + tag cloud. Aggregates frontmatter `tags`/`tag` across all vaults (463 unique in pessoal). Click any tag → search.
+- **Tag pane.** Toolbar tag-icon → 600px overlay with filter input + tag cloud. Aggregates frontmatter `tags`/`tag` across all vaults (463 unique in the author's main vault). Click any tag → search.
 - **Saved searches.** `★ Save` button in search overlay → modal asks for a name. Up to 30 saved (LIFO; deduped). Empty-state of search shows the saved list with click-to-run.
 - **WebDAV-out (read-only).** Mounted at `/webdav/`. Method allowlist: GET / HEAD / OPTIONS / PROPFIND. All mutating verbs return 405. Backed by `golang.org/x/net/webdav`.
 

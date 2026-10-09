@@ -66,7 +66,7 @@ func main() {
 		Handler:      srv.handler(),
 		ReadTimeout: 30 * time.Second,
 		// Generous WriteTimeout because /api/note/export shells out to
-		// officecli + processes 2 MB JLL templates: a 100-command batch
+		// officecli + processes 2 MB corporate templates: a 100-command batch
 		// over a strip + reapply on a heavy template can take 30-90s
 		// cold. Other endpoints respond in ms — they don't suffer from
 		// the higher cap.

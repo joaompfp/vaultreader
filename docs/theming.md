@@ -96,9 +96,9 @@ Drop image files into `appdata/icons/` named after each vault:
 
 ```
 appdata/icons/
-├── pessoal.png       # 32×32 PNG (or larger; downscaled)
+├── personal.png       # 32×32 PNG (or larger; downscaled)
 ├── work.svg          # SVG also fine
-├── pcp.webp
+├── archive.webp
 ├── projects.jpg
 └── …
 ```
@@ -114,7 +114,7 @@ Served live at `/api/vault-icon?name=<vault>`; no restart. If no icon exists, a 
 - **Format:** SVG if it's geometric (logos, glyphs); PNG/WebP if it's photographic or has gradients.
 - **Background:** transparent. The vault button has its own background (`--bg3`).
 
-The skill doc historically had detailed notes on a Gemini-img2img → threshold → base64 PNG pipeline used to generate the original SOS-style logos. Out of scope here, but the source notes are in `~/.hermes/skills/software-development/vaultreader/SKILL.md`.
+A workable pipeline for generating icons: image-model img2img from a reference → threshold to two colours → export a small PNG.
 
 ## Sidebar width
 

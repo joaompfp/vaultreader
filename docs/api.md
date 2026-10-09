@@ -16,7 +16,7 @@ Every HTTP endpoint, in route-registration order. Auth notes apply to all endpoi
 
 ### `GET /health`
 Liveness check. Exempt from `require_user`.
-**Response:** `200 OK` with `{"status": "ok", "version": "<git sha>"}`. `version` is stamped at build time by `deploy.sh` (`dev` for an unstamped build, `<sha>-dirty` with uncommitted changes); compare it across instances to detect drift.
+**Response:** `200 OK` with `{"status": "ok", "version": "<git sha>"}`. `version` is stamped at build time via `-ldflags "-X main.version=<sha>"` (`dev` for an unstamped build); compare it across instances to detect drift.
 
 ### `GET /api/instance`
 Everything the SPA needs to adapt to the instance it is talking to.
@@ -26,12 +26,12 @@ Everything the SPA needs to adapt to the instance it is talking to.
   "version": "1f7fadf",
   "user": "alice",
   "features": {"shares": true, "share_writable": false, "webdav": false, "sync_status": false, "trash_empty": false},
-  "rw_paths": ["jll"],
-  "share_base_url": "https://team.joao.date/share/",
+  "rw_paths": ["team"],
+  "share_base_url": "https://team.example.com/share/",
   "default_note": ""
 }
 ```
-`user` is the `Remote-User` header, or `"unknown"` if absent. All five feature keys are always present (missing in config = `true`). See [configuration.md](configuration.md).
+`user` is the `Remote-User` header, or `"unknown"` if absent. `share_base_url` is the configured value or, when unset, `<scheme>://<host>/share/` derived from the request. All five feature keys are always present (missing in config = `true`). See [configuration.md](configuration.md).
 
 ### `GET /api/stats`
 Vault stats — note counts.
@@ -40,7 +40,7 @@ Vault stats — note counts.
 {
   "totalNotes": 1623,
   "vaults": [
-    {"name": "pessoal", "noteCount": 581},
+    {"name": "personal", "noteCount": 581},
     {"name": "work", "noteCount": 720}
   ]
 }
@@ -59,8 +59,8 @@ States: `synced` / `syncing` / `error` / `unknown`.
 ## Vault discovery
 
 ### `GET /api/vaults`
-List vault directory names, ordered by `vaultOrder` then alphabetical.
-**Response:** `["pessoal", "work", "pcp", …]`
+List vault directory names: config `vault_order` first, then alphabetical.
+**Response:** `["personal", "work", "archive", …]`
 
 ### `GET /api/tree?vault=<vault>`
 Full directory tree for a vault. Skips `.trash/`, `.obsidian/`, hidden dirs.
@@ -87,7 +87,7 @@ Read a note.
   "raw": "---\ntitle: Foo\n---\n# Body",
   "html": "<h1>Body</h1>",
   "frontmatter": {"title": "Foo"},
-  "backlinks": [{"vault": "pessoal", "path": "other.md", "title": "Other", "excerpt": "…"}],
+  "backlinks": [{"vault": "personal", "path": "other.md", "title": "Other", "excerpt": "…"}],
   "mtime": 1777411898,
   "size": 234
 }
@@ -176,8 +176,8 @@ Operators AND together. Plain text after operators acts as the body substring fi
 **Response:**
 ```json
 [
-  {"vault": "pessoal", "path": "leituras/Caffeine.md", "title": "Caffeine", "excerpt": "…"},
-  {"vault": "pessoal", "path": "misc/screenshot-x.png", "title": "screenshot-x.png", "excerpt": "", "kind": "image"},
+  {"vault": "personal", "path": "reading/Caffeine.md", "title": "Caffeine", "excerpt": "…"},
+  {"vault": "personal", "path": "misc/screenshot-x.png", "title": "screenshot-x.png", "excerpt": "", "kind": "image"},
   …
 ]
 ```
@@ -188,7 +188,7 @@ The `kind` field is only set for image results; notes omit it (or set it to `"no
 Resolve a wikilink target to `{vault, path}`.
 **Response:**
 ```json
-{"vault": "pessoal", "path": "leituras/Caffeine.md"}
+{"vault": "personal", "path": "reading/Caffeine.md"}
 ```
 404 if no match.
 
@@ -198,7 +198,7 @@ Backlinks for a single note. Reads the in-memory inverted index — no disk read
 ```json
 {
   "backlinks": [
-    {"vault": "pessoal", "path": "leituras/Coffee.md", "title": "Coffee", "excerpt": "…"}
+    {"vault": "personal", "path": "reading/Coffee.md", "title": "Coffee", "excerpt": "…"}
   ]
 }
 ```
@@ -228,8 +228,8 @@ Aggregate every frontmatter `tags:` / `tag:` value across all notes.
 ```json
 {
   "tags": [
-    {"tag": "AI-Processed", "count": 1080, "vaults": ["pcp", "pessoal", "projects", "sosracismo", "work"]},
-    {"tag": "jll", "count": 346, "vaults": ["work"]}
+    {"tag": "AI-Processed", "count": 1080, "vaults": ["archive", "community", "personal", "projects", "work"]},
+    {"tag": "client-a", "count": 346, "vaults": ["work"]}
   ],
   "total": 463
 }
@@ -242,24 +242,24 @@ Wikilink graph. Three scopes (mutually exclusive — `center` wins):
 | Mode | Query | Meaning |
 |---|---|---|
 | All vaults | `(no params)` | Every note across every vault |
-| Vault | `?vault=pessoal` | Just that vault |
-| Folder | `?vault=pessoal&folder=daily` | Only notes under `daily/` |
-| Ego | `?center=pessoal:foo.md&depth=1` | `foo.md` plus everyone within N hops via outbound + inbound |
+| Vault | `?vault=personal` | Just that vault |
+| Folder | `?vault=personal&folder=daily` | Only notes under `daily/` |
+| Ego | `?center=personal:foo.md&depth=1` | `foo.md` plus everyone within N hops via outbound + inbound |
 
 **Response:**
 ```json
 {
   "nodes": [
-    {"id": "pessoal:leituras/Caffeine.md", "label": "Caffeine", "vault": "pessoal", "path": "leituras/Caffeine.md", "refs": 3, "isCenter": true}
+    {"id": "personal:reading/Caffeine.md", "label": "Caffeine", "vault": "personal", "path": "reading/Caffeine.md", "refs": 3, "isCenter": true}
   ],
   "edges": [
-    {"id": "pessoal:leituras/Caffeine.md->pessoal:leituras/Tea.md",
-     "source": "pessoal:leituras/Caffeine.md",
-     "target": "pessoal:leituras/Tea.md"}
+    {"id": "personal:reading/Caffeine.md->personal:reading/Tea.md",
+     "source": "personal:reading/Caffeine.md",
+     "target": "personal:reading/Tea.md"}
   ],
-  "vault": "pessoal",
+  "vault": "personal",
   "folder": "",
-  "center": "pessoal:leituras/Caffeine.md",
+  "center": "personal:reading/Caffeine.md",
   "depth": 1
 }
 ```
@@ -339,7 +339,7 @@ Walk the vault, return every image with metadata + reference count from a scan o
 ```json
 {
   "items": [
-    {"vault": "pessoal", "path": "misc/foo.png", "name": "foo.png", "size": 12345, "mtime": 1777411898, "ext": ".png", "refCount": 0}
+    {"vault": "personal", "path": "misc/foo.png", "name": "foo.png", "size": 12345, "mtime": 1777411898, "ext": ".png", "refCount": 0}
   ],
   "total": 73,
   "orphan": 1

@@ -10,7 +10,7 @@ import (
 func TestUserFrom(t *testing.T) {
 	for _, c := range []struct{ hdr, want string }{
 		{"alice", "alice"},
-		{"  joao  ", "joao"},
+		{"  bob  ", "bob"},
 		{"", "unknown"},
 		{"   ", "unknown"},
 	} {
@@ -25,7 +25,7 @@ func TestUserFrom(t *testing.T) {
 }
 
 func TestRequireUser(t *testing.T) {
-	s := newTestServer(t, AdminConfig{RWPaths: []string{"jll"}, RequireUser: true})
+	s := newTestServer(t, AdminConfig{RWPaths: []string{"team"}, RequireUser: true})
 	h := s.handler()
 	user := map[string]string{"Remote-User": "alice"}
 	blank := map[string]string{"Remote-User": "   "}
@@ -61,7 +61,7 @@ func TestRequireUserOffByDefault(t *testing.T) {
 
 // Pins path-shape and method edge cases of the require_user gate.
 func TestRequireUserEdgeCases(t *testing.T) {
-	s := newTestServer(t, AdminConfig{RWPaths: []string{"jll"}, RequireUser: true})
+	s := newTestServer(t, AdminConfig{RWPaths: []string{"team"}, RequireUser: true})
 	h := s.handler()
 	for _, c := range []struct {
 		method, path string
@@ -70,7 +70,7 @@ func TestRequireUserEdgeCases(t *testing.T) {
 		{"GET", "//api/vaults", 401},
 		{"GET", "/share/../api/vaults", 301}, // ServeMux cleans to /api/vaults via redirect, never serves it
 		{"POST", "/api/vaults", 401},
-		{"PUT", "/api/note?vault=jll&path=a.md", 401},
+		{"PUT", "/api/note?vault=team&path=a.md", 401},
 	} {
 		if rec := do(t, h, c.method, c.path, "", nil); rec.Code != c.want {
 			t.Errorf("%s %s = %d, want %d", c.method, c.path, rec.Code, c.want)

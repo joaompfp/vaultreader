@@ -228,7 +228,7 @@ Final image is `scratch` + the static binary + CA bundle (for outbound HTTPS to 
 
 - **Index rebuild on startup** is the dominant cost. ~100k tiny `.md` files would take a few seconds; a few hundred is instant.
 - **Search** does a full filesystem walk per query (no cache). Capped at 20 results to bound work. For larger vaults a Bleve / Tantivy index would help.
-- **Attachment scan** is O(notes × attachments). For pessoal (581 notes × 73 images) it takes ~4s on first call. A reverse-index built at startup time + maintained on save would make it instant.
+- **Attachment scan** is O(notes × attachments). For personal (581 notes × 73 images) it takes ~4s on first call. A reverse-index built at startup time + maintained on save would make it instant.
 - **Graph endpoint** reuses the in-memory wikilink index — fast for any scope.
 - **Mermaid render** is the slowest client-side cost; most diagrams render in 50-200ms.
 

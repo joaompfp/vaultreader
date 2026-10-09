@@ -5,7 +5,7 @@ VaultReader is a personal-vault tool. The threat model below assumes:
 - **Single operator, optionally one small trusted team per instance** — behind a forward-auth proxy (Authelia, oauth2-proxy, Tailscale, etc.). Everyone who can reach an instance can read everything that instance mounts and write wherever its `rw_paths` allow.
 - **Untrusted internet** — anyone may probe `/share/<token>` URLs.
 
-Isolation between audiences is done **per instance**, not per user: a second container mounts only the folder that audience may see (e.g. `work/jll` as vault `jll`), sits on its own Docker bridge, and sets `require_user: true`. There are no per-user ACLs inside one process.
+Isolation between audiences is done **per instance**, not per user: a second container mounts only the folder that audience may see (e.g. `work/team` as vault `team`), sits on its own Docker bridge, and sets `require_user: true`. There are no per-user ACLs inside one process.
 
 It is **not** designed for:
 - Multi-tenant deployments where users of *one* instance have different access levels (run one instance per audience instead).
@@ -19,12 +19,12 @@ Security never relies on obscurity. Code, compose files, proxy layout and docs m
 | Concern | Mechanism |
 |---|---|
 | What the team can see | Mount isolation: the instance only has the team folder under `/vaults` |
-| Who can reach it | Dedicated bridge network (`vr_jll_net`, 172.23.0.0/24), not `t2_proxy`; containers on other networks cannot connect. Traefik (host network) still can |
+| Who can reach it | Dedicated bridge network (e.g. `vr_team_net`), not the shared proxy network; containers on other networks cannot connect. Traefik (host network) still can |
 | Fail-closed identity | `require_user: true` → every request except `/share/*` and `/health` without a non-empty `Remote-User` gets `401` |
 | Feature surface | `features.*` flags remove routes at registration (404): WebDAV, sync status, trash purge, writable shares |
-| Authorization at the proxy | Authelia rule per group, plus a `deny` wall for the `external` group on every other `*.joao.date` host (see [authelia.md](authelia.md)) |
+| Authorization at the proxy | Authelia rule per group, plus a `deny` wall for the `external` group on every other `*.example.com` host (see [authelia.md](authelia.md)) |
 
-`Remote-User` is set by Traefik forwardAuth, which overwrites any client-supplied value. On an instance **without** `require_user` (the main one, reachable from every `t2_proxy` container) the header is **attribution-only**: it labels audit lines and share `created_by`, and is never used for authorization. A spoofed header there can only mislabel an audit line.
+`Remote-User` is set by Traefik forwardAuth, which overwrites any client-supplied value. On an instance **without** `require_user` (the main one, reachable from every container on the shared proxy network) the header is **attribution-only**: it labels audit lines and share `created_by`, and is never used for authorization. A spoofed header there can only mislabel an audit line.
 
 ## Trust boundaries
 
@@ -48,7 +48,7 @@ VaultReader assumes the proxy in front of it has done the user-auth. Its own pro
 ### Reverse-proxy auth (primary)
 **Recommended.** Put Authelia / oauth2-proxy / Cloudflare Access in front. VaultReader has no user database and no sessions: identity is the `Remote-User` header the proxy forwards, used for attribution (and, with `require_user: true`, as a fail-closed presence check). Anyone who reaches the container can read everything it mounts and write where `rw_paths` allows.
 
-> **Open follow-up:** `/api/shares/create|revoke|revoke-all` and `GET /api/shares` are unauthenticated inside the app and rely entirely on the proxy. They are not authenticated on the main instance because in-network callers (Hermes, `lugares-api`) use them today.
+> **Open follow-up:** `/api/shares/create|revoke|revoke-all` and `GET /api/shares` are unauthenticated inside the app and rely entirely on the proxy. They are not authenticated on the main instance because in-network automation clients use them today.
 
 ### Admin token (secondary)
 For **admin endpoints only** (`/api/admin/*`):
@@ -114,7 +114,7 @@ for _, rw := range rwPaths {
 return false
 ```
 
-When the list is empty, every write returns 403. Add `"pessoal"` to allow the entire `pessoal` vault. Add `"pessoal/agents/hermes/skills"` to only allow writes inside that subtree.
+When the list is empty, every write returns 403. Add `"personal"` to allow the entire `personal` vault. Add `"personal/agents/skills"` to only allow writes inside that subtree.
 
 This applies to:
 - `PUT /api/note`, `POST /api/note`, `DELETE /api/note`
@@ -141,7 +141,7 @@ This isn't an authorization boundary — anything in `.trash/` was already delet
 Restore never overwrites: if anything exists at the decoded destination (e.g. a note recreated after the delete) it answers `409` and leaves both files untouched.
 
 ### Note HTML sanitisation
-Markdown is rendered server-side with raw HTML allowed (goldmark `WithUnsafe`) because real notes use `<img>`, `<div>`, `<table>`, `<details>` etc. That makes every note author able to emit `<script>` / `onerror=` — and on the team instance the author is a colleague whose notes the owner opens on `notes.joao.date`, an origin with access to every vault. So the SPA treats note HTML as untrusted:
+Markdown is rendered server-side with raw HTML allowed (goldmark `WithUnsafe`) because real notes use `<img>`, `<div>`, `<table>`, `<details>` etc. That makes every note author able to emit `<script>` / `onerror=` — and on the team instance the author is a colleague whose notes the owner opens on the main instance, an origin with access to every vault. So the SPA treats note HTML as untrusted:
 
 - `static/purify.min.js` (DOMPurify, vendored, no build step) loads before the app; `vaultApp()._safeHtml()` sanitises every vault-derived HTML sink — each `noteHtml` assignment, the iOS `innerHTML` fallback, the outline parser, search excerpts. It **fails closed**: without DOMPurify nothing is rendered. Wikilink `data-*`, callouts, `style`, tables, `<details>` and `language-mermaid` code blocks survive; scripts, event-handler attributes and `javascript:` URLs do not.
 - Mermaid runs with `securityLevel: 'strict'`, and its parse-error text (which echoes diagram source) is inserted as text, never HTML.
@@ -211,9 +211,9 @@ Referrer-Policy: same-origin
 4. **Set `admin_token`** to a long random string. Never commit it.
 5. **Use `expires_at` on share links** for anything sensitive.
 6. **`rw_paths` only what you need to edit from the web.** Vaults you only browse don't need to be writable.
-7. **Run as non-root** in the container: the image runs as root unless you set `user: "1000:1000"` in compose (both instances here do).
+7. **Run as non-root** in the container: the image runs as root unless you set `user: "1000:1000"` in compose (recommended for every instance).
 8. **Mount `/vaults` read-only** if you only want web-side reading. `rw_paths` becomes a no-op then.
-9. **One instance per audience.** To give someone access to a subset, mount just that subset into a second container on its own network with `require_user: true` and the feature flags you need off. Deploy all instances together with `deploy.sh` so they run the same build.
+9. **One instance per audience.** To give someone access to a subset, mount just that subset into a second container on its own network with `require_user: true` and the feature flags you need off. Deploy all instances from the same image so they run the same build (compare `/health` versions).
 
 ## Reporting issues
 

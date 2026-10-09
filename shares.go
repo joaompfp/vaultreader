@@ -298,9 +298,9 @@ img{max-width:100%%}hr{border:none;border-top:1px solid var(--bd);margin:1.5em 0
 .foot{text-align:center;padding:20px;font-size:12px;color:var(--t3);border-top:1px solid var(--bd)}.foot a{color:var(--t3);text-decoration:none}
 </style>%s</head><body>
 <div class="bar"><strong>%s</strong><span class="badge%s">%s</span><span>Expires: %s</span>
-<span style="flex:1"></span><a href="https://notes.joao.date" style="color:var(--t3);font-size:11px">VaultReader</a></div>
+<span style="flex:1"></span><a href="https://github.com/joaompfp/vaultreader" style="color:var(--t3);font-size:11px">VaultReader</a></div>
 <div class="content">%s</div>
-<div class="foot">Shared via <a href="https://notes.joao.date">VaultReader</a></div>
+<div class="foot">Shared via <a href="https://github.com/joaompfp/vaultreader">VaultReader</a></div>
 %s</body></html>`, token, html.EscapeString(title), headExtra, html.EscapeString(title), modeCls, modeStr, expiresStr, renderedHTML, bodyExtra)
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")

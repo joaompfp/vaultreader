@@ -47,27 +47,20 @@ func (s *server) handleStats(w http.ResponseWriter, r *http.Request) {
 			}
 			return nil
 		})
-		// sort vaults by vaultOrder then alphabetically handled at display layer
 		stats = append(stats, VaultStat{Name: e.Name(), NoteCount: count})
 		total += count
 	}
 
-	// apply preferred vault order
-	sort.SliceStable(stats, func(i, j int) bool {
-		pi, pj := len(vaultOrder), len(vaultOrder)
-		for k, v := range vaultOrder {
-			if stats[i].Name == v {
-				pi = k
-			}
-			if stats[j].Name == v {
-				pj = k
-			}
-		}
-		if pi != pj {
-			return pi < pj
-		}
-		return stats[i].Name < stats[j].Name
-	})
+	// same order as /api/vaults
+	names := make([]string, len(stats))
+	for i, st := range stats {
+		names[i] = st.Name
+	}
+	rank := map[string]int{}
+	for i, n := range s.orderVaults(names) {
+		rank[n] = i
+	}
+	sort.SliceStable(stats, func(i, j int) bool { return rank[stats[i].Name] < rank[stats[j].Name] })
 
 	jsonResponse(w, StatsResponse{TotalNotes: total, Vaults: stats})
 }

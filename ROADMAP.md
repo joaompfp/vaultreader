@@ -73,9 +73,9 @@ These were on the roadmap; now done. Listed for posterity — see CHANGELOG for 
 
 ## Follow-ups from the team instance (2026-10-09)
 
-- Tighten Authelia's subject-less `*.joao.date` catch-alls to `group:admins` (today the `external` deny wall compensates).
-- Authenticate `/api/shares*` on the main instance (Hermes and `lugares-api` call it unauthenticated today).
-- Move `SYNCTHING_API_KEY` out of plaintext in `compose/vaultreader.yml` into SOPS.
+- Tighten Authelia's subject-less `*.example.com` catch-alls to `group:admins` (today the `external` deny wall compensates).
+- Authenticate `/api/shares*` on the main instance (in-network automation clients call it unauthenticated today).
+- Move `SYNCTHING_API_KEY` out of the plaintext compose file into a secret store.
 - Agent/MCP connector for team members (token-based; nothing blocks it).
 - History panel / "last edited by" in the UI; presence ("X is editing").
 - Hardening: `chain-no-auth-public` + `no-new-privileges` on the team share router/container.

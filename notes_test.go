@@ -21,59 +21,59 @@ func TestRewriteNoteImageURLs(t *testing.T) {
 	}{
 		{
 			name:     "relative image in same dir",
-			html:     `<p><img src="figura.png" alt="fig"></p>`,
+			html:     `<p><img src="figure.png" alt="fig"></p>`,
 			vault:    "projects",
-			notePath: "dc-portugal-research/anexo-tecnico/ANEXO-TECNICO.md",
-			want:     `<p><img src="/api/file?vault=projects&path=dc-portugal-research%2Fanexo-tecnico%2Ffigura.png" alt="fig"></p>`,
+			notePath: "research/annex/ANNEX.md",
+			want:     `<p><img src="/api/file?vault=projects&path=research%2Fannex%2Ffigure.png" alt="fig"></p>`,
 		},
 		{
 			name:     "relative image in subfolder",
-			html:     `<p><img src="assets/figuras-dcac/fig-5.4-componentes-dc.png" alt="fig"></p>`,
+			html:     `<p><img src="assets/figures/fig-5.4-components.png" alt="fig"></p>`,
 			vault:    "projects",
-			notePath: "dc-portugal-research/anexo-tecnico/ANEXO-TECNICO.md",
-			want:     `<p><img src="/api/file?vault=projects&path=dc-portugal-research%2Fanexo-tecnico%2Fassets%2Ffiguras-dcac%2Ffig-5.4-componentes-dc.png" alt="fig"></p>`,
+			notePath: "research/annex/ANNEX.md",
+			want:     `<p><img src="/api/file?vault=projects&path=research%2Fannex%2Fassets%2Ffigures%2Ffig-5.4-components.png" alt="fig"></p>`,
 		},
 		{
 			name:     "absolute URL untouched",
 			html:     `<p><img src="https://example.com/img.png" alt="fig"></p>`,
 			vault:    "projects",
-			notePath: "dc-portugal-research/anexo-tecnico/ANEXO-TECNICO.md",
+			notePath: "research/annex/ANNEX.md",
 			want:     `<p><img src="https://example.com/img.png" alt="fig"></p>`,
 		},
 		{
 			name:     "data URI untouched",
 			html:     `<p><img src="data:image/png;base64,iVBORw0KGgo=" alt="fig"></p>`,
 			vault:    "projects",
-			notePath: "dc-portugal-research/anexo-tecnico/ANEXO-TECNICO.md",
+			notePath: "research/annex/ANNEX.md",
 			want:     `<p><img src="data:image/png;base64,iVBORw0KGgo=" alt="fig"></p>`,
 		},
 		{
 			name:     "parent traversal rejected",
 			html:     `<p><img src="../../../secret.png" alt="fig"></p>`,
 			vault:    "projects",
-			notePath: "dc-portugal-research/anexo-tecnico/ANEXO-TECNICO.md",
+			notePath: "research/annex/ANNEX.md",
 			want:     `<p><img src="../../../secret.png" alt="fig"></p>`,
 		},
 		{
 			name:     "parent traversal within vault resolves",
-			html:     `<p><img src="../../figura.png" alt="fig"></p>`,
+			html:     `<p><img src="../../figure.png" alt="fig"></p>`,
 			vault:    "projects",
-			notePath: "dc-portugal-research/anexo-tecnico/ANEXO-TECNICO.md",
-			want:     `<p><img src="/api/file?vault=projects&path=figura.png" alt="fig"></p>`,
+			notePath: "research/annex/ANNEX.md",
+			want:     `<p><img src="/api/file?vault=projects&path=figure.png" alt="fig"></p>`,
 		},
 		{
 			name:     "spaces and percent-encoding",
 			html:     `<p><img src="fig%20ura%20final.png" alt="fig"></p>`,
 			vault:    "projects",
-			notePath: "dc-portugal-research/anexo-tecnico/ANEXO-TECNICO.md",
-			want:     `<p><img src="/api/file?vault=projects&path=dc-portugal-research%2Fanexo-tecnico%2Ffig+ura+final.png" alt="fig"></p>`,
+			notePath: "research/annex/ANNEX.md",
+			want:     `<p><img src="/api/file?vault=projects&path=research%2Fannex%2Ffig+ura+final.png" alt="fig"></p>`,
 		},
 		{
 			name:     "already rewritten untouched",
-			html:     `<p><img src="/api/file?vault=projects&path=dc-portugal-research%2Ffig.png" alt="fig"></p>`,
+			html:     `<p><img src="/api/file?vault=projects&path=research%2Ffig.png" alt="fig"></p>`,
 			vault:    "projects",
-			notePath: "dc-portugal-research/anexo-tecnico/ANEXO-TECNICO.md",
-			want:     `<p><img src="/api/file?vault=projects&path=dc-portugal-research%2Ffig.png" alt="fig"></p>`,
+			notePath: "research/annex/ANNEX.md",
+			want:     `<p><img src="/api/file?vault=projects&path=research%2Ffig.png" alt="fig"></p>`,
 		},
 	}
 	for _, tt := range tests {
@@ -142,13 +142,13 @@ func TestProtectMathDelims(t *testing.T) {
 // itself handed out) with the on-disk mtime exactly: any difference is a
 // concurrent change, including one landing within the same second+1.
 func TestPutNoteConflictExactMTime(t *testing.T) {
-	s := newTestServer(t, AdminConfig{RWPaths: []string{"jll"}})
-	full := filepath.Join(s.vaultsDir, "jll", "a.md")
+	s := newTestServer(t, AdminConfig{RWPaths: []string{"team"}})
+	full := filepath.Join(s.vaultsDir, "team", "a.md")
 	writeFile(t, full, "v1\n")
 	base := time.Unix(1_700_000_000, 0)
 	h := s.handler()
 	put := func(ifm int64) int {
-		return do(t, h, "PUT", fmt.Sprintf("/api/note?vault=jll&path=a.md&ifMTime=%d", ifm), `{"raw":"v2"}`, nil).Code
+		return do(t, h, "PUT", fmt.Sprintf("/api/note?vault=team&path=a.md&ifMTime=%d", ifm), `{"raw":"v2"}`, nil).Code
 	}
 	for _, c := range []struct {
 		name      string

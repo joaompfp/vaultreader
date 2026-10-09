@@ -181,35 +181,32 @@ server {
 
 ## Team instance
 
-A second VaultReader container can give a small team access to **one folder** without exposing anything else. The reference deployment is `team.joao.date`: container `vaultreader-jll` (same image as the main instance) mounting only `~/vaults/work/jll` as vault `jll`, for the Authelia group `jll-team`.
+A second VaultReader container can give a small team access to **one folder** without exposing anything else. Example: `team.example.com` served by a container `vaultreader-team` (same image as the main instance) that mounts only `~/vaults/work/team` as vault `team`, for the Authelia group `team`.
 
-**Container side** (`compose/vaultreader-jll.yml`):
-- Joins only its own bridge (`vr_jll_net`, 172.23.0.0/24) with `traefik.docker.network=vr_jll_net`. Traefik runs in host network mode and still reaches it; containers on `t2_proxy` cannot, so `Remote-User` cannot be spoofed from inside the network.
-- `config.json` sets `require_user: true`, `rw_paths: ["jll"]`, `share_base_url: https://team.joao.date/share/` and turns off `share_writable`, `webdav`, `sync_status`, `trash_empty`.
+**Container side** (its own compose file):
+- Joins only its own Docker bridge (e.g. `vr_team_net`) with `traefik.docker.network=vr_team_net`. Traefik in host network mode still reaches it; containers on the shared proxy network cannot, so `Remote-User` cannot be spoofed from inside the network.
+- `config.json` sets `require_user: true`, `rw_paths: ["team"]`, `share_base_url: https://team.example.com/share/` and turns off `share_writable`, `webdav`, `sync_status`, `trash_empty`.
 - Two routers: the authenticated app (`chain-authelia@file`, priority 10) and a public `PathPrefix(/share/)` router (no auth, priority 20) so read-only share links work for anonymous visitors.
 
-**Authelia side** (`access_control.rules`, first match wins — these must sit **above** the subject-less `*.joao.date` catch-alls):
+**Authelia side** (`access_control.rules`, first match wins — these must sit **above** the subject-less `*.example.com` catch-alls):
 
 ```yaml
 # 1. Public share links on the team site
-- domain: "team.joao.date"
+- domain: "team.example.com"
   resources: ['^/share/.*$']
   policy: bypass
-# 2. The team site, and the IFC viewer, for the team group only
-- domain: "team.joao.date"
-  subject: "group:jll-team"
-  policy: two_factor
-- domain: "ifc.joao.date"
-  subject: "group:jll-team"
+# 2. The team site (and any other site the team needs) for the team group only
+- domain: "team.example.com"
+  subject: "group:team"
   policy: two_factor
 # 3. Wall: external collaborators get nothing else
-- domain: ["*.joao.date", "joao.date"]
+- domain: ["*.example.com", "example.com"]
   subject: "group:external"
   policy: deny
 ```
 
-**Why the `external` wall exists.** The existing catch-all rules (`*.joao.date` → `two_factor`) have no `subject`, so any user who can log in with 2FA would reach *every* service. Rules 1–2 grant the team its sites; rule 3 denies the `external` group everything not matched earlier (hence the ordering: the allow rules for `team` and `ifc` must come before it). The team user is a member of both `jll-team` and `external`. Tightening the catch-alls themselves to `group:admins` is a separate follow-up; until then the wall is what keeps a team member out of the rest of the domain. `ifc.joao.date` is served by another host and reached through the same Authelia, hence its dedicated rule.
+**Why the `external` wall exists.** Catch-all rules such as `*.example.com` → `two_factor` have no `subject`, so any user who can log in with 2FA would reach *every* service. Rules 1–2 grant the team its site; rule 3 denies the `external` group everything not matched earlier (hence the ordering: every allow rule for the team must come before it). The team user is a member of both `team` and `external`. Tightening the catch-alls themselves to `group:admins` is the cleaner fix; until then the wall is what keeps a team member out of the rest of the domain.
 
 **Enrolment.** The user's argon2id hash goes into `users_database.yml`; TOTP can be pre-registered by the operator with `authelia storage user totp generate <user>` instead of relying on e-mail delivery. Send the password and the QR code over separate channels.
 
-**Verify** (from outside, as the team user): `team.` loads and `/api/vaults` lists only `jll`; any other `*.joao.date` host returns 403; with no session `team.` redirects to Authelia but `team./share/<token>` renders.
+**Verify** (from outside, as the team user): `team.` loads and `/api/vaults` lists only `team`; any other `*.example.com` host returns 403; with no session `team.` redirects to Authelia but `team./share/<token>` renders.

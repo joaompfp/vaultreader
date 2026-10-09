@@ -10,7 +10,7 @@ import (
 )
 
 func TestTrashRestoreRejectsTraversal(t *testing.T) {
-	s := newTestServer(t, AdminConfig{RWPaths: []string{"jll"}})
+	s := newTestServer(t, AdminConfig{RWPaths: []string{"team"}})
 	secret := filepath.Join(s.appdataDir, "shares.json")
 	writeFile(t, secret, "[]")
 	h := s.handler()
@@ -22,7 +22,7 @@ func TestTrashRestoreRejectsTraversal(t *testing.T) {
 		".trash/sub/x.md", // nested — only direct children are restorable
 		"/etc/passwd",
 	} {
-		rec := do(t, h, "POST", "/api/trash/restore?vault=jll&path="+p, "", nil)
+		rec := do(t, h, "POST", "/api/trash/restore?vault=team&path="+p, "", nil)
 		if rec.Code != 400 {
 			t.Errorf("path %q: code %d, want 400", p, rec.Code)
 		}
@@ -33,31 +33,31 @@ func TestTrashRestoreRejectsTraversal(t *testing.T) {
 }
 
 func TestTrashRestoreRoundTrip(t *testing.T) {
-	s := newTestServer(t, AdminConfig{RWPaths: []string{"jll"}})
-	writeFile(t, filepath.Join(s.vaultsDir, "jll", "x", "n.md"), "# N\n")
+	s := newTestServer(t, AdminConfig{RWPaths: []string{"team"}})
+	writeFile(t, filepath.Join(s.vaultsDir, "team", "x", "n.md"), "# N\n")
 	h := s.handler()
 
-	rec := do(t, h, "DELETE", "/api/note?vault=jll&path=x/n.md", "", nil)
+	rec := do(t, h, "DELETE", "/api/note?vault=team&path=x/n.md", "", nil)
 	if rec.Code != 200 {
 		t.Fatalf("delete = %d", rec.Code)
 	}
-	entries, _ := os.ReadDir(filepath.Join(s.vaultsDir, "jll", ".trash"))
+	entries, _ := os.ReadDir(filepath.Join(s.vaultsDir, "team", ".trash"))
 	if len(entries) != 1 {
 		t.Fatalf("trash entries = %d", len(entries))
 	}
-	rec = do(t, h, "POST", "/api/trash/restore?vault=jll&path=.trash/"+entries[0].Name(), "", nil)
+	rec = do(t, h, "POST", "/api/trash/restore?vault=team&path=.trash/"+entries[0].Name(), "", nil)
 	if rec.Code != 204 {
 		t.Fatalf("restore = %d %s", rec.Code, rec.Body.String())
 	}
-	if _, err := os.Stat(filepath.Join(s.vaultsDir, "jll", "x", "n.md")); err != nil {
+	if _, err := os.Stat(filepath.Join(s.vaultsDir, "team", "x", "n.md")); err != nil {
 		t.Fatalf("not restored: %v", err)
 	}
 }
 
 func TestTrashRestoreRequiresWritable(t *testing.T) {
 	s := newTestServer(t, AdminConfig{}) // nothing writable
-	writeFile(t, filepath.Join(s.vaultsDir, "jll", ".trash", makeTrashName("n.md", 1)), "# N\n")
-	rec := do(t, s.handler(), "POST", "/api/trash/restore?vault=jll&path=.trash/"+makeTrashName("n.md", 1), "", nil)
+	writeFile(t, filepath.Join(s.vaultsDir, "team", ".trash", makeTrashName("n.md", 1)), "# N\n")
+	rec := do(t, s.handler(), "POST", "/api/trash/restore?vault=team&path=.trash/"+makeTrashName("n.md", 1), "", nil)
 	if rec.Code != 403 {
 		t.Fatalf("code %d, want 403", rec.Code)
 	}
@@ -66,10 +66,10 @@ func TestTrashRestoreRequiresWritable(t *testing.T) {
 // Sweep finding: handleDocxTemplates walked ancestors of an unvalidated path.
 func TestDocxTemplatesRejectsTraversal(t *testing.T) {
 	s := newTestServer(t, AdminConfig{})
-	// <root>/outside/.vr/leak.docx sits outside the vault (vaultsDir/jll).
+	// <root>/outside/.vr/leak.docx sits outside the vault (vaultsDir/team).
 	root := filepath.Dir(s.vaultsDir)
 	writeFile(t, filepath.Join(root, "outside", ".vr", "leak.docx"), "x")
-	rec := do(t, s.handler(), "GET", "/api/templates/docx?vault=jll&path=../../outside/x.md", "", nil)
+	rec := do(t, s.handler(), "GET", "/api/templates/docx?vault=team&path=../../outside/x.md", "", nil)
 	if strings.Contains(rec.Body.String(), "leak.docx") {
 		t.Fatalf("template outside vault listed: %s", rec.Body.String())
 	}
@@ -77,26 +77,26 @@ func TestDocxTemplatesRejectsTraversal(t *testing.T) {
 
 // Restoring over a note recreated at the original path must not clobber it.
 func TestTrashRestoreRefusesOverwrite(t *testing.T) {
-	s := newTestServer(t, AdminConfig{RWPaths: []string{"jll"}})
-	a := filepath.Join(s.vaultsDir, "jll", "x", "a.md")
+	s := newTestServer(t, AdminConfig{RWPaths: []string{"team"}})
+	a := filepath.Join(s.vaultsDir, "team", "x", "a.md")
 	writeFile(t, a, "# old\n")
 	h := s.handler()
-	if rec := do(t, h, "DELETE", "/api/note?vault=jll&path=x/a.md", "", nil); rec.Code != 200 {
+	if rec := do(t, h, "DELETE", "/api/note?vault=team&path=x/a.md", "", nil); rec.Code != 200 {
 		t.Fatalf("delete = %d", rec.Code)
 	}
 	writeFile(t, a, "# new\n")
-	entries, _ := os.ReadDir(filepath.Join(s.vaultsDir, "jll", ".trash"))
+	entries, _ := os.ReadDir(filepath.Join(s.vaultsDir, "team", ".trash"))
 	if len(entries) != 1 {
 		t.Fatalf("trash entries = %d", len(entries))
 	}
-	rec := do(t, h, "POST", "/api/trash/restore?vault=jll&path=.trash/"+entries[0].Name(), "", nil)
+	rec := do(t, h, "POST", "/api/trash/restore?vault=team&path=.trash/"+entries[0].Name(), "", nil)
 	if rec.Code != 409 {
 		t.Fatalf("restore = %d, want 409", rec.Code)
 	}
 	if got, _ := os.ReadFile(a); string(got) != "# new\n" {
 		t.Fatalf("recreated note clobbered: %q", got)
 	}
-	if _, err := os.Stat(filepath.Join(s.vaultsDir, "jll", ".trash", entries[0].Name())); err != nil {
+	if _, err := os.Stat(filepath.Join(s.vaultsDir, "team", ".trash", entries[0].Name())); err != nil {
 		t.Fatalf("trash entry lost: %v", err)
 	}
 }

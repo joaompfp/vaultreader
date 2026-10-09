@@ -13,8 +13,6 @@ import (
 // config reproduces the original single-user behaviour.
 var knownFeatures = []string{"shares", "share_writable", "webdav", "sync_status", "trash_empty"}
 
-const defaultShareBaseURL = "https://joao.date/notas/"
-
 func validateConfig(c AdminConfig) error {
 	for k := range c.Features {
 		known := false
@@ -52,13 +50,43 @@ func (s *server) resolvedFeatures() map[string]bool {
 	return out
 }
 
-func (s *server) shareBaseURL() string {
+// shareBaseURL is the prefix the UI puts in front of a share token. An
+// explicit share_base_url wins; otherwise it is derived from the request
+// as <scheme>://<host>/share/.
+func (s *server) shareBaseURL(r *http.Request) string {
 	s.cfgMu.RLock()
-	defer s.cfgMu.RUnlock()
-	if s.cfg.ShareBaseURL == "" {
-		return defaultShareBaseURL
+	explicit := s.cfg.ShareBaseURL
+	s.cfgMu.RUnlock()
+	if explicit != "" {
+		return explicit
 	}
-	return s.cfg.ShareBaseURL
+	return requestScheme(r) + "://" + r.Host + "/share/"
+}
+
+// requestScheme is "https" or "http": X-Forwarded-Proto when the peer is
+// a trusted proxy (first hop of a list, only those two values), else the
+// connection's TLS state.
+func requestScheme(r *http.Request) string {
+	peer := r.RemoteAddr
+	if i := strings.LastIndex(peer, ":"); i != -1 {
+		peer = peer[:i]
+	}
+	if isTrustedProxyPeer(peer) {
+		proto := r.Header.Get("X-Forwarded-Proto")
+		if i := strings.Index(proto, ","); i != -1 {
+			proto = proto[:i]
+		}
+		switch strings.ToLower(strings.TrimSpace(proto)) {
+		case "https":
+			return "https"
+		case "http":
+			return "http"
+		}
+	}
+	if r.TLS != nil {
+		return "https"
+	}
+	return "http"
 }
 
 // feature gates a route: a disabled feature answers 404, as if the
