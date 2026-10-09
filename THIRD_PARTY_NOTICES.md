@@ -1,7 +1,8 @@
 # Third-party notices
 
-VaultReader is licensed under AGPL-3.0-only (see `LICENSE`). It bundles or
-depends on the components below, each under its own license.
+VaultReader is Copyright (C) 2026 joaompfp and licensed under AGPL-3.0-only
+(see `LICENSE`). It bundles or depends on the components below, each under
+its own license.
 
 | Component | Version | License (SPDX) | Upstream |
 |---|---|---|---|

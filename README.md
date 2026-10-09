@@ -150,6 +150,6 @@ Issues and pull requests are welcome; this is a spare-time project with no SLA. 
 
 ## License
 
-[GNU AGPL-3.0-only](LICENSE). Bundled third-party libraries keep their own licenses ([THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)).
+Copyright (C) 2026 joaompfp. Licensed under the [GNU AGPL-3.0-only](LICENSE). Bundled third-party libraries keep their own licenses ([THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)).
 
 Works with Obsidian vaults. Not affiliated with or endorsed by Obsidian.
