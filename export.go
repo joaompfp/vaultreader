@@ -1158,16 +1158,29 @@ func templateStripCmds(paras []bodyPara, tables []bodyTable, noteTitle, today st
 // of a content control inside it (case-insensitive): a key equal to or
 // starting with "CoverTitle" or "Title" is the title placeholder, one
 // starting with "Date" the date placeholder. "CoverSubtitle…" matches
-// neither. Returns "title", "date" or "".
+// neither. Word's built-in "Title" and "Date" paragraph styles are plain
+// formatting, not placeholders, so a style ID equal to exactly "Title" or
+// "Date" does not count (a content-control tag with that value does).
+// Returns "title", "date" or "".
 func coverRole(p bodyPara) string {
-	for _, k := range append([]string{p.styleID}, p.tags...) {
-		k = strings.ToLower(k)
-		switch {
-		case strings.HasPrefix(k, "covertitle"), strings.HasPrefix(k, "title"):
-			return "title"
-		case strings.HasPrefix(k, "date"):
-			return "date"
+	if r := keyRole(p.styleID); r != "" && !strings.EqualFold(p.styleID, r) {
+		return r
+	}
+	for _, t := range p.tags {
+		if r := keyRole(t); r != "" {
+			return r
 		}
+	}
+	return ""
+}
+
+func keyRole(k string) string {
+	k = strings.ToLower(k)
+	switch {
+	case strings.HasPrefix(k, "covertitle"), strings.HasPrefix(k, "title"):
+		return "title"
+	case strings.HasPrefix(k, "date"):
+		return "date"
 	}
 	return ""
 }

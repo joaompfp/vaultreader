@@ -8,7 +8,7 @@ Most-recent first.
 
 **Changed**
 - **`share_base_url` is derived when unset**: `<scheme>://<host>/share/` from the request (scheme from `X-Forwarded-Proto` when the peer is a trusted proxy, else the connection's TLS state). `/api/instance` returns the derived value. Previously the default was a hardcoded host; set `share_base_url` explicitly to keep a public alias such as `https://example.com/notes/`.
-- **DOCX title pages are template-generic**: any template with a `<w:titlePg/>` title page keeps it; a title-page paragraph whose style ID or content-control tag (case-insensitive) equals or starts with `CoverTitle`/`Title` gets the note title, one starting with `Date` gets today's date. Previously this only applied to templates under a specific folder with specific style names.
+- **DOCX title pages are template-generic**: any template with a `<w:titlePg/>` title page keeps it; a title-page paragraph whose style ID or content-control tag (case-insensitive) equals or starts with `CoverTitle`/`Title` gets the note title, one starting with `Date` gets today's date. Word's built-in `Title`/`Date` paragraph styles are not placeholders (exact style IDs are skipped; content-control tags with those values still count). Templates without a title page get no substitution. Previously this only applied to templates under a specific folder with specific style names.
 - **Vault order is configurable**: new optional `vault_order` (vault names listed first, the rest alphabetically). The built-in order list is gone; without `vault_order` vaults are alphabetical.
 - Share page footer links to the project repository.
 - Go module path is `github.com/joaompfp/vaultreader`.

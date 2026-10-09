@@ -91,11 +91,30 @@ func TestTemplateStripStylePrefix(t *testing.T) {
 // Without a title page everything in the body is stripped.
 func TestTemplateStripNoTitlePage(t *testing.T) {
 	path := writeDocx(t,
-		`<w:p><w:pPr><w:pStyle w:val="CoverTitle"/></w:pPr></w:p><w:p/><w:tbl><w:tr><w:tc><w:p/></w:tc></w:tr></w:tbl>`)
+		`<w:p><w:pPr><w:pStyle w:val="CoverTitle"/></w:pPr></w:p><w:p><w:pPr><w:pStyle w:val="Date"/></w:pPr><w:r><w:t>Date</w:t></w:r></w:p><w:tbl><w:tr><w:tc><w:p/></w:tc></w:tr></w:tbl>`)
 	paras, tables, _ := scanBody(path)
 	cmds, pIdx, tIdx := templateStripCmds(paras, tables, "N", "D")
+	// No substitution at all: only the strip commands.
 	want := []batchCmd{{Op: "remove", Path: "/body/p[1]"}, {Op: "remove", Path: "/body/p[1]"}, {Op: "remove", Path: "/body/tbl[1]"}}
 	if !reflect.DeepEqual(cmds, want) || pIdx != 0 || tIdx != 0 {
 		t.Fatalf("got %+v %d %d", cmds, pIdx, tIdx)
+	}
+}
+
+// Word's built-in "Title" and "Date" paragraph styles are ordinary
+// formatting, not placeholders: a title page using them is kept as-is
+// (a content-control tag "Date"/"Title" still counts).
+func TestTemplateStripBuiltinStylesUntouched(t *testing.T) {
+	path := writeDocx(t,
+		`<w:p><w:pPr><w:pStyle w:val="Title"/></w:pPr><w:r><w:t>Proposal</w:t></w:r></w:p>`+
+			`<w:p><w:pPr><w:pStyle w:val="Date"/></w:pPr><w:r><w:t>Date </w:t></w:r></w:p>`+
+			`<w:p><w:sdt><w:sdtPr><w:tag w:val="Date"/></w:sdtPr><w:sdtContent><w:r><w:t>d</w:t></w:r></w:sdtContent></w:sdt></w:p>`+
+			`<w:p><w:pPr><w:sectPr><w:titlePg/></w:sectPr></w:pPr></w:p>`+
+			`<w:p><w:r><w:t>body</w:t></w:r></w:p>`)
+	paras, tables, _ := scanBody(path)
+	cmds, pIdx, _ := templateStripCmds(paras, tables, "N", "D")
+	want := append(replaceCmds("3", "D"), batchCmd{Op: "remove", Path: "/body/p[5]"})
+	if !reflect.DeepEqual(cmds, want) || pIdx != 4 {
+		t.Fatalf("got %+v idx %d", cmds, pIdx)
 	}
 }
