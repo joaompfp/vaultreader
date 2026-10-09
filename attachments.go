@@ -54,7 +54,7 @@ func (s *server) handleAttachments(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if !s.isWritable(vault, path) {
-			errResponse(w, 403, "path is not writable")
+			errResponse(w, 403, hiddenPathMsg(path, "path is not writable"))
 			return
 		}
 		// Move to .trash/ following the existing trash convention:

@@ -233,3 +233,12 @@ VaultReader does not run git. If the shared folder is a git repository, you can 
 6. Store the new offset.
 
 Changes made in the same window to the same file by two people end up in the commit of whoever comes first; for a small team that is usually acceptable.
+
+### Don't let teammates write code that something else runs
+
+A host script that runs git in a folder a teammate can write runs whatever that folder's `.git` says: a teammate who could write `.git/hooks/post-commit` or `.git/config` could run commands on your host. VaultReader refuses every write to a path with a segment starting with `.` (`.git`, `.obsidian`, `.trash`, …) since v0.1.1, whatever `rw_paths` say; the trash is changed only by VaultReader's own delete, restore and empty. Even so, keep the repository's `.git` outside the shared mount (`git --git-dir=/srv/team-history.git --work-tree=/srv/vaults/team …`), so that no other way into the folder (sync, a file share, an older build) reaches it either.
+
+The same goes for other things that run what the folder holds:
+
+- **Obsidian desktop.** A vault's `.obsidian/plugins/` holds JavaScript that Obsidian runs with your user's rights once community plugins are on. Don't open a shared folder in Obsidian with community plugins enabled unless you trust everyone who can write it.
+- **Coding agents.** Agent instruction files such as `CLAUDE.md` or `AGENTS.md` are read as instructions by AI coding agents. One a teammate writes in a shared folder can steer an agent you run there (prompt injection). Don't point an agent at a shared folder, or check those files before you do.

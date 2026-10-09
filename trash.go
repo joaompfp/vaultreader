@@ -150,7 +150,7 @@ func (s *server) handleTrashRestore(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !s.isWritable(vault, originalBase) {
-		errResponse(w, 403, "path is not writable")
+		errResponse(w, 403, hiddenPathMsg(originalBase, "path is not writable"))
 		return
 	}
 	// os.Rename silently replaces an existing file: never clobber a note

@@ -126,7 +126,7 @@ func (s *server) handleShareCreate(w http.ResponseWriter, r *http.Request) {
 	// An editable share writes as the instance, so it may only target a
 	// path the instance allows writes to.
 	if req.Writable && !s.isWritable(req.Vault, req.Path) {
-		errResponse(w, 403, "path is not writable")
+		errResponse(w, 403, hiddenPathMsg(req.Path, "path is not writable"))
 		return
 	}
 	e := s.shares.create(req.Vault, req.Path, req.Writable, req.TTL, req.Label, userFrom(r))
@@ -195,7 +195,7 @@ func (s *server) handleShareView(w http.ResponseWriter, r *http.Request) {
 		// Re-check at write time: RWPaths may have changed since the share
 		// was created, and older share files were never validated.
 		if _, ok := s.safePath(vp, e.Path); !ok { errResponse(w, 400, "invalid path"); return }
-		if !s.isWritable(e.Vault, e.Path) { errResponse(w, 403, "path is not writable"); return }
+		if !s.isWritable(e.Vault, e.Path) { errResponse(w, 403, hiddenPathMsg(e.Path, "path is not writable")); return }
 		r.Body = http.MaxBytesReader(w, r.Body, 10<<20)
 		var body struct{ Raw string `json:"raw"` }
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {

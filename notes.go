@@ -106,7 +106,7 @@ func (s *server) handleCreateNote(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !s.isWritable(vault, path) {
-		errResponse(w, 403, "path is not writable")
+		errResponse(w, 403, hiddenPathMsg(path, "path is not writable"))
 		return
 	}
 	// don't overwrite existing notes
@@ -157,7 +157,7 @@ func (s *server) handleDeleteNote(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !s.isWritable(vault, path) {
-		errResponse(w, 403, "path is not writable")
+		errResponse(w, 403, hiddenPathMsg(path, "path is not writable"))
 		return
 	}
 	if _, err := os.Stat(full); os.IsNotExist(err) {
@@ -240,11 +240,11 @@ func (s *server) handleRenameFolder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !s.isWritable(vault, from) {
-		errResponse(w, 403, "source path is not writable")
+		errResponse(w, 403, hiddenPathMsg(from, "source path is not writable"))
 		return
 	}
 	if !s.isWritable(vault, to) {
-		errResponse(w, 403, "destination path is not writable")
+		errResponse(w, 403, hiddenPathMsg(to, "destination path is not writable"))
 		return
 	}
 
@@ -310,7 +310,7 @@ func (s *server) handleCreateFolder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !s.isWritable(vault, path) {
-		errResponse(w, 403, "path is not writable")
+		errResponse(w, 403, hiddenPathMsg(path, "path is not writable"))
 		return
 	}
 	if _, err := os.Stat(full); err == nil {
@@ -352,7 +352,7 @@ func (s *server) handleDeleteFolder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !s.isWritable(vault, path) {
-		errResponse(w, 403, "path is not writable")
+		errResponse(w, 403, hiddenPathMsg(path, "path is not writable"))
 		return
 	}
 	info, err := os.Stat(full)
@@ -432,7 +432,7 @@ func (s *server) handleMove(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !s.isWritable(vault, from) {
-		errResponse(w, 403, "source path is not writable")
+		errResponse(w, 403, hiddenPathMsg(from, "source path is not writable"))
 		return
 	}
 	fullTo, ok := s.safePath(vp, to)
@@ -441,7 +441,7 @@ func (s *server) handleMove(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !s.isWritable(vault, to) {
-		errResponse(w, 403, "destination path is not writable")
+		errResponse(w, 403, hiddenPathMsg(to, "destination path is not writable"))
 		return
 	}
 	if _, err := os.Stat(fullFrom); os.IsNotExist(err) {
@@ -560,7 +560,7 @@ func (s *server) handlePutNote(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !s.isWritable(vault, path) {
-		errResponse(w, 403, "path is not writable")
+		errResponse(w, 403, hiddenPathMsg(path, "path is not writable"))
 		return
 	}
 
@@ -650,7 +650,7 @@ func (s *server) handleUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !s.isWritable(vault, notePath) {
-		errResponse(w, 403, "path is not writable")
+		errResponse(w, 403, hiddenPathMsg(notePath, "path is not writable"))
 		return
 	}
 	file, hdr, err := r.FormFile("file")
@@ -711,7 +711,7 @@ func (s *server) handleUpload(w http.ResponseWriter, r *http.Request) {
 	// writable itself (an exact-file or exact-folder RW entry for notePath
 	// does not cover <dir>/attachments/).
 	if !s.isWritable(vault, relFilePath) {
-		errResponse(w, 403, "attachment path is not writable")
+		errResponse(w, 403, hiddenPathMsg(relFilePath, "attachment path is not writable"))
 		return
 	}
 	if err := os.MkdirAll(fullAttachDir, 0755); err != nil {

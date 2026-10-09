@@ -95,7 +95,8 @@ func (s *server) saveConfig() error {
 	return os.Rename(tmp, s.configPath())
 }
 
-// isWritable returns true if vault+path is under one of the configured RW paths.
+// isWritable returns true if vault+path is under one of the configured RW paths
+// and has no hidden (dot) segment. Every mutating handler goes through it.
 // rw_paths are vault-rooted, e.g. "notes" (whole vault) or "notes/agents/skills" (subfolder).
 // vault is e.g. "notes"; path is vault-relative e.g. "agents/skills/foo.md".
 func (s *server) isWritable(vault, path string) bool {
@@ -106,6 +107,11 @@ func (s *server) isWritable(vault, path string) bool {
 	// escaping the vault is never writable.
 	clean := pathpkg.Clean(filepath.ToSlash(path))
 	if clean == ".." || strings.HasPrefix(clean, "../") || strings.HasPrefix(clean, "/") {
+		return false
+	}
+	// Hidden paths (.git, .obsidian, .trash, …) are never writable via the
+	// API, whatever rw_paths say.
+	if hasDotSegment(clean) {
 		return false
 	}
 	full := vault

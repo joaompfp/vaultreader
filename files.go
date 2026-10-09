@@ -227,6 +227,32 @@ func cleanRel(p string) (string, bool) {
 	return c, true
 }
 
+// hasDotSegment reports whether a vault-relative path (cleaned, slash
+// form) has any segment starting with "." — .git, .obsidian, .trash and
+// the like. Such paths are never writable through the API: they hold code
+// that git hooks or desktop plugins run. The trash code writes .trash
+// itself, by its own paths, never through a request path.
+func hasDotSegment(rel string) bool {
+	if rel == "." {
+		return false
+	}
+	for _, seg := range strings.Split(rel, "/") {
+		if strings.HasPrefix(seg, ".") {
+			return true
+		}
+	}
+	return false
+}
+
+// hiddenPathMsg is the 403 message for a refused write: why a hidden path
+// was refused, or fallback for an ordinary rw_paths refusal.
+func hiddenPathMsg(path, fallback string) string {
+	if hasDotSegment(pathpkg.Clean(filepath.ToSlash(path))) {
+		return "hidden paths (a segment starting with \".\") are not writable"
+	}
+	return fallback
+}
+
 func (s *server) safePath(vaultP, notePath string) (string, bool) {
 	// Reject empty paths and absolute paths (leading separator or drive letter).
 	if notePath == "" {
