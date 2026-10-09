@@ -200,14 +200,25 @@ func (s *server) handleRenameFolder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Same guards as handleMove: both ends inside the vault (and not the
+	// vault root itself) and both writable.
+	root := filepath.Clean(vp)
 	fullFrom, ok := s.safePath(vp, from)
-	if !ok {
+	if !ok || fullFrom == root {
 		errResponse(w, 400, "invalid from path")
 		return
 	}
 	fullTo, ok := s.safePath(vp, to)
-	if !ok {
+	if !ok || fullTo == root {
 		errResponse(w, 400, "invalid to path")
+		return
+	}
+	if !s.isWritable(vault, from) {
+		errResponse(w, 403, "source path is not writable")
+		return
+	}
+	if !s.isWritable(vault, to) {
+		errResponse(w, 403, "destination path is not writable")
 		return
 	}
 
