@@ -81,15 +81,7 @@ func (idx *NoteIndex) buildAll(vaultsPath string) {
 			mtime:      info.ModTime().Unix(),
 		})
 
-		matches := wikilinkRe.FindAllStringSubmatch(body, -1)
-		var targets []string
-		for _, m := range matches {
-			targets = append(targets, normalizeName(m[1]))
-		}
-		idx.outbound[key] = targets
-		for _, t := range targets {
-			idx.inbound[t] = append(idx.inbound[t], key)
-		}
+		idx.setOutboundLocked(key, body)
 	})
 }
 
@@ -107,27 +99,14 @@ func (idx *NoteIndex) updateNote(vault, path, content string) {
 	idx.byName[nname] = removeRef(idx.byName[nname], vault, path)
 	delete(idx.byPath, pk)
 
-	// Remove old outbound links from inbound index.
-	old := idx.outbound[key]
-	for _, t := range old {
-		idx.inbound[t] = removeKey(idx.inbound[t], key)
-	}
+	idx.dropOutboundLocked(key)
 
 	// Add updated entries.
 	ref := NoteRef{Vault: vault, Path: path, Title: title}
 	idx.byName[nname] = append(idx.byName[nname], ref)
 	idx.byPath[pk] = ref
 
-	// Reindex outbound links.
-	matches := wikilinkRe.FindAllStringSubmatch(body, -1)
-	var targets []string
-	for _, m := range matches {
-		targets = append(targets, normalizeName(m[1]))
-	}
-	idx.outbound[key] = targets
-	for _, t := range targets {
-		idx.inbound[t] = append(idx.inbound[t], key)
-	}
+	idx.setOutboundLocked(key, body)
 
 	// Refresh search cache for this note (drop old entry, append new).
 	entries := idx.searchByVault[vault][:0:0]
@@ -158,11 +137,7 @@ func (idx *NoteIndex) removeNote(vault, path string) {
 	idx.byName[nname] = removeRef(idx.byName[nname], vault, path)
 	delete(idx.byPath, pk)
 
-	old := idx.outbound[key]
-	for _, t := range old {
-		idx.inbound[t] = removeKey(idx.inbound[t], key)
-	}
-	delete(idx.outbound, key)
+	idx.dropOutboundLocked(key)
 
 	// Drop from search cache.
 	entries := idx.searchByVault[vault][:0:0]
@@ -260,28 +235,14 @@ func (idx *NoteIndex) getBacklinks(vault, path string) []BacklinkRef {
 	idx.mu.RLock()
 	defer idx.mu.RUnlock()
 
-	nname := normalizeName(filepath.Base(path))
-	keys := idx.inbound[nname]
-
 	var refs []BacklinkRef
-	seen := make(map[string]bool)
-	for _, k := range keys {
-		if seen[k] {
-			continue
-		}
-		seen[k] = true
-		parts := strings.SplitN(k, ":", 2)
-		if len(parts) != 2 {
-			continue
-		}
-		v, p := parts[0], parts[1]
-		pk := pathKey(v, p)
-		ref := idx.byPath[pk]
+	for _, k := range idx.backlinkKeysLocked(vault, path) {
+		ref := idx.byPath[strings.ToLower(k)]
 		title := ref.Title
 		if title == "" {
-			title = strings.TrimSuffix(filepath.Base(p), ".md")
+			title = strings.TrimSuffix(filepath.Base(ref.Path), ".md")
 		}
-		refs = append(refs, BacklinkRef{Vault: v, Path: p, Title: title, Excerpt: ""})
+		refs = append(refs, BacklinkRef{Vault: ref.Vault, Path: ref.Path, Title: title, Excerpt: ""})
 	}
 	return refs
 }

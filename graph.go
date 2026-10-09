@@ -4,7 +4,6 @@ package main
 
 import (
 	"net/http"
-	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -72,35 +71,22 @@ func (s *server) handleGraph(w http.ResponseWriter, r *http.Request) {
 		for hop := 0; hop < depth; hop++ {
 			next := []string{}
 			for _, k := range frontier {
-				// outbound: edges from k → resolve target normalized names → keys
+				// outbound: edges from k → resolved target notes
 				srcRef := allByKey[k]
 				for _, t := range s.idx.outbound[k] {
-					// Pick same-vault candidate first, then any.
-					var ref NoteRef
-					for _, c := range s.idx.byName[t] {
-						if c.Vault == srcRef.Vault {
-							ref = c
-							break
-						}
-					}
-					if ref.Vault == "" && len(s.idx.byName[t]) > 0 {
-						ref = s.idx.byName[t][0]
-					}
-					if ref.Vault == "" {
+					v, p, ok := s.idx.resolveLinkLocked(t, srcRef)
+					if !ok {
 						continue
 					}
-					tKey := vaultKey(ref.Vault, ref.Path)
+					tKey := vaultKey(v, p)
 					if _, seen := noteByKey[tKey]; !seen {
-						noteByKey[tKey] = ref
+						noteByKey[tKey] = allByKey[tKey]
 						next = append(next, tKey)
 					}
 				}
 				// inbound: which notes link to k?
-				ref := allByKey[k]
-				baseName := normalizeName(filepath.Base(ref.Path))
-				for _, srcKey := range s.idx.inbound[baseName] {
-					if srcRef, ok := allByKey[srcKey]; ok {
-						sKey := vaultKey(srcRef.Vault, srcRef.Path)
+				for _, sKey := range s.idx.backlinkKeysLocked(srcRef.Vault, srcRef.Path) {
+					if srcRef, ok := allByKey[sKey]; ok {
 						if _, seen := noteByKey[sKey]; !seen {
 							noteByKey[sKey] = srcRef
 							next = append(next, sKey)
@@ -150,21 +136,11 @@ func (s *server) handleGraph(w http.ResponseWriter, r *http.Request) {
 		}
 		srcRef := allByKey[srcKey]
 		for _, t := range targets {
-			// Same-vault candidate first, then any.
-			var ref NoteRef
-			for _, c := range s.idx.byName[t] {
-				if c.Vault == srcRef.Vault {
-					ref = c
-					break
-				}
-			}
-			if ref.Vault == "" && len(s.idx.byName[t]) > 0 {
-				ref = s.idx.byName[t][0]
-			}
-			if ref.Vault == "" {
+			v, p, ok := s.idx.resolveLinkLocked(t, srcRef)
+			if !ok {
 				continue
 			}
-			tKey := vaultKey(ref.Vault, ref.Path)
+			tKey := vaultKey(v, p)
 			if _, ok := noteByKey[tKey]; !ok {
 				continue
 			}
