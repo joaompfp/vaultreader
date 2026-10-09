@@ -311,19 +311,22 @@ func renderWikilinksPlain(htmlStr string) string {
 //	> [!info] Document Metadata
 //	> Body content here
 //
-// becomes (after goldmark):
+// becomes (after goldmark, which folds the continuation line into the
+// title's paragraph):
 //
-//	<blockquote><p>[!info] Document Metadata</p><p>Body content here</p></blockquote>
+//	<blockquote><p>[!info] Document Metadata\nBody content here</p></blockquote>
 //
-// We match `<blockquote>\s*<p>[!type] optional title</p>` and rewrite to
-// `<div class="callout callout-info"><div class="callout-title">…</div>…</div>`.
-// Anything inside the blockquote past the first <p> is preserved verbatim.
+// We match `<blockquote>\s*<p>[!type] optional title[\n rest]</p>` and
+// rewrite to `<div class="callout callout-info"><div class="callout-title">…
+// </div><div class="callout-body">…</div></div>`. The rest of the first
+// paragraph becomes the body's first <p>; anything inside the blockquote
+// past the first <p> is preserved verbatim.
 //
 // Supported types use the Obsidian set; unknown types still render via the
 // generic `.callout` styles. The marker `[!type]-` (Obsidian fold-start
 // syntax) is treated identically — fold state is not preserved.
 var calloutRe = regexp.MustCompile(
-	`(?s)<blockquote>\s*<p>\[!([a-zA-Z0-9_-]+)\]-?\s*([^<\n]*)</p>(.*?)</blockquote>`)
+	`(?s)<blockquote>\s*<p>\[!([a-zA-Z0-9_-]+)\]-?[ \t]*([^<\n]*)(?:\n(.*?))?</p>(.*?)</blockquote>`)
 
 func renderCallouts(htmlStr string) string {
 	return calloutRe.ReplaceAllStringFunc(htmlStr, func(match string) string {
@@ -339,7 +342,10 @@ func renderCallouts(htmlStr string) string {
 				title = strings.ToUpper(typ[:1]) + typ[1:]
 			}
 		}
-		body := sub[3]
+		body := sub[4]
+		if rest := strings.TrimSpace(sub[3]); rest != "" {
+			body = "<p>" + rest + "</p>" + body
+		}
 		return fmt.Sprintf(
 			`<div class="callout callout-%s" data-callout="%s"><div class="callout-title"><span class="callout-icon"></span>%s</div><div class="callout-body">%s</div></div>`,
 			htmlEscape(typ), htmlEscape(typ), htmlEscape(title), body)
