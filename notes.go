@@ -89,6 +89,13 @@ func (s *server) handleCreateNote(w http.ResponseWriter, r *http.Request) {
 		errResponse(w, 400, "path required")
 		return
 	}
+	// Canonical vault-relative form, so the index, audit log and trash
+	// names never hold "./x" or "x/" variants.
+	path, ok = cleanRel(path)
+	if !ok {
+		errResponse(w, 400, "invalid path")
+		return
+	}
 	// ensure .md extension
 	if !strings.HasSuffix(path, ".md") {
 		path = path + ".md"
@@ -135,6 +142,13 @@ func (s *server) handleDeleteNote(w http.ResponseWriter, r *http.Request) {
 	vp, ok := s.vaultPath(vault)
 	if !ok {
 		errResponse(w, 400, "invalid vault")
+		return
+	}
+	// Canonical vault-relative form, so the index, audit log and trash
+	// names never hold "./x" or "x/" variants.
+	path, ok = cleanRel(path)
+	if !ok {
+		errResponse(w, 400, "invalid path")
 		return
 	}
 	full, ok := s.safePath(vp, path)
@@ -200,6 +214,18 @@ func (s *server) handleRenameFolder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Canonical vault-relative form, so the index, audit log and trash
+	// names never hold "./x" or "x/" variants.
+	from, ok = cleanRel(from)
+	if !ok {
+		errResponse(w, 400, "invalid from path")
+		return
+	}
+	to, ok = cleanRel(to)
+	if !ok {
+		errResponse(w, 400, "invalid to path")
+		return
+	}
 	// Same guards as handleMove: both ends inside the vault (and not the
 	// vault root itself) and both writable.
 	root := filepath.Clean(vp)
@@ -271,6 +297,13 @@ func (s *server) handleCreateFolder(w http.ResponseWriter, r *http.Request) {
 		errResponse(w, 400, "path required")
 		return
 	}
+	// Canonical vault-relative form, so the index, audit log and trash
+	// names never hold "./x" or "x/" variants.
+	path, ok = cleanRel(path)
+	if !ok {
+		errResponse(w, 400, "invalid path")
+		return
+	}
 	full, ok := s.safePath(vp, path)
 	if !ok {
 		errResponse(w, 400, "invalid path")
@@ -304,6 +337,13 @@ func (s *server) handleDeleteFolder(w http.ResponseWriter, r *http.Request) {
 	}
 	if path == "" {
 		errResponse(w, 400, "path required")
+		return
+	}
+	// Canonical vault-relative form, so the index, audit log and trash
+	// names never hold "./x" or "x/" variants.
+	path, ok = cleanRel(path)
+	if !ok {
+		errResponse(w, 400, "invalid path")
 		return
 	}
 	full, ok := s.safePath(vp, path)
@@ -362,6 +402,18 @@ func (s *server) handleMove(w http.ResponseWriter, r *http.Request) {
 	}
 	if from == "" || to == "" {
 		errResponse(w, 400, "from and to required")
+		return
+	}
+	// Canonical vault-relative form, so the index, audit log and trash
+	// names never hold "./x" or "x/" variants.
+	from, ok = cleanRel(from)
+	if !ok {
+		errResponse(w, 400, "invalid from path")
+		return
+	}
+	to, ok = cleanRel(to)
+	if !ok {
+		errResponse(w, 400, "invalid to path")
 		return
 	}
 	// Only enforce .md extension for files (not directories)
@@ -495,6 +547,13 @@ func (s *server) handlePutNote(w http.ResponseWriter, r *http.Request) {
 		errResponse(w, 400, "invalid vault")
 		return
 	}
+	// Canonical vault-relative form, so the index, audit log and trash
+	// names never hold "./x" or "x/" variants.
+	path, ok = cleanRel(path)
+	if !ok {
+		errResponse(w, 400, "invalid path")
+		return
+	}
 	full, ok := s.safePath(vp, path)
 	if !ok {
 		errResponse(w, 400, "invalid path")
@@ -579,6 +638,13 @@ func (s *server) handleUpload(w http.ResponseWriter, r *http.Request) {
 		errResponse(w, 400, "invalid vault")
 		return
 	}
+	// Canonical vault-relative form, so the index, audit log and trash
+	// names never hold "./x" or "x/" variants.
+	notePath, ok = cleanRel(notePath)
+	if !ok {
+		errResponse(w, 400, "invalid notePath")
+		return
+	}
 	if _, ok := s.safePath(vp, notePath); !ok {
 		errResponse(w, 400, "invalid notePath")
 		return
@@ -627,10 +693,6 @@ func (s *server) handleUpload(w http.ResponseWriter, r *http.Request) {
 		errResponse(w, 400, "invalid attachment dir")
 		return
 	}
-	if err := os.MkdirAll(fullAttachDir, 0755); err != nil {
-		errResponse(w, 500, "cannot create attachments dir: "+err.Error())
-		return
-	}
 
 	noteBase := strings.TrimSuffix(filepath.Base(notePath), ".md")
 	// Sanitize: strip anything that isn't [a-zA-Z0-9_-]
@@ -643,6 +705,17 @@ func (s *server) handleUpload(w http.ResponseWriter, r *http.Request) {
 	fullFilePath, ok := s.safePath(vp, relFilePath)
 	if !ok {
 		errResponse(w, 400, "invalid file path")
+		return
+	}
+	// The file written lives beside the note, not at notePath: it must be
+	// writable itself (an exact-file or exact-folder RW entry for notePath
+	// does not cover <dir>/attachments/).
+	if !s.isWritable(vault, relFilePath) {
+		errResponse(w, 403, "attachment path is not writable")
+		return
+	}
+	if err := os.MkdirAll(fullAttachDir, 0755); err != nil {
+		errResponse(w, 500, "cannot create attachments dir: "+err.Error())
 		return
 	}
 

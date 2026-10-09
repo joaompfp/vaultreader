@@ -3,8 +3,13 @@
 package main
 
 import (
+	"bytes"
+	"mime/multipart"
+	"net/http/httptest"
+	"net/textproto"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -205,5 +210,84 @@ func TestTrashEmptyRequiresWritable(t *testing.T) {
 	}
 	if !exists(filepath.Join(v, ".trash", roName)) || exists(filepath.Join(v, ".trash", rwName)) {
 		t.Fatal("empty-all must delete only entries from writable paths")
+	}
+}
+
+func uploadImage(t *testing.T, s *server, vault, notePath string) *httptest.ResponseRecorder {
+	t.Helper()
+	var buf bytes.Buffer
+	mw := multipart.NewWriter(&buf)
+	_ = mw.WriteField("vault", vault)
+	_ = mw.WriteField("notePath", notePath)
+	hdr := textproto.MIMEHeader{}
+	hdr.Set("Content-Disposition", `form-data; name="file"; filename="x.png"`)
+	hdr.Set("Content-Type", "image/png")
+	fw, _ := mw.CreatePart(hdr)
+	_, _ = fw.Write([]byte("\x89PNG\r\n\x1a\n"))
+	_ = mw.Close()
+	req := httptest.NewRequest("POST", "/api/upload", &buf)
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	rec := httptest.NewRecorder()
+	s.handler().ServeHTTP(rec, req)
+	return rec
+}
+
+// The upload check covers the file actually written (<noteDir>/attachments/…),
+// not just notePath.
+func TestUploadRequiresWritableTarget(t *testing.T) {
+	s := newTestServer(t, AdminConfig{RWPaths: []string{"team/rw", "team/one.md"}})
+	v := filepath.Join(s.vaultsDir, "team")
+	writeFile(t, filepath.Join(v, "rw", "n.md"), "# N\n")
+	writeFile(t, filepath.Join(v, "one.md"), "# One\n")
+
+	for _, np := range []string{"rw", "./rw", "rw/", "one.md"} {
+		if rec := uploadImage(t, s, "team", np); rec.Code != 403 {
+			t.Errorf("notePath=%q: code = %d %s, want 403", np, rec.Code, rec.Body.String())
+		}
+	}
+	if exists(filepath.Join(v, "attachments")) {
+		t.Fatal("upload wrote attachments/ at the read-only vault root")
+	}
+	if rec := uploadImage(t, s, "team", "rw/n.md"); rec.Code != 200 {
+		t.Fatalf("positive control: code = %d %s", rec.Code, rec.Body.String())
+	}
+	if ents, _ := os.ReadDir(filepath.Join(v, "rw", "attachments")); len(ents) != 1 {
+		t.Fatalf("positive control: attachments = %v", ents)
+	}
+}
+
+// Mutating handlers store the canonical vault-relative path, so "./rw/a.md"
+// is indexed (backlinks, search, audit) as "rw/a.md".
+func TestMutatingHandlersCanonicalisePaths(t *testing.T) {
+	s := newTestServer(t, AdminConfig{RWPaths: []string{"team"}})
+	v := filepath.Join(s.vaultsDir, "team")
+	writeFile(t, filepath.Join(v, "Target.md"), "# Target\n")
+	s.idx.buildAll(s.vaultsDir)
+	h := s.handler()
+
+	if rec := do(t, h, "PUT", "/api/note?vault=team&path=./rw//a.md", "# A zebracorn\n[[Target]]\n", nil); rec.Code != 200 {
+		t.Fatalf("PUT = %d %s", rec.Code, rec.Body.String())
+	}
+	if got := backlinkPaths(s, "team", "Target.md"); !equalStrings(got, []string{"rw/a.md"}) {
+		t.Fatalf("backlinks = %v, want [rw/a.md]", got)
+	}
+	if body := do(t, h, "GET", "/api/search?q=zebracorn&vault=team", "", nil).Body.String(); !strings.Contains(body, `"rw/a.md"`) || strings.Contains(body, "./rw") {
+		t.Fatalf("search = %s", body)
+	}
+
+	// Folder rename given "./rw/" re-indexes the notes under it.
+	if rec := do(t, h, "PATCH", "/api/folder?vault=team&from=./rw/&to=moved/", "", nil); rec.Code != 200 {
+		t.Fatalf("rename = %d %s", rec.Code, rec.Body.String())
+	}
+	if got := backlinkPaths(s, "team", "Target.md"); !equalStrings(got, []string{"moved/a.md"}) {
+		t.Fatalf("backlinks after rename = %v, want [moved/a.md]", got)
+	}
+
+	// Delete via a non-canonical path drops the canonical index entry.
+	if rec := do(t, h, "DELETE", "/api/note?vault=team&path=moved/./a.md", "", nil); rec.Code != 200 {
+		t.Fatalf("delete = %d %s", rec.Code, rec.Body.String())
+	}
+	if got := backlinkPaths(s, "team", "Target.md"); len(got) != 0 {
+		t.Fatalf("stale backlink after delete = %v", got)
 	}
 }

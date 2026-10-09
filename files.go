@@ -5,6 +5,7 @@ package main
 import (
 	"net/http"
 	"os"
+	pathpkg "path"
 	"path/filepath"
 	"strings"
 )
@@ -212,6 +213,18 @@ func (s *server) vaultPath(name string) (string, bool) {
 		return "", false
 	}
 	return p, true
+}
+
+// cleanRel canonicalises a vault-relative path taken from a request:
+// slash form, path.Clean, never empty, the vault root, absolute or
+// escaping the vault. Mutating handlers apply it before anything is
+// stored, so "./rw/a.md" and "rw//a.md" are both "rw/a.md".
+func cleanRel(p string) (string, bool) {
+	c := pathpkg.Clean(filepath.ToSlash(p))
+	if p == "" || c == "." || c == ".." || strings.HasPrefix(c, "../") || strings.HasPrefix(c, "/") {
+		return "", false
+	}
+	return c, true
 }
 
 func (s *server) safePath(vaultP, notePath string) (string, bool) {
