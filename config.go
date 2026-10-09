@@ -4,6 +4,7 @@ package main
 
 import (
 	"fmt"
+	"net"
 	"net/http"
 	"strings"
 )
@@ -67,9 +68,9 @@ func (s *server) shareBaseURL(r *http.Request) string {
 // a trusted proxy (first hop of a list, only those two values), else the
 // connection's TLS state.
 func requestScheme(r *http.Request) string {
-	peer := r.RemoteAddr
-	if i := strings.LastIndex(peer, ":"); i != -1 {
-		peer = peer[:i]
+	peer, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		peer = r.RemoteAddr
 	}
 	if isTrustedProxyPeer(peer) {
 		proto := r.Header.Get("X-Forwarded-Proto")

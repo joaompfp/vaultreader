@@ -147,6 +147,7 @@ func TestShareBaseURLDerivedFromRequest(t *testing.T) {
 		{"untrusted peer cannot spoof proto", "203.0.113.9:5000", "https", false, "http://notes.example.com/share/"},
 		{"bogus proto ignored", "172.18.0.5:5000", "javascript", false, "http://notes.example.com/share/"},
 		{"proto list uses first hop", "172.18.0.5:5000", "https, http", false, "https://notes.example.com/share/"},
+		{"IPv6 loopback proxy", "[::1]:5000", "https", false, "https://notes.example.com/share/"},
 	}
 	for _, c := range cases {
 		r := httptest.NewRequest("GET", "http://notes.example.com/api/instance", nil)
