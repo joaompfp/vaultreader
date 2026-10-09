@@ -96,6 +96,9 @@ Labels on `vaultreader-team` (Traefik in Docker on the `vr_team` network):
       - traefik.http.routers.vr-team-share.entrypoints=websecure
       - traefik.http.routers.vr-team-share.tls=true
       - traefik.http.routers.vr-team-share.priority=20
+      # Defence in depth: drop any client-supplied Remote-User on the public route
+      - traefik.http.routers.vr-team-share.middlewares=vr-no-user
+      - traefik.http.middlewares.vr-no-user.headers.customRequestHeaders.Remote-User=
 ```
 
 The `authelia` middleware is the usual forward-auth definition (on the Authelia container):
@@ -106,7 +109,7 @@ The `authelia` middleware is the usual forward-auth definition (on the Authelia 
       - traefik.http.middlewares.authelia.forwardAuth.authResponseHeaders=Remote-User,Remote-Groups,Remote-Email,Remote-Name
 ```
 
-Traefik copies `Remote-User` from Authelia's response onto the request and overwrites any value the client sent.
+Traefik copies `Remote-User` from Authelia's response onto the request and overwrites any value the client sent. `Remote-User` is only trustworthy on routes that go through forward-auth. On the public `/share/` route nothing sets it, so VaultReader ignores it there: changes made through a writable share link are recorded as user `share`, whatever headers the visitor sends. (An empty value in `customRequestHeaders` removes the header.)
 
 Authelia `access_control.rules` (first match wins; put these **above** any rule without a `subject`):
 
@@ -209,14 +212,14 @@ Each instance appends one JSON line per change to its own `appdata/audit.jsonl`:
 | Field | Meaning |
 |---|---|
 | `ts` | Unix seconds |
-| `user` | `Remote-User`, or `unknown` |
+| `user` | `Remote-User`, or `unknown`; `share` for changes made through a share link |
 | `action` | `save`, `create`, `upload`, `move`, `delete`, `restore`, `share`, `revoke` |
 | `vault` | Vault name (top-level folder under `/vaults` of that instance); empty for `revoke` |
 | `path` | Vault-relative path; for `revoke`, the share token (or `*` for revoke-all) |
 | `to` | Destination of a `move` (omitted otherwise) |
 | `bytes` | Size written, for `save`, `create` and `upload` (omitted when 0) |
 
-The log records attribution, not forensics: reads are not logged, lines are not signed, and anyone with host access can edit the file. A failed append is logged and the request still succeeds. Saves through a writable share link are recorded with the visitor's `Remote-User`, which is `unknown` on a public `/share/` route. Admin config changes and `trash/empty` are not recorded.
+The log records attribution, not forensics: reads are not logged, lines are not signed, and anyone with host access can edit the file. A failed append is logged and the request still succeeds. Saves through a writable share link are always recorded as user `share`; the `Remote-User` header is ignored on `/share/` routes because no forward-auth runs there. Admin config changes and `trash/empty` are not recorded.
 
 ## Per-author git history
 

@@ -24,7 +24,7 @@ Security never relies on obscurity. Code, compose files, proxy layout and docs m
 | Feature surface | `features.*` flags remove routes at registration (404): WebDAV, sync status, trash purge, writable shares |
 | Authorization at the proxy | Authelia rule per group, plus a `deny` wall for the `external` group on every other `*.example.com` host (see [team-instance.md](team-instance.md)) |
 
-`Remote-User` is set by Traefik forwardAuth, which overwrites any client-supplied value. On an instance **without** `require_user` (the main one, reachable from every container on the shared proxy network) the header is **attribution-only**: it labels audit lines and share `created_by`, and is never used for authorization. A spoofed header there can only mislabel an audit line.
+`Remote-User` is set by Traefik forwardAuth, which overwrites any client-supplied value, so it is trusted only on routes behind forward-auth. The public `/share/` routes have no forward-auth: there VaultReader ignores the header and records changes made through a writable share link as user `share`. On an instance **without** `require_user` (the main one, reachable from every container on the shared proxy network) the header is **attribution-only**: it labels audit lines and share `created_by`, and is never used for authorization. A spoofed header there can only mislabel an audit line.
 
 ## Trust boundaries
 

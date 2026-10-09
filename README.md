@@ -119,7 +119,7 @@ Details and known weak spots: [docs/security.md](docs/security.md). To report a 
 
 ## How it compares
 
-Projects that serve or edit an Obsidian-style vault folder in the browser, as described in their own READMEs (checked 2026-10-09). "?" means the README does not say.
+Projects that serve or edit an Obsidian-style vault folder in the browser. Features and stack are taken from each project's README/repo, licenses from the GitHub API (checked 2026-10-09). "?" means the README does not say.
 
 | | VaultReader | [SilverBullet](https://github.com/silverbulletmd/silverbullet) | [Perlite](https://github.com/secure-77/Perlite) | [WebObsidian](https://github.com/xnohat/webobsidian) | [Hatchdoor](https://github.com/BatterWorks/Hatchdoor) |
 |---|---|---|---|---|---|
@@ -127,8 +127,8 @@ Projects that serve or edit an Obsidian-style vault folder in the browser, as de
 | Edit in the browser | Yes | Yes | No (viewer) | Yes | Yes |
 | Share only a sub-folder with someone | Yes, one instance per folder | ? | Read-only publishing of the folder you serve | No (single user) | No (single trusted user; multi-account planned) |
 | Audit log / per-author history | Audit log per user; git commits via your own script | ? | n/a (read-only) | Git sync and version history; single user | Optional git auto-commit; per-agent provenance planned |
-| No database | Yes (in-memory index, JSON files) | No (built-in database) | Yes | Yes (JSON settings) | Disposable SQLite cache |
-| Stack | Go | Rust server, TypeScript client | PHP | Node.js | Rust |
+| No database | Yes (in-memory index, JSON files) | ? (README mentions a built-in object index and query language) | Yes | Yes (JSON settings) | Disposable SQLite cache |
+| Stack | Go | Rust server, TypeScript client | PHP | Node.js (TypeScript) | Rust |
 | License | AGPL-3.0-only | MIT | MIT | MIT | AGPL-3.0 |
 
 If you only need to publish notes read-only, Perlite or a static site generator may suit you better. If you want a programmable notes system, look at SilverBullet.

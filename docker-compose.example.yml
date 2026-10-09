@@ -5,6 +5,9 @@ services:
   vaultreader:
     image: ghcr.io/joaompfp/vaultreader:latest
     container_name: vaultreader
+    # Run as the owner of your vault files (see `id -u` / `id -g`); without
+    # this the image runs as root and new notes/attachments are root-owned.
+    user: "1000:1000"
     ports:
       - "8080:8080"
     volumes:

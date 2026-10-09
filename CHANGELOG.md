@@ -14,6 +14,7 @@ Most-recent first.
 - **Multi-arch image** (linux/amd64 + linux/arm64) with a SHA-256-verified officecli download, a `Makefile`, GitHub Actions CI and a tag-triggered release workflow publishing to `ghcr.io/joaompfp/vaultreader`.
 
 **Fixed**
+- **Share-link saves ignore `Remote-User`**: `/share/` routes run without forward-auth, so a client could put any name into the audit log with a forged header. Changes made through a writable share link are now recorded as user `share`.
 - Callouts written the usual Obsidian way (`> [!info] Title` with the body on the next `>` line, or `> [!warning]` with no title) now render as callouts; before, only a title followed by a blank `>` line worked, and the untitled form used the body as its title.
 - Closing the graph while it is still animating no longer throws `Cannot read properties of null (reading 'zoom'/'animate')`: pending layout/label timers are cancelled on close.
 - Proxy peers are parsed with `net.SplitHostPort`/`netip`, so IPv6 (`[::1]:port`, ULA) peers are trusted correctly in the rate limiter and share-URL derivation.
@@ -284,7 +285,6 @@ A two-day burst that took VaultReader from "polished reader with basic edits" to
 - `docs/security.md` — threat model, auth surfaces, what's deliberately weak.
 - `docs/authelia.md` — Traefik + Authelia full example with `/share/` path exemption.
 - `docs/theming.md` — CSS variables, vault icons, dark mode, custom CodeMirror themes.
-- `docs/specs/2026-04-28-codemirror-editor-features.md` — design doc for the editor toolbar/autocomplete/upload work.
 - This `CHANGELOG.md`.
 
 ## 2026-04-27
