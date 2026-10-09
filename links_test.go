@@ -169,3 +169,62 @@ func TestGraphPathStyleEdges(t *testing.T) {
 		t.Fatalf("ego graph nodes = %v", ids)
 	}
 }
+
+// Folder rename re-indexes the moved notes' outbound links at once, so they
+// stay backlink sources under their new paths without waiting for a rescan.
+func TestBacklinksFolderRenameImmediate(t *testing.T) {
+	s := newTestServer(t, AdminConfig{RWPaths: []string{"team"}})
+	v := filepath.Join(s.vaultsDir, "team")
+	writeFile(t, filepath.Join(v, "Target.md"), "# Target\n")
+	writeFile(t, filepath.Join(v, "old", "src.md"), "# Src\n[[Target]]\n")
+	s.idx.buildAll(s.vaultsDir)
+
+	if rec := do(t, s.handler(), "PATCH", "/api/folder?vault=team&from=old&to=new", "", nil); rec.Code != 200 {
+		t.Fatalf("rename = %d %s", rec.Code, rec.Body.String())
+	}
+	if got := backlinkPaths(s, "team", "Target.md"); !equalStrings(got, []string{"new/src.md"}) {
+		t.Fatalf("backlinks after folder rename = %v, want [new/src.md]", got)
+	}
+	g := getGraph(t, s, "vault=team")
+	if !hasEdge(g, "team:new/src.md", "team:Target.md") || hasEdge(g, "team:old/src.md", "team:Target.md") {
+		t.Fatalf("graph edges after folder rename = %v", g.Edges)
+	}
+}
+
+func TestBacklinksFolderDeleteImmediate(t *testing.T) {
+	s := newTestServer(t, AdminConfig{RWPaths: []string{"team"}})
+	v := filepath.Join(s.vaultsDir, "team")
+	writeFile(t, filepath.Join(v, "Target.md"), "# Target\n")
+	writeFile(t, filepath.Join(v, "gone", "src.md"), "[[Target]]\n")
+	s.idx.buildAll(s.vaultsDir)
+	if got := backlinkPaths(s, "team", "Target.md"); len(got) != 1 {
+		t.Fatalf("positive control: backlinks = %v", got)
+	}
+
+	if rec := do(t, s.handler(), "DELETE", "/api/folder?vault=team&path=gone", "", nil); rec.Code != 200 {
+		t.Fatalf("delete = %d %s", rec.Code, rec.Body.String())
+	}
+	if got := backlinkPaths(s, "team", "Target.md"); len(got) != 0 {
+		t.Fatalf("stale backlink after folder delete = %v", got)
+	}
+	if _, ok := s.idx.outbound["team:gone/src.md"]; ok {
+		t.Fatal("deleted note still has outbound links in the index")
+	}
+}
+
+// Moving the target note leaves [[OldFolder/Note]] pointing at it through
+// the renderer's basename fallback.
+func TestBacklinksSurviveTargetMove(t *testing.T) {
+	s := newTestServer(t, AdminConfig{RWPaths: []string{"team"}})
+	v := filepath.Join(s.vaultsDir, "team")
+	writeFile(t, filepath.Join(v, "OldFolder", "Note.md"), "# Note\n")
+	writeFile(t, filepath.Join(v, "src.md"), "[[OldFolder/Note]]\n")
+	s.idx.buildAll(s.vaultsDir)
+
+	if rec := do(t, s.handler(), "POST", "/api/move?vault=team&from=OldFolder/Note.md&to=NewFolder/Note.md", "", nil); rec.Code != 200 {
+		t.Fatalf("move = %d %s", rec.Code, rec.Body.String())
+	}
+	if got := backlinkPaths(s, "team", "NewFolder/Note.md"); !equalStrings(got, []string{"src.md"}) {
+		t.Fatalf("backlinks after target move = %v, want [src.md]", got)
+	}
+}

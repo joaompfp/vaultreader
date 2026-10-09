@@ -234,26 +234,14 @@ func (s *server) handleRenameFolder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// update index: rekey all notes under renamed folder
-	s.idx.mu.Lock()
-	type rekey struct{ oldPath, newPath string }
-	var rekeyed []rekey
-	for pk, ref := range s.idx.byPath {
-		if ref.Vault == vault && strings.HasPrefix(ref.Path, from+"/") {
-			rekeyed = append(rekeyed, rekey{ref.Path, to + ref.Path[len(from):]})
-			_ = pk
-		}
+	// update index: re-add every note under the renamed folder at its new
+	// path (same helpers as handleMove, so links stay consistent at once).
+	for _, oldPath := range s.idx.notesUnder(vault, from) {
+		newPath := to + oldPath[len(from):]
+		data, _ := os.ReadFile(filepath.Join(fullTo, oldPath[len(from):]))
+		s.idx.removeNote(vault, oldPath)
+		s.idx.updateNote(vault, newPath, string(data))
 	}
-	for _, rk := range rekeyed {
-		nname := normalizeName(filepath.Base(rk.oldPath))
-		s.idx.byName[nname] = removeRef(s.idx.byName[nname], vault, rk.oldPath)
-		delete(s.idx.byPath, pathKey(vault, rk.oldPath))
-
-		ref := NoteRef{Vault: vault, Path: rk.newPath, Title: strings.TrimSuffix(filepath.Base(rk.newPath), ".md")}
-		s.idx.byName[normalizeName(filepath.Base(rk.newPath))] = append(s.idx.byName[normalizeName(filepath.Base(rk.newPath))], ref)
-		s.idx.byPath[pathKey(vault, rk.newPath)] = ref
-	}
-	s.idx.mu.Unlock()
 
 	s.audit(r, "move", vault, from, to, 0)
 	jsonResponse(w, map[string]string{"status": "renamed", "newPath": to})
@@ -339,14 +327,9 @@ func (s *server) handleDeleteFolder(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// remove all notes in this folder from the index
-	s.idx.mu.Lock()
-	for pk, ref := range s.idx.byPath {
-		if ref.Vault == vault && (strings.HasPrefix(ref.Path, path+"/") || ref.Path == path) {
-			s.idx.byName[normalizeName(filepath.Base(ref.Path))] = removeRef(s.idx.byName[normalizeName(filepath.Base(ref.Path))], vault, ref.Path)
-			delete(s.idx.byPath, pk)
-		}
+	for _, p := range s.idx.notesUnder(vault, path) {
+		s.idx.removeNote(vault, p)
 	}
-	s.idx.mu.Unlock()
 
 	s.audit(r, "delete", vault, path, "", 0)
 	jsonResponse(w, map[string]string{"status": "deleted", "movedTo": ".trash/" + filepath.Base(trashPath)})

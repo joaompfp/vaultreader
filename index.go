@@ -149,6 +149,20 @@ func (idx *NoteIndex) removeNote(vault, path string) {
 	idx.searchByVault[vault] = entries
 }
 
+// notesUnder returns the paths of vault's notes inside folder (or equal to
+// it), for callers that re-index a whole subtree.
+func (idx *NoteIndex) notesUnder(vault, folder string) []string {
+	idx.mu.RLock()
+	defer idx.mu.RUnlock()
+	var out []string
+	for _, ref := range idx.byPath {
+		if ref.Vault == vault && (ref.Path == folder || strings.HasPrefix(ref.Path, folder+"/")) {
+			out = append(out, ref.Path)
+		}
+	}
+	return out
+}
+
 // resolve finds the best note matching name. preferVault biases toward the
 // same vault; fromDir (vault-relative directory of the linking note) is used
 // to break ties by folder proximity — longer shared prefix wins.

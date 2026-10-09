@@ -14,7 +14,8 @@ import (
 // linkTarget); inbound is keyed by the target's basename so that [[Note]],
 // [[Folder/Note]], [[Folder/Note|alias]] and [[Note#Heading]] all land in the
 // same bucket. Which note a target actually points at is decided by
-// resolveLinkLocked, which mirrors resolveWikilinkTarget (the renderer).
+// resolveLinkLocked, which follows the same tier order as the renderer
+// (resolveWikilinkTarget).
 
 // linkTarget normalises the raw target of a [[...]] link: drops a trailing
 // `\` (Obsidian's escaped alias pipe), any #heading / ^block suffix and a .md
