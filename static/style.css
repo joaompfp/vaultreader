@@ -1019,13 +1019,10 @@ body.sidebar-resizing * {
 #preview .mermaid svg .label {
   color: var(--text);
 }
-#preview .mermaid svg .edgeLabel {
-  background-color: var(--bg);
-  color: var(--text2);
-  font-size: 12px;
-  padding: 2px 6px;
-  border-radius: 4px;
-}
+/* No .edgeLabel rule: mermaid sizes each edge label's foreignObject from
+   its own metrics, and in v11 .edgeLabel also matches the HTML span inside
+   it — extra padding/font-size there pushes the text out of the clip box
+   and leaves an empty label. */
 #preview blockquote { border-left: 3px solid var(--accent-dim); padding: 0.25rem 0 0.25rem 1rem; color: var(--text2); margin: 0 0 0.875rem; background: color-mix(in srgb, var(--accent) 5%, transparent); border-radius: 0 4px 4px 0; }
 #preview a { color: var(--link); }
 #preview a.wikilink { color: var(--link-wiki); }
