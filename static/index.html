@@ -854,7 +854,7 @@
            duplicate keys ("reading 'after'"). -->
       <template x-for="(h, i) in outlineItems()" :key="i">
         <a class="outline-item"
-           :class="'outline-h' + h.level + (outlineActiveId === h.id ? ' active' : '')"
+           :class="'outline-h' + h.level + (outlineActiveId && outlineActiveId === h.id ? ' active' : '')"
            :href="'#' + h.id"
            @click.prevent="scrollToHeading(h.id)"
            x-text="h.text"></a>
@@ -3517,17 +3517,28 @@ function vaultApp() {
       const tmp = document.createElement('div')
       tmp.innerHTML = this._safeHtml(this.noteHtml)
       const items = []
-      tmp.querySelectorAll('h1, h2, h3').forEach(h => {
+      tmp.querySelectorAll('h1, h2, h3').forEach((h, i) => {
         items.push({
           level: parseInt(h.tagName.slice(1), 10),
           text: h.textContent.trim(),
-          id: h.id || '',
+          id: h.id || 'h-' + i, // same rule as _previewHeadings()
         })
       })
       return items
     },
+    // Raw-HTML headings (goldmark html.WithUnsafe) get no auto id. Give
+    // them a positional 'h-<index>' in the rendered #preview — the same id
+    // outlineItems() reports — so scroll-to and scroll-spy can find them.
+    _previewHeadings() {
+      const preview = document.getElementById('preview')
+      if (!preview) return []
+      const hs = [...preview.querySelectorAll('h1, h2, h3')]
+      hs.forEach((h, i) => { if (!h.id) h.id = 'h-' + i })
+      return hs
+    },
     scrollToHeading(id) {
       if (!id) return
+      this._previewHeadings()
       const el = document.querySelector('#preview #' + CSS.escape(id))
       if (!el) return
       el.scrollIntoView({ behavior: 'smooth', block: 'start' })
@@ -3544,7 +3555,7 @@ function vaultApp() {
         preview.removeEventListener('scroll', this._outlineSpyHandler)
       }
       const handler = () => {
-        const headings = preview.querySelectorAll('h1, h2, h3')
+        const headings = this._previewHeadings()
         const top = preview.getBoundingClientRect().top + 80
         let active = ''
         for (const h of headings) {
