@@ -14,6 +14,6 @@ This is a spare-time project, so there is **no SLA**. I will try to acknowledge 
 
 ## Scope
 
-In scope: the VaultReader server and SPA in this repository and the published container image. The threat model and the hardening the project already provides (admin token, share-link signing, writable paths, rate limiting, request body caps, CSP) are described in [docs/security.md](docs/security.md).
+In scope: the VaultReader server and SPA in this repository and the published container image. The threat model and the hardening the project already provides (admin token, random share-link bearer tokens, writable paths, rate limiting, request body caps, CSP) are described in [docs/security.md](docs/security.md). Share links are not signed: anyone holding the URL has the access it grants.
 
 Out of scope: problems that need an already-malicious operator or write access to the vault files, deployments that expose the app without the authentication layer the docs recommend, and vulnerabilities in third-party software that only affect VaultReader through a version you did not get from this repository.
