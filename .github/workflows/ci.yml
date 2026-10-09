@@ -30,6 +30,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v3
+        with:
+          # Shared runners hit Docker Hub's anonymous pull limit (HTTP 429);
+          # Google's public mirror serves the same library images.
+          buildkitd-config-inline: |
+            [registry."docker.io"]
+              mirrors = ["mirror.gcr.io"]
       - name: Build image (amd64, no push)
         uses: docker/build-push-action@v6
         with:
