@@ -2,6 +2,7 @@ GO     ?= go
 IMAGE  ?= ghcr.io/joaompfp/vaultreader
 PLATFORMS ?= linux/amd64,linux/arm64
 VERSION ?= dev
+PORT   ?= 8080
 
 .PHONY: test build image run-demo screenshots
 
@@ -18,12 +19,12 @@ build:
 image:
 	docker buildx build --platform $(PLATFORMS) --build-arg GIT_SHA=$(VERSION) -t $(IMAGE):$(VERSION) .
 
-# Run the local binary against the bundled demo vault on :8080.
+# Run the local binary against the bundled demo vault on :$(PORT).
 # Appdata is a throwaway copy so examples/ stays clean.
 run-demo: build
 	@d=$$(mktemp -d) && cp -r examples/appdata/. $$d/ && \
-	echo "VaultReader demo on http://localhost:8080 (appdata: $$d)" && \
-	./vaultreader -vaults examples/vaults -appdata $$d -port 8080
+	echo "VaultReader demo on http://localhost:$(PORT) (appdata: $$d)" && \
+	./vaultreader -vaults examples/vaults -appdata $$d -port $(PORT)
 
 # Regenerate README screenshots (needs Node + playwright-core; see script header)
 screenshots: build

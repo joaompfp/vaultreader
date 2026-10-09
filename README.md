@@ -57,7 +57,7 @@ Without Docker (Go 1.21 or newer):
 ```bash
 go build -o vaultreader .
 ./vaultreader -vaults ./examples/vaults -appdata "$(mktemp -d)" -port 8080
-# or: make run-demo
+# or: make run-demo   (PORT=8081 if 8080 is taken)
 ```
 
 Without a `config.json` in `-appdata`, the demo is read-only too; `make run-demo` copies `examples/appdata` (which allows writes to `demo`) to a temp dir for you. DOCX export needs [`officecli`](https://github.com/iOfficeAI/OfficeCLI) on `PATH`; the Docker image includes it.
