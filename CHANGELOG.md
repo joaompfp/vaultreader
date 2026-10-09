@@ -1,10 +1,10 @@
 # Changelog
 
-All notable changes to VaultReader. Versioning is loose — there are no formal releases yet, just dated entries grouped by what landed in `main`.
+All notable changes to VaultReader. Most-recent first.
 
-Most-recent first.
+## v0.1.0 — 2026-10-09
 
-## Unreleased
+First public release of VaultReader: a self-hosted, read/write web app for Obsidian-style markdown vaults, published as a multi-arch image at `ghcr.io/joaompfp/vaultreader`. The entries below summarise what changed on the way to this release.
 
 **Added**
 - **`demo_mode`** config option: `/api/instance` reports it and the UI shows a dismissible "Public demo — changes are reset every hour" banner.
