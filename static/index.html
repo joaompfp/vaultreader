@@ -428,7 +428,15 @@
           </span>
         </template>
         <template x-if="!activePath && activeVault">
-          <span class="tb-vault" @click="enterDir(activeVault, '')" x-text="activeVault" style="cursor:default;opacity:.7"></span>
+          <span>
+            <span class="tb-vault" @click="enterDir(activeVault, '')" x-text="activeVault" style="opacity:.7"></span>
+            <template x-for="(seg, i) in cwdSegments()" :key="i">
+              <span>
+                <span class="tb-sep">/</span>
+                <span class="tb-seg" @click="enterDir(activeVault, cwdUpTo(i))" x-text="seg"></span>
+              </span>
+            </template>
+          </span>
         </template>
       </span>
 
