@@ -8,7 +8,9 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
+	"net/netip"
 	"strings"
 	"sync"
 	"time"
@@ -113,33 +115,31 @@ func originGuard(next http.Handler) http.Handler {
 	})
 }
 
+// peerHost extracts the host part of a RemoteAddr ("1.2.3.4:5", "[::1]:5").
+// A value that is not host:port is returned as is.
+func peerHost(remoteAddr string) string {
+	if host, _, err := net.SplitHostPort(remoteAddr); err == nil {
+		return host
+	}
+	return remoteAddr
+}
+
 // isTrustedProxyPeer returns true when the immediate TCP peer is a
-// private/Docker bridge address — i.e. the request reached us through
-// Traefik (or another in-cluster proxy) rather than directly from a
-// random client that could spoof X-Real-IP/X-Forwarded-For.
+// loopback or private (RFC 1918 / ULA) address — i.e. the request reached
+// us through Traefik (or another in-cluster proxy) rather than directly
+// from a random client that could spoof X-Real-IP/X-Forwarded-For. host is
+// a bare address; brackets and an IPv6 zone are tolerated.
 func isTrustedProxyPeer(host string) bool {
-	if host == "" || host == "127.0.0.1" || host == "::1" {
+	host = strings.TrimSuffix(strings.TrimPrefix(host, "["), "]")
+	if host == "" {
 		return true
 	}
-	// Strip IPv6 brackets / zone if present.
-	host = strings.TrimPrefix(strings.TrimSuffix(host, "]"), "[")
-	if i := strings.Index(host, "%"); i >= 0 {
-		host = host[:i]
+	addr, err := netip.ParseAddr(host)
+	if err != nil {
+		return false
 	}
-	// Private IPv4 ranges that map to the docker bridge / VPN / LAN.
-	// 10.0.0.0/8 · 172.16.0.0/12 · 192.168.0.0/16
-	if strings.HasPrefix(host, "10.") || strings.HasPrefix(host, "192.168.") {
-		return true
-	}
-	if strings.HasPrefix(host, "172.") {
-		// crude check: 172.16.0.0/12 = 172.16..172.31
-		var b int
-		_, err := fmt.Sscanf(host[4:], "%d", &b)
-		if err == nil && b >= 16 && b <= 31 {
-			return true
-		}
-	}
-	return false
+	addr = addr.WithZone("").Unmap()
+	return addr.IsLoopback() || addr.IsPrivate()
 }
 
 // rateLimiter per-IP sliding window. Requests for which exempt returns
@@ -162,8 +162,7 @@ func (rl *rateLimiter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		rl.handler.ServeHTTP(w, r)
 		return
 	}
-	peer := r.RemoteAddr
-	if idx := strings.LastIndex(peer, ":"); idx != -1 { peer = peer[:idx] }
+	peer := peerHost(r.RemoteAddr)
 	ip := peer
 	// Behind Traefik (only ingress path), honor forwarded client IP so the
 	// per-IP bucket is real-per-user, not a single shared bridge-IP bucket.

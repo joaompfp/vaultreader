@@ -4,7 +4,6 @@ package main
 
 import (
 	"fmt"
-	"net"
 	"net/http"
 	"os/exec"
 	"regexp"
@@ -106,11 +105,7 @@ func (s *server) shareBaseURL(r *http.Request) string {
 // a trusted proxy (first hop of a list, only those two values), else the
 // connection's TLS state.
 func requestScheme(r *http.Request) string {
-	peer, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		peer = r.RemoteAddr
-	}
-	if isTrustedProxyPeer(peer) {
+	if isTrustedProxyPeer(peerHost(r.RemoteAddr)) {
 		proto := r.Header.Get("X-Forwarded-Proto")
 		if i := strings.Index(proto, ","); i != -1 {
 			proto = proto[:i]
