@@ -393,7 +393,7 @@ Anything not matched by the routes above falls through to `http.FileServer(http.
 - `/index.html`, `/style.css` — the SPA shell
 - `/codemirror.bundle.js`, `/mermaid.min.js`, `/katex.min.js`, `/katex-auto-render.min.js`, `/cytoscape.min.js`, `/alpine.min.js` — third-party libs
 - `/katex.min.css`, `/fonts/*.woff2|.woff|.ttf` — KaTeX styling
-- `/obsidian.svg` — fallback vault icon
+- `/logo.svg` — app logo / fallback vault icon
 
 Served straight from the embedded FS — no disk read, no network.
 

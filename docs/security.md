@@ -174,7 +174,7 @@ var shareAssetAllowlist = map[string]string{
 }
 ```
 
-Plus a regex-equivalent allow for `fonts/<name>.{woff2,woff,ttf}`. Anything else returns 404 — even files that exist in the embedded FS (`index.html`, `style.css`, `obsidian.svg`, etc.). A leaked share token cannot be used to fetch the SPA shell or any other private static file via this route.
+Plus a regex-equivalent allow for `fonts/<name>.{woff2,woff,ttf}`. Anything else returns 404 — even files that exist in the embedded FS (`index.html`, `style.css`, `logo.svg`, etc.). A leaked share token cannot be used to fetch the SPA shell or any other private static file via this route.
 
 ### Share-file scoping
 The `/share/<token>/file?path=<X>` route (used by image embeds in shared notes) enforces **two layers**:

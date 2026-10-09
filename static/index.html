@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>VaultReader</title>
-  <link rel="icon" href="/obsidian.svg" type="image/svg+xml">
+  <link rel="icon" href="/logo.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/style.css">
   <link rel="stylesheet" href="/katex.min.css">
   <!-- DOMPurify: every piece of note/server HTML goes through _safeHtml()
@@ -39,7 +39,7 @@
 
     <!-- App header -->
     <div class="sidebar-header">
-      <img src="/obsidian.svg" class="app-icon" alt="Obsidian">
+      <span class="app-icon" role="img" aria-label="VaultReader"></span>
       <span class="app-title">Vaults</span>
       <button class="btn-icon" @click="sidebarOpen = false" title="Close">✕</button>
     </div>
@@ -1382,6 +1382,11 @@
           <span class="settings-label">Total notes</span>
           <span class="settings-hint" x-text="totalNotes"></span>
         </div>
+        <div class="settings-row">
+          <span class="settings-label">License</span>
+          <span class="settings-hint">AGPL-3.0-only</span>
+        </div>
+        <p class="settings-hint">Works with Obsidian vaults. Not affiliated with or endorsed by Obsidian.</p>
       </div>
     </div>
   </div>
