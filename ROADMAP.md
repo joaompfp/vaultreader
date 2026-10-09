@@ -41,7 +41,7 @@ Small, well-scoped items that fit a 1–4 hour block.
 
 - **Mobile editor.** Toolbar hides on `<700px` today. Real mobile editing needs a slimmer toolbar, `inputmode` tweaks, iOS keyboard quirks, and probably a different paste-image flow.
 - **OAuth / OIDC.** Currently relies on forward-auth proxy. A built-in OIDC client for users who don't run a proxy.
-- **Multi-user permissions** — different users see different `rw_paths`. Today's model is single-user-with-admin-token. Multi-tenant would require sessions, a real users table, etc. Out of scope for personal-use; needed for OSS adoption.
+- **Multi-user permissions** — different users see different `rw_paths` *inside one process*. Not planned. A **team-instance model shipped 2026-10-09** instead: a second container on the same image, mounting only one folder, with `require_user` + feature flags + Authelia groups (see `docs/security.md`). That is separate containers per audience, not ACLs; per-user permissions within one instance would still require sessions and a users table, and are only worth it for OSS adoption.
 - **Vim/Emacs keymap for editor** — single CodeMirror extension swap.
 - **Spell check** — browser-native is already on; just don't break it.
 - **Diff view for git-tracked vaults** — `git diff HEAD <path>` rendered side-by-side.
@@ -68,7 +68,17 @@ These were on the roadmap; now done. Listed for posterity — see CHANGELOG for 
 - ✓ Undo toasts, attachment-name search, bulk select + bulk ops, note templates with `{{date}}/{{time}}/{{title}}` placeholders.
 - ✓ Search operators (`tag:`, `path:`, `title:`, `modified:`).
 - ✓ Mermaid + KaTeX in shared notes (via `/share/<token>/asset?name=…` route + auth-bypass).
+- ✓ (2026-10-09) Team instance, audit log, per-instance feature flags, 30 s external-change rescan (index no longer rebuilt on startup only).
 - ✓ Trash naming overhaul (`VRTRASH_<base64>_<unix>` scheme — round-trip-safe for any path).
+
+## Follow-ups from the team instance (2026-10-09)
+
+- Tighten Authelia's subject-less `*.joao.date` catch-alls to `group:admins` (today the `external` deny wall compensates).
+- Authenticate `/api/shares*` on the main instance (Hermes and `lugares-api` call it unauthenticated today).
+- Move `SYNCTHING_API_KEY` out of plaintext in `compose/vaultreader.yml` into SOPS.
+- Agent/MCP connector for team members (token-based; nothing blocks it).
+- History panel / "last edited by" in the UI; presence ("X is editing").
+- Hardening: `chain-no-auth-public` + `no-new-privileges` on the team share router/container.
 
 ## Explicit non-goals
 

@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"flag"
-	"io/fs"
 	"log"
 	"net/http"
 	"os"
@@ -35,6 +34,11 @@ func main() {
 		_ = os.MkdirAll(*vaultsDir, 0755)
 	}
 
+	// Snapshot file stamps BEFORE the build: a file changed while buildAll
+	// walks then differs from its stamp and is re-read on the first rescan
+	// pass (snapshotting after would bake the stale read in as "seen").
+	rescan := newRescanner(*vaultsDir, idx)
+
 	// Build index
 	t0 := time.Now()
 	idx.buildAll(*vaultsDir)
@@ -48,66 +52,16 @@ func main() {
 		appdataDir: *appdataDir,
 		idx:        idx,
 		shares:     newShareStore(*appdataDir),
+		auditLog:   newAuditLog(*appdataDir),
 	}
 	srv.loadConfig()
-
-	// Static files sub-FS
-	subFS, err := fs.Sub(staticFiles, "static")
-	if err != nil {
-		log.Fatalf("static sub: %v", err)
-	}
-	staticHandler := http.FileServer(http.FS(subFS))
-
-	mux := http.NewServeMux()
-	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/" || r.URL.Path == "/index.html" {
-			srv.handleIndex(w, r)
-			return
-		}
-		staticHandler.ServeHTTP(w, r)
-	})
-	mux.HandleFunc("/api/vaults", srv.handleVaults)
-	mux.HandleFunc("/api/tree", srv.handleTree)
-	mux.HandleFunc("/api/note", srv.handleNote)
-	mux.HandleFunc("/api/note/export", srv.handleExportNote)
-	mux.HandleFunc("/api/templates/docx", srv.handleDocxTemplates)
-	mux.HandleFunc("/api/upload", srv.handleUpload)
-	mux.HandleFunc("/api/move", srv.handleMove)
-	mux.HandleFunc("/api/folder", srv.handleFolder)
-	mux.HandleFunc("/api/search", srv.handleSearch)
-	mux.HandleFunc("/api/resolve", srv.handleResolve)
-	mux.HandleFunc("/api/backlinks", srv.handleBacklinks)
-	mux.HandleFunc("/api/templates", srv.handleTemplates)
-	mux.HandleFunc("/api/stats", srv.handleStats)
-	mux.HandleFunc("/api/sync-status", srv.handleSyncStatus)
-	mux.HandleFunc("/api/vault-icon", srv.handleVaultIcon)
-	mux.HandleFunc("/api/file", srv.handleFile)
-	// Clean note URLs: /n/<vault>/<path-with-extension>. The shell is the
-	// SPA — the frontend reads location.pathname on load and fetches the
-	// note via /api/note. Real URLs make right-click→new-tab, bookmarks,
-	// browser back/forward, and link sharing work natively.
-	mux.HandleFunc("/n/", srv.handleIndex)
-	mux.HandleFunc("/api/admin/config", srv.handleAdminConfig)
-	mux.HandleFunc("/api/writable-paths", srv.handleWritablePaths)
-	mux.HandleFunc("/api/shares", srv.handleShareList)
-	mux.HandleFunc("/api/shares/create", srv.handleShareCreate)
-	mux.HandleFunc("/api/shares/revoke", srv.handleShareRevoke)
-	mux.HandleFunc("/api/shares/revoke-all", srv.handleShareRevokeAll)
-	mux.HandleFunc("/share/", srv.handleShareView)
-	mux.HandleFunc("/api/admin/restart", srv.handleAdminRestart)
-	mux.HandleFunc("/health", srv.handleHealth)
-	mux.HandleFunc("/api/trash", srv.handleTrashList)
-	mux.HandleFunc("/api/trash/restore", srv.handleTrashRestore)
-	mux.HandleFunc("/api/trash/empty", srv.handleTrashEmpty)
-	mux.HandleFunc("/api/attachments", srv.handleAttachments)
-	mux.HandleFunc("/api/graph", srv.handleGraph)
-	mux.HandleFunc("/api/tags", srv.handleTags)
-	mux.Handle("/webdav/", srv.newWebDAVHandler())
+	srv.shutdown = make(chan struct{})
+	go rescan.run(srv.shutdown, 30*time.Second)
 
 	addr := ":" + *port
 	httpServer := &http.Server{
 		Addr:         addr,
-		Handler:      gzipMiddleware(originGuard(newRateLimiter(mux, 240, time.Minute))),
+		Handler:      srv.handler(),
 		ReadTimeout: 30 * time.Second,
 		// Generous WriteTimeout because /api/note/export shells out to
 		// officecli + processes 2 MB JLL templates: a 100-command batch
@@ -117,7 +71,6 @@ func main() {
 		WriteTimeout: 180 * time.Second,
 		IdleTimeout:  120 * time.Second,
 	}
-	srv.shutdown = make(chan struct{})
 
 	go func() {
 		log.Printf("listening on %s", addr)

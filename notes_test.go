@@ -1,8 +1,12 @@
 package main
 
 import (
+	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestRewriteNoteImageURLs(t *testing.T) {
@@ -129,5 +133,35 @@ func TestProtectMathDelims(t *testing.T) {
 				t.Errorf("renderMarkdown() =\n  got  %q\n  want %q", got, tt.want)
 			}
 		})
+	}
+}
+
+// PUT conflict detection compares the client's mtime (which the server
+// itself handed out) with the on-disk mtime exactly: any difference is a
+// concurrent change, including one landing within the same second+1.
+func TestPutNoteConflictExactMTime(t *testing.T) {
+	s := newTestServer(t, AdminConfig{RWPaths: []string{"jll"}})
+	full := filepath.Join(s.vaultsDir, "jll", "a.md")
+	writeFile(t, full, "v1\n")
+	base := time.Unix(1_700_000_000, 0)
+	h := s.handler()
+	put := func(ifm int64) int {
+		return do(t, h, "PUT", fmt.Sprintf("/api/note?vault=jll&path=a.md&ifMTime=%d", ifm), `{"raw":"v2"}`, nil).Code
+	}
+	for _, c := range []struct {
+		name      string
+		disk, ifm int64
+		want      int
+	}{
+		{"same mtime saves", 0, 0, 200},
+		{"disk 1s newer conflicts", 1, 0, 409},
+		{"disk older than client conflicts", 0, 5, 409},
+	} {
+		if err := os.Chtimes(full, base.Add(time.Duration(c.disk)*time.Second), base.Add(time.Duration(c.disk)*time.Second)); err != nil {
+			t.Fatal(err)
+		}
+		if got := put(base.Unix() + c.ifm); got != c.want {
+			t.Errorf("%s: code %d, want %d", c.name, got, c.want)
+		}
 	}
 }

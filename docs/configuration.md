@@ -23,8 +23,9 @@ Inside the Docker image these are the defaults; mount real paths over them.
 
 ```
 appdata/
-├── config.json     — admin token + RW paths
+├── config.json     — admin token, RW paths, per-instance options
 ├── shares.json     — active share tokens (auto-managed, do not edit by hand)
+├── audit.jsonl     — append-only log of who changed what (auto-managed)
 └── icons/
     ├── pessoal.png
     ├── work.svg
@@ -51,6 +52,43 @@ This directory is not in git. Mount it as a writable volume in production.
 | `admin_token` | string | `""` | Required for `/api/admin/*` endpoints. Empty disables the admin API entirely (returns `403 admin not configured`). |
 | `rw_paths` | string[] | `[]` | Path prefixes (vault-relative) that allow writes. Read-only by default — adding `"pessoal"` makes the entire `pessoal` vault writable; adding `"pessoal/agents"` only allows writes inside that subtree. |
 
+#### Per-instance options (all optional)
+
+Defaults reproduce the original single-user behaviour, so an existing `config.json` keeps working unchanged. These let one image serve different audiences (main instance vs. team instance).
+
+```json
+{
+  "require_user": true,
+  "rw_paths": ["jll"],
+  "share_base_url": "https://team.joao.date/share/",
+  "default_note": "",
+  "features": {
+    "shares": true,
+    "share_writable": false,
+    "webdav": false,
+    "sync_status": false,
+    "trash_empty": false
+  }
+}
+```
+
+| Field | Default | Team instance | Effect |
+|---|---|---|---|
+| `require_user` | `false` | `true` | `401` for any request without a non-empty `Remote-User` header, except `/share/*` and `/health`. Fail-closed for instances that must only be reached through the auth proxy |
+| `share_base_url` | `https://joao.date/notas/` | `https://team.joao.date/share/` | Prefix the UI puts in front of a share token. Must end with `/` |
+| `default_note` | `""` | `""` | `"vault/path.md"` opened when no note is restored (main instance: `pessoal/inbox/tarefas.md`). Must contain a `/` |
+| `features.shares` | `true` | `true` | `/api/shares*` and `/share/*` |
+| `features.share_writable` | `true` | `false` | `false` → creating a share with `writable: true` returns `403`; existing writable shares are served read-only |
+| `features.webdav` | `true` | `false` | `/webdav/` |
+| `features.sync_status` | `true` | `false` | `/api/sync-status` |
+| `features.trash_empty` | `true` | `false` | `/api/trash/empty` |
+
+A disabled feature's route answers **404** (as if it did not exist) and the UI hides the matching controls. The resolved flags, `rw_paths`, `share_base_url`, `default_note`, current user and build version are exposed at `GET /api/instance`.
+
+**Validation is fail-fast at startup:** an unknown key under `features`, a `default_note` without a `/`, or a `share_base_url` that does not end in `/` makes the process exit with a `config:` error (check `docker logs`). Unknown *top-level* keys are ignored, so double-check spelling of `require_user`. The admin `POST /api/admin/config` only edits `admin_token` and `rw_paths`; change the options above by editing the file and restarting.
+
+`Remote-User` identifies the actor in `audit.jsonl` and in each share's `created_by`. On an instance without `require_user` it is attribution only — see [security.md](security.md).
+
 Writes affected by `rw_paths`:
 - `PUT /api/note` (save note content)
 - `POST /api/note` (create new note)
@@ -58,6 +96,7 @@ Writes affected by `rw_paths`:
 - `POST /api/upload` (image upload)
 - `POST /api/move`, `POST /api/folder`, `DELETE /api/folder`
 - `DELETE /api/attachments`
+- `POST /api/trash/restore` (the destination must be writable)
 
 Reads (everything else) are always allowed.
 
@@ -127,6 +166,10 @@ Selecting a template prompts for a new note name; the template's body is then ex
 
 Obsidian's Templater syntax (`<% tp.date.now(...) %>`) renders literally — VaultReader doesn't parse it. Use the placeholder syntax above for cross-tool-aware templates if you want the same file to work in both VaultReader and Obsidian (Templater will run its own pass on top).
 
+### `appdata/audit.jsonl`
+
+One JSON line per mutation, appended by the app: `{"ts":…,"user":"alice","action":"save","vault":"jll","path":"LIS10/x.md","to":"","bytes":1234}`. Actions: `save`, `create`, `upload`, `move`, `delete`, `restore`, `share`, `revoke`. A host-side timer (`vault-commit-authors`) reads it from a stored byte offset to make per-author git commits (see `docs/security.md`). Rotating or truncating it is safe: when the file is smaller than the stored offset the committer logs it and starts again from byte 0. Lines appended since the last run (≤ 5 min) that are rotated away before it runs lose their attribution and land in the fallback `vr(sync)` commit instead.
+
 ### `<vault>/.trash/`
 
 Soft-deleted files land here under `VRTRASH_<base64url(originalPath)>_<unix><ext>` filenames. Auto-managed; safe to delete the whole directory if you want to reclaim space and don't need restore.
@@ -191,13 +234,13 @@ http:
       service: vaultreader
 ```
 
-The share-link generation in the UI hardcodes `/notas/<token>` for `joao.date`; if you fork, update `static/index.html` to match your prefix.
+Set `share_base_url` in `config.json` to match your prefix (e.g. `https://notes.example.com/share/`); the UI reads it from `/api/instance`. The only prefix left in `static/index.html` is the built-in default used until that response arrives.
 
 ## Tuning
 
 ### Rate limit
 
-Hardcoded at 240 req/min per IP in `main.go:2080`-ish. Bump if needed and rebuild — there's no env var.
+Hardcoded at 240 req/min per IP in `routes.go` (`handler()`). Bump if needed and rebuild — there's no env var.
 
 ### Body cap (uploads)
 

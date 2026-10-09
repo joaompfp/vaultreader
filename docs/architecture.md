@@ -68,7 +68,7 @@ type NoteIndex struct {
 
 `allNotes` is intentionally double-keyed: the bare normalized name AND the compound `vault:name` form. Lookup falls back through both, allowing `[[foo]]` to resolve regardless of vault.
 
-The index is **rebuilt from scratch on startup**. There's no on-disk cache — startup walks the entire vaults dir. For typical sizes (few thousand notes) this is sub-second. The index is also **mutated incrementally** on note save/delete via `idx.updateNote()` / `idx.removeNote()`, so it stays fresh between full rebuilds.
+The index is **rebuilt from scratch on startup**. There's no on-disk cache — startup walks the entire vaults dir. For typical sizes (few thousand notes) this is sub-second. A **30 s stat-only rescan** (`rescan.go`) picks up edits made outside the app, and the index is also **mutated incrementally** on note save/delete via `idx.updateNote()` / `idx.removeNote()`, so it stays fresh between full rebuilds.
 
 ### Reverse lookup (inbound)
 Built at the same time as `outbound`. Used by `getBacklinks(vault, path)` to find every note that links to `<path>`. The neighborhood-graph endpoint also walks `inbound` to collect the BFS frontier.

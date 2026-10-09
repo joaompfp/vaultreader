@@ -67,6 +67,7 @@ func (s *server) handleAttachments(w http.ResponseWriter, r *http.Request) {
 			errResponse(w, 500, "rename failed: "+err.Error())
 			return
 		}
+		s.audit(r, "delete", vault, path, "", 0)
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}

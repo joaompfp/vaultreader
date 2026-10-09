@@ -594,6 +594,11 @@ func (s *server) handleDocxTemplates(w http.ResponseWriter, r *http.Request) {
 	out := []tpl{}
 	seen := map[string]bool{}
 	for _, d := range dirs {
+		if d != "" {
+			if _, ok := s.safePath(vp, d); !ok {
+				continue
+			}
+		}
 		vrDir := filepath.Join(vp, d, ".vr")
 		entries, err := os.ReadDir(vrDir)
 		if err != nil {

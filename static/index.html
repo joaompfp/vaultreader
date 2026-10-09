@@ -7,6 +7,10 @@
   <link rel="icon" href="/obsidian.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/style.css">
   <link rel="stylesheet" href="/katex.min.css">
+  <!-- DOMPurify: every piece of note/server HTML goes through _safeHtml()
+       before it reaches the DOM (notes are untrusted: the team instance lets
+       a colleague write them). Must load before the app script. -->
+  <script src="/purify.min.js"></script>
   <script src="/mermaid.min.js"></script>
   <script src="/katex.min.js"></script>
   <script src="/katex-auto-render.min.js" defer></script>
@@ -253,7 +257,7 @@
       <!-- Share button + popover. Crimson active state when current note has any
            share link; popover surfaces the link list with Copy / Open / Revoke
            or, when no share exists, quick share-create options. -->
-      <template x-if="activePath">
+      <template x-if="activePath && feat('shares')">
         <div class="btn-share-wrap">
           <button class="btn-icon btn-share"
                   :class="{ active: noteShares().length > 0 }"
@@ -285,6 +289,7 @@
                       <span class="share-pop-mode" :class="{ rw: s.writable }" x-text="s.writable ? 'RW' : 'RO'"></span>
                       <span class="share-pop-label" x-text="s.label || ('Created ' + new Date(s.created_at*1000).toLocaleDateString())"></span>
                       <span class="share-pop-expiry" x-text="shareExpiry(s)" x-show="s.expires_at > 0"></span>
+                      <span class="share-pop-expiry" x-show="s.created_by" x-text="'by ' + s.created_by"></span>
                     </div>
                     <div class="share-pop-actions">
                       <button class="btn btn-sm" @click="copyShareLinkFor(s.token)" :class="{ copied: sharePopCopied === s.token }">
@@ -294,7 +299,7 @@
                         </svg>
                         <span x-text="sharePopCopied === s.token ? 'Copied!' : 'Copy'"></span>
                       </button>
-                      <a class="btn btn-sm" :href="'https://joao.date/notas/' + s.token" target="_blank" rel="noopener">
+                      <a class="btn btn-sm" :href="shareURL(s.token)" target="_blank" rel="noopener">
                         <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
                         Open
                       </a>
@@ -315,7 +320,7 @@
                 <span class="share-pop-quick-title">Read-only · expires in 7 days</span>
                 <span class="share-pop-quick-sub">Self-revoking after a week</span>
               </button>
-              <button class="share-pop-quick" @click="quickShare(true, 0)" x-show="canWriteCurrent() && !viewerKind">
+              <button class="share-pop-quick" @click="quickShare(true, 0)" x-show="canWriteCurrent() && !viewerKind && feat('share_writable')">
                 <span class="share-pop-quick-title">Editable · no expiry</span>
                 <span class="share-pop-quick-sub">Recipient can edit the note</span>
               </button>
@@ -1084,7 +1089,7 @@
               <option value="2592000">30 days</option>
             </select>
           </div>
-          <div class="share-form-row share-form-toggle-row">
+          <div class="share-form-row share-form-toggle-row" x-show="feat('share_writable')">
             <label class="share-label">Allow editing</label>
             <button class="settings-toggle" :class="{on: shareModal.writable}" @click="shareModal.writable = !shareModal.writable">
               <span class="settings-toggle-knob"></span>
@@ -1155,7 +1160,7 @@
       <!-- Tab strip -->
       <div class="settings-tabs" role="tablist">
         <button class="settings-tab" :class="{active: settingsTab === 'general'}" @click="openSettings('general')" role="tab">General</button>
-        <button class="settings-tab" :class="{active: settingsTab === 'shared'}" @click="openSettings('shared')" role="tab">
+        <button class="settings-tab" :class="{active: settingsTab === 'shared'}" @click="openSettings('shared')" role="tab" x-show="feat('shares')">
           Shared
           <span class="settings-tab-badge" x-show="activeShares.length > 0" x-text="activeShares.length"></span>
         </button>
@@ -1205,9 +1210,10 @@
                   <span class="share-tiny-badge expires" x-text="shareExpiry(s)"></span>
                 </span>
                 <span x-show="s.label" class="share-active-label" x-text="s.label"></span>
+                <span x-show="s.created_by" class="share-active-label" x-text="'by ' + s.created_by"></span>
               </div>
               <div class="share-active-actions">
-                <button class="share-copy-btn" @click="navigator.clipboard.writeText('https://joao.date/notas/'+s.token)" title="Copy link">
+                <button class="share-copy-btn" @click="navigator.clipboard.writeText(shareURL(s.token))" title="Copy link">
                   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
                 </button>
                 <button class="share-revoke-btn" @click="revokeShare(s.token)" title="Revoke">✕</button>
@@ -1225,7 +1231,7 @@
         <template x-if="trashItems.length > 0">
           <div class="settings-action-row">
             <span class="settings-hint" x-text="trashItems.length + ' item' + (trashItems.length === 1 ? '' : 's')"></span>
-            <button class="btn btn-danger" @click="emptyTrash()">Empty all</button>
+            <button class="btn btn-danger" x-show="feat('trash_empty')" @click="emptyTrash()">Empty all</button>
           </div>
         </template>
         <div class="settings-list">
@@ -1237,7 +1243,7 @@
               </div>
               <div class="trash-actions">
                 <button class="btn" @click="restoreTrashItem(item.vault, item.path)">Restore</button>
-                <button class="btn btn-danger" @click="permanentlyDeleteTrashItem(item.vault, item.path)">Delete</button>
+                <button class="btn btn-danger" x-show="feat('trash_empty')" @click="permanentlyDeleteTrashItem(item.vault, item.path)">Delete</button>
               </div>
             </div>
           </template>
@@ -1378,10 +1384,14 @@
     </button>
     <span class="sb-sep">·</span>
     <span class="sb-context" x-html="sbContext()"></span>
-    <span class="sb-sync" :class="'sb-sync-' + syncState" :title="syncTitle()" x-show="syncAvailable">
+    <span class="sb-sync" :class="'sb-sync-' + syncState" :title="syncTitle()" x-show="syncAvailable && feat('sync_status')">
       <span class="sb-sync-dot"></span>
       <span class="sb-sync-label" x-text="syncLabel()"></span>
     </span>
+    <span class="sb-sep" x-show="instance.version">·</span>
+    <span class="sb-instance" x-show="instance.version"
+          x-text="(instance.user && instance.user !== 'unknown' ? instance.user + ' · ' : '') + instance.version"
+          title="Signed-in user · build"></span>
   </div>
 
 
@@ -1564,6 +1574,15 @@ window.__cmAPI = {
 <script>
 function vaultApp() {
   return {
+    // ── HTML sanitising ────────────────────────────
+    // Note HTML is rendered server-side with raw HTML allowed, so it can
+    // carry script tags / onerror= from any author. Everything vault-derived
+    // that reaches x-html/innerHTML goes through here. Fails CLOSED: no
+    // DOMPurify → nothing rendered.
+    _safeHtml(html) {
+      return window.DOMPurify ? DOMPurify.sanitize(html || '', { ADD_ATTR: ['target'] }) : ''
+    },
+
     // ── Focus trapping ─────────────────────────────
     _lastFocused: null,
     _activeTraps: {},  // refName -> { el, handler }
@@ -1622,6 +1641,9 @@ function vaultApp() {
     noteHtml: '',
     noteFrontmatter: {},
     noteMTime: 0,
+    // Per-instance capabilities from /api/instance. Defaults reproduce
+    // the original single-user behaviour if the fetch fails.
+    instance: { version: '', user: '', features: {}, share_base_url: 'https://joao.date/notas/', default_note: '' },
     noteSize: 0,
     backlinks: [],
     mode: 'preview',
@@ -1702,6 +1724,7 @@ function vaultApp() {
     viewerText: '',
     // modal dialog
     modal: { open: false, title: '', body: '', value: '', placeholder: '', error: '', confirmLabel: 'OK', confirmOnly: false, danger: false, onConfirm: null, secondaryLabel: '', onSecondary: null },
+    _freshWarnedMtime: 0,
     _conflictDiskRaw: '',
     _conflictDiskMtime: 0,
     // context menu
@@ -1947,12 +1970,17 @@ function vaultApp() {
       this.refreshStats()
       // load active shares once so the toolbar share button can show the
       // active-state indicator without requiring the user to open Settings.
-      this.loadActiveShares()
+      await this.loadInstance()
+      if (this.feat('shares')) this.loadActiveShares()
       // load writable paths (public, no admin token) so toolbar buttons
       // tied to write capability (paste-append) can disable themselves
       // pre-emptively. The full admin config still requires the token.
       this.loadWritablePaths()
-      setInterval(() => this.refreshSyncStatus(), 10000)
+      if (this.feat('sync_status')) setInterval(() => this.refreshSyncStatus(), 10000)
+      setInterval(() => this.checkOpenNoteFreshness(), 60000)
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') this.checkOpenNoteFreshness()
+      })
 
       // ── URL routing: restore open note on page load ──
       // /n/<vault>/<path> is canonical; #vault/path is legacy fallback.
@@ -1980,6 +2008,15 @@ function vaultApp() {
       // (which will be migrated to clean URLs the next time openNote runs).
       const matched = await this._routePath()
       if (!matched) this._routeHash()
+      // Nothing restored from the URL → open the instance's default note.
+      if (!this.activePath && this.instance.default_note) {
+        const i = this.instance.default_note.indexOf('/')
+        const v = i < 1 ? '' : this.instance.default_note.slice(0, i)
+        if (v && this.vaults.includes(v)) {
+          if (this.activeVault !== v) await this.enterDir(v, '')
+          await this.openNote(v, this.instance.default_note.slice(i + 1))
+        }
+      }
     },
 
     async refreshStats() {
@@ -2240,7 +2277,7 @@ function vaultApp() {
         }
         const data = await res.json()
         this.noteRaw = data.raw || ''
-        this.noteHtml = data.html || ''
+        this.noteHtml = this._safeHtml(data.html)
         this.noteFrontmatter = data.frontmatter || {}
         this.noteMTime = data.mtime || 0
         this.noteSize = data.size || 0
@@ -2732,7 +2769,7 @@ function vaultApp() {
         if (!res.ok) throw new Error('HTTP ' + res.status)
         const data = await res.json()
         this.noteRaw = data.raw || ''
-        this.noteHtml = data.html || ''
+        this.noteHtml = this._safeHtml(data.html)
         this.noteFrontmatter = data.frontmatter || {}
         this.noteMTime = data.mtime || 0
         this.noteSize = data.size || 0
@@ -2744,7 +2781,7 @@ function vaultApp() {
           // the preview empty. Force-apply innerHTML if it didn't land.
           const el = document.getElementById('preview')
           if (el && this.noteHtml && el.innerHTML.length < this.noteHtml.length / 2) {
-            el.innerHTML = this.noteHtml
+            el.innerHTML = this._safeHtml(this.noteHtml)
           }
           try { this.rerenderMermaid() } catch(err) { console.error('mermaid:', err) }
           try { this.rerenderMath() }    catch(err) { console.error('math:', err) }
@@ -2788,7 +2825,7 @@ function vaultApp() {
       try {
         const res = await fetch(url)
         const data = await res.json()
-        this.noteHtml = data.html || ''
+        this.noteHtml = this._safeHtml(data.html)
         this.noteFrontmatter = data.frontmatter || {}
         this.noteMTime = data.mtime || 0
         this.noteSize = data.size || 0
@@ -2824,7 +2861,7 @@ function vaultApp() {
       const els = Array.from(document.querySelectorAll('#preview pre code.language-mermaid'))
       if (!els.length) return
       try {
-        await mermaid.initialize({ startOnLoad: false })
+        await mermaid.initialize({ startOnLoad: false, securityLevel: 'strict' })
         els.forEach(el => {
           const code = el.textContent || ''
           const pre = el.closest('pre')
@@ -2836,7 +2873,11 @@ function vaultApp() {
           mermaid.render('md-' + Date.now() + Math.random().toString(36).slice(2), code).then(({ svg }) => {
             div.innerHTML = svg
           }).catch(e => {
-            div.innerHTML = '<pre class="mermaid-error">' + e.message + '</pre>'
+            // Parse errors echo the diagram source: text only, never HTML.
+            const p = document.createElement('pre')
+            p.className = 'mermaid-error'
+            p.textContent = e.message
+            div.replaceChildren(p)
           })
         })
       } catch(e) { console.error('mermaid:', e) }
@@ -3472,7 +3513,7 @@ function vaultApp() {
       // Goldmark's WithAutoHeadingID gives every heading an id attribute.
       if (!this.noteHtml) return []
       const tmp = document.createElement('div')
-      tmp.innerHTML = this.noteHtml
+      tmp.innerHTML = this._safeHtml(this.noteHtml)
       const items = []
       tmp.querySelectorAll('h1, h2, h3').forEach(h => {
         items.push({
@@ -3519,7 +3560,7 @@ function vaultApp() {
     // ── auto-save ─────────────────────────────────
     scheduleSave() {
       if (this.saveTimer) clearTimeout(this.saveTimer)
-      this.saveTimer = setTimeout(() => this.saveNow(), 1500)
+      this.saveTimer = setTimeout(() => { this.saveTimer = null; this.saveNow() }, 1500)
     },
 
     // Low-level "PUT this content to a note path" helper used by
@@ -3550,6 +3591,7 @@ function vaultApp() {
     async saveNow(force) {
       if (!this.activePath || !this.isDirty) return
       this.saveStatus = 'saving'
+      const sent = this.noteRaw
       try {
         let url = '/api/note?vault=' + encodeURIComponent(this.activeVault) +
                   '&path=' + encodeURIComponent(this.activePath)
@@ -3559,7 +3601,7 @@ function vaultApp() {
         const res = await fetch(url, {
           method: 'PUT',
           headers: { 'Content-Type': 'text/plain; charset=utf-8' },
-          body: this.noteRaw
+          body: sent
         })
         if (res.status === 409) {
           // File changed on disk under us. Surface a resolution modal.
@@ -3574,7 +3616,7 @@ function vaultApp() {
           const body = await res.json()
           if (body && typeof body.mtime === 'number') this.noteMTime = body.mtime
         } catch(_) { /* old binary returns 204 with no body — ignore */ }
-        this.isDirty = false
+        if (this.noteRaw === sent) this.isDirty = false // keep dirty if typed during the PUT
         this.saveStatus = 'saved'
         setTimeout(() => { if (this.saveStatus === 'saved') this.saveStatus = '' }, 2000)
       } catch(e) {
@@ -3621,6 +3663,60 @@ function vaultApp() {
       this.modal.open = false
       this._conflictDiskRaw = ''
       this._conflictDiskMtime = 0
+      // In preview the rendered HTML is stale after taking the disk copy.
+      if (this.mode !== 'edit' && this.activeVault && this.activePath) this.openNote(this.activeVault, this.activePath)
+    },
+
+    // Another instance / Obsidian / Syncthing may change the open note.
+    // Preview follows the disk; edit mode never loses typed text — a dirty
+    // buffer gets the existing conflict modal, once per disk version.
+    async checkOpenNoteFreshness() {
+      if (!this.activeVault || !this.activePath || this.viewerKind) return
+      if (this.modal && this.modal.open) return // never clobber an open dialog
+      if (this.saveStatus === 'saving' || this.saveTimer) return // our own write is in flight/pending
+      const v = this.activeVault, p = this.activePath
+      const moved = () => this.activeVault !== v || this.activePath !== p
+      const q = '/api/note?vault=' + encodeURIComponent(v) + '&path=' + encodeURIComponent(p)
+      let meta
+      try {
+        const r = await fetch(q + '&meta=1')
+        if (moved()) return
+        if (r.status === 404) {
+          // Atomic-rename writers (Syncthing/Obsidian) can cause transient 404s:
+          // in edit mode leave the buffer alone; only preview shows the missing state.
+          if (this.mode === 'edit' || this.isDirty) return
+          await this.openNote(v, p) // shows "This note no longer exists"
+          return
+        }
+        if (!r.ok) return
+        meta = await r.json()
+      } catch(_) { return }
+      if (moved()) return
+      if (!meta.mtime || meta.mtime === this.noteMTime) return
+      if (this.mode !== 'edit' && !this.isDirty) {
+        const el = document.getElementById('preview')
+        const top = el ? el.scrollTop : 0
+        await this.openNote(v, p)
+        this.$nextTick(() => { const pv = document.getElementById('preview'); if (pv) pv.scrollTop = top })
+        return
+      }
+      // edit mode, or preview with unsaved edits (e.g. failed save): never lose them
+      if (this._freshWarnedMtime === meta.mtime) return
+      let full
+      try {
+        const r2 = await fetch(q)
+        if (!r2.ok) return
+        full = await r2.json()
+      } catch(_) { return }
+      // re-validate after the await, right before applying
+      if (moved() || (this.modal && this.modal.open)) return
+      if (this.saveStatus === 'saving' || this.saveTimer) return
+      if (!full.mtime || full.mtime === this.noteMTime) return
+      this._freshWarnedMtime = meta.mtime
+      this._conflictDiskRaw = full.raw || ''
+      this._conflictDiskMtime = full.mtime || 0
+      if (this.isDirty) this._showConflictModal(full.raw || '', full.mtime || 0)
+      else this.takeTheirs() // clean buffer: just follow the disk
     },
 
     saveStatusText() {
@@ -3797,7 +3893,7 @@ function vaultApp() {
           '&path=' + encodeURIComponent(this.activePath))
         if (r.ok) {
           const d = await r.json()
-          this.noteHtml = d.html || ''
+          this.noteHtml = this._safeHtml(d.html)
           this.noteMTime = d.mtime || 0
           this.$nextTick(() => { this.rerenderMermaid(); this.rerenderMath(); this.decorateCodeBlocks() })
         }
@@ -3819,7 +3915,7 @@ function vaultApp() {
               '&path=' + encodeURIComponent(path))
             if (r2.ok) {
               const d2 = await r2.json()
-              this.noteHtml = d2.html || ''
+              this.noteHtml = this._safeHtml(d2.html)
               this.noteMTime = d2.mtime || 0
               this.$nextTick(() => { this.rerenderMermaid(); this.rerenderMath(); this.decorateCodeBlocks() })
             }
@@ -3952,7 +4048,7 @@ function vaultApp() {
       el.textContent = text
       const safe = el.innerHTML
       const re = new RegExp(`(${terms.join('|')})`, 'gi')
-      return safe.replace(re, '<mark>$1</mark>')
+      return this._safeHtml(safe.replace(re, '<mark>$1</mark>'))
     },
 
     // ── recent files ──────────────────────────────
@@ -4761,7 +4857,7 @@ function vaultApp() {
           return
         }
         const data = await r.json()
-        const url = 'https://joao.date/notas/' + data.token
+        const url = this.shareURL(data.token)
         try { await navigator.clipboard.writeText(url) } catch {}
         await this.loadActiveShares()
         // Brief confirmation in the same toast system used elsewhere.
@@ -4836,7 +4932,7 @@ function vaultApp() {
     },
 
     async copyShareLinkFor(token) {
-      const url = 'https://joao.date/notas/' + token
+      const url = this.shareURL(token)
       try {
         await navigator.clipboard.writeText(url)
         this.sharePopCopied = token
@@ -4869,7 +4965,7 @@ function vaultApp() {
         })
         if (!r.ok) { alert('Failed to create share'); return }
         const data = await r.json()
-        this.shareModal.result = 'https://joao.date/notas/' + data.token
+        this.shareModal.result = this.shareURL(data.token)
         // Refresh so the toolbar share button reflects the new active share.
         this.loadActiveShares()
       } catch(e) { alert('Network error'); console.error(e) }
@@ -4889,6 +4985,15 @@ function vaultApp() {
       } catch(e) { console.error('shares fetch:', e) }
     },
 
+    async loadInstance() {
+      try {
+        const r = await fetch('/api/instance', { signal: AbortSignal.timeout(5000) })
+        if (r.ok) this.instance = { ...this.instance, ...(await r.json()) }
+      } catch(e) { console.error('instance fetch:', e) }
+    },
+    // Missing feature key = enabled, same rule as the server.
+    feat(name) { return (this.instance.features || {})[name] !== false },
+    shareURL(token) { return this.instance.share_base_url + token },
     // Public read of just the rw_paths list — runs on init for non-admin
     // sessions so isWritable() can return correct values for UI gating.
     // Admin Settings still loads the full config (with admin_token) when

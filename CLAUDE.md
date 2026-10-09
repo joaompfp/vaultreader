@@ -1,6 +1,6 @@
 # Claude Agent: vaultreader
 
-A Go web app serving Obsidian vaults. ~2700-line `main.go` + 3000-line `static/index.html` (Alpine SPA). 8MB scratch container. Lives at `notes.joao.date`.
+A Go web app serving Obsidian vaults: ~20 sibling `package main` files (route table in `routes.go`, `main.go` is just startup) + a large `static/index.html` (Alpine SPA). Runs from a `mcr.microsoft.com/dotnet/runtime-deps` image that also carries `officecli` (DOCX export), as uid 1000. One image, two instances: `notes.joao.date` (main, all vaults) and `team.joao.date` (`vaultreader-jll`, only `work/jll`, `require_user`, features trimmed).
 
 ## Repository
 
@@ -9,11 +9,17 @@ A Go web app serving Obsidian vaults. ~2700-line `main.go` + 3000-line `static/i
 
 ## Where things live
 
-The Go server is split into ~18 sibling files in `package main`. The Go compiler concatenates package files at build time, so cross-file references just work — no imports, no exports.
+The Go server is split into ~25 sibling files in `package main`. The Go compiler concatenates package files at build time, so cross-file references just work — no imports, no exports.
 
 | Want to change… | Look in… |
 |---|---|
-| Routes / mux setup / `func main()` | `main.go` (~140 lines) |
+| `func main()`: flags, index build, rescanner, graceful shutdown | `main.go` |
+| URL → handler table, `feature()` gating, middleware chain (`handler()`) | `routes.go` |
+| Per-instance config validation, feature flags (`knownFeatures`), `share_base_url` | `config.go` |
+| `Remote-User` attribution (`userFrom`) + fail-closed `requireUser` middleware | `identity.go` |
+| `GET /api/instance`, `/health`, build `version` (set via `-ldflags -X main.version`) | `instance.go` |
+| Append-only `appdata/audit.jsonl` (`AuditEntry`, `s.audit(...)`) | `audit.go` |
+| 30 s stat-only rescan of every vault + shared `walkVaultFiles` | `rescan.go` |
 | Markdown rendering / wikilinks / callouts / embeds / frontmatter | `markdown.go` |
 | Note CRUD / save / upload / search HTTP / resolve / templates / backlinks | `notes.go` |
 | Search ranking + operators (parseSearchQuery + searchVault) | `search.go` |
@@ -47,13 +53,15 @@ The Go server is split into ~18 sibling files in `package main`. The Go compiler
 - **Every JS edit must pass `node --check` against the inline `<script>`** before commit. Pattern is in this file's "Verification" section. A broken inline JS = blank-page SPA on next deploy.
 
 ### Container ops
-- **Deploy:** from `~/docker`, `bash -lic 'dc-office-up -d --build vaultreader'`. The `-lic` is required — the shell aliases (`dc-*`) are loaded from `~/.bashrc`.
+- **Deploy: `./deploy.sh` (in this directory) — the only supported entry point.** It stamps the git SHA (`-dirty` if uncommitted), builds the image once and recreates `vaultreader` **and** `vaultreader-jll` so both run the same build. Never run `dc-office-up … vaultreader` alone: the team container would keep the old image and drift. (`f3nix-health` alerts on image-ID drift; it never deploys by itself.)
+- **Two instances, one image.** `vaultreader-jll` has no `build:` — it reuses `vaultreader:local`. It lives on its own bridge `vr_jll_net` (172.23.0.0/24), not `t2_proxy`, so look up each IP separately with `docker inspect`. It answers 401 without a `Remote-User` header (add `-H 'Remote-User: you'` for smoke tests); agents and other containers must not call it.
+- **`.trash` and dot-dirs are never indexed.** Search/graph/backlinks skip every dot-directory.
 - **Bridge IP rotates across rebuilds.** Don't hard-code `172.10.0.X`. To get the current IP: `docker inspect vaultreader --format '{{range $k,$v := .NetworkSettings.Networks}}{{$v.IPAddress}}{{end}}'`. Use this for headless smoke tests since `notes.joao.date` is gated by Authelia.
-- **Distroless final image.** Cannot `docker exec` into a shell — no `wget`, no `curl`, no `sh`. Smoke-test via the host hitting the bridge IP.
+- **Runtime image is `dotnet/runtime-deps:8.0-bookworm-slim`** (Go binary + `officecli`), run as `user: "1000:1000"`. It has no `curl`/`wget`; smoke-test via the host hitting the bridge IP.
 - **Vaults live at `/home/joao/vaults/`** mounted into `/vaults`. `/home/joao/.hermes/skills` is a sub-mount as `/vaults/pessoal/agents/hermes/skills:ro`.
 
 ### Code style
-- **Single-file Go.** Don't split `main.go` without a strong reason. Search/grep is faster than file navigation here.
+- **Flat `package main`, one concern per file.** Keep new code in a file that matches the table above; add a new file only for a new concern.
 - **Don't add libs lightly.** Three deps total: `goldmark`, `golang.org/x/net/webdav`, `gopkg.in/yaml.v3`. Each new one needs to justify itself.
 - **Don't add a JS build step.** Frontend is hand-written + bundled libs as `<script src>`. Adding webpack/rollup/vite would be a large regression in clarity.
 
@@ -100,6 +108,10 @@ Quick summary of what's there now: cola live-simulation graph (with ego/folder/v
 For *what* exists user-facing, point at `docs/features.md`.
 For *how* it's wired, the sections in this file are still the agent-friendly map.
 
+## Team instance (shipped 2026-10-09)
+
+`team.joao.date` = second container on the same image, mounting only `~/vaults/work/jll` as vault `jll`, for Authelia group `jll-team` (one colleague account). Don't re-implement: per-instance config (`require_user`, `share_base_url`, `default_note`, `features.*`), `/api/instance`, `audit.jsonl`, `created_by` on shares, 30 s rescan, and the host timer `vault-commit-authors` (docker repo `scripts/vaults/`) that turns `audit.jsonl` into per-author `vr(<user>)` commits in `work/`. Any new write endpoint must call `s.audit(...)` next to its `isWritable` check, and any new optional route belongs behind `s.feature(...)` in `routes.go`. `AuditEntry` is a contract with the host committer — change both together. See `docs/security.md` and `docs/authelia.md`.
+
 ## Standing hooks for future work
 
 ### Things that should NOT change
@@ -109,17 +121,17 @@ For *how* it's wired, the sections in this file are still the agent-friendly map
 - **The `attachments/` per-note folder convention.** Matches Obsidian's default. Don't move uploads elsewhere without flagging.
 
 ### Things that NEED change someday
-- **No tests yet.** Highest-priority targets: `safePath` (security), `isWritable` (security), `expandEmbeds` + `resolveWikilinkTarget` (rendering correctness), `handleUpload` (security). ~200 lines of table tests would cover most of the risk surface.
+- **Test coverage is partial.** `go test ./...` runs in the Docker builder stage (a failing test fails the deploy). Covered: route table, `requireUser`, feature gating + config validation, `/api/instance` + `/health`, audit log (every write site + failure paths), rescanner, trash restore hardening, docx-template traversal, notes basics. Still missing: `safePath`/`isWritable` table tests, `expandEmbeds` + `resolveWikilinkTarget`, `handleUpload`.
 - **Search is a full filesystem walk** per query. Bleve / Tantivy index for vaults > a few thousand notes.
 - **Attachment refcount** is O(notes × attachments). Reverse index would make it instant; pessoal takes ~4s today.
-- **Index rebuild on startup** (always full walk). Not yet bottleneck-y.
+- **Index rebuild on startup** (always full walk), plus a 30 s stat-only rescan that picks up external edits. Not yet bottleneck-y.
 - **Inline `#tag` detection.** `/api/tags` only sees frontmatter today.
 - **`\[…\]` math block** doesn't render because goldmark eats the leading `\`. Currently shipped: `$$…$$` block + `\(…\)` inline; bare `$…$` deliberately disabled.
 
 ## Verification before committing
 
 For UI changes, the headless smoke pattern:
-1. `bash -lic 'dc-office-up -d --build vaultreader'`
+1. `./deploy.sh` (never `dc-office-up` for vaultreader alone)
 2. `IP=$(docker inspect vaultreader --format '{{range $k,$v := .NetworkSettings.Networks}}{{$v.IPAddress}}{{end}}')`
 3. Use the `mcp__playwright__browser_*` tools against `http://$IP:8080/`
 4. Exercise the new flow with `browser_evaluate` (call into Alpine state directly via `window.Alpine.$data(…)`), check rendered DOM, verify console errors
@@ -141,6 +153,7 @@ A typo in the inline JS will silently break the entire SPA — the browser shows
 
 ## Boundaries
 
+- **Always:** Deploy with `./deploy.sh` only.
 - **Always:** Update CHANGELOG.md when shipping a feature or fix worth users knowing about.
 - **Always:** Run `node --check` on inline JS before committing.
 - **Always:** Verify smoke-test results from headless browser, not just from the diff.

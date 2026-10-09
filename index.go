@@ -1,7 +1,6 @@
 package main
 
 import (
-	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -48,69 +47,48 @@ func (idx *NoteIndex) buildAll(vaultsPath string) {
 	idx.byAttachment = make(map[string][]NoteRef)
 	idx.searchByVault = make(map[string][]searchEntry)
 
-	entries, err := os.ReadDir(vaultsPath)
-	if err != nil {
-		log.Printf("index: cannot read vaults dir %s: %v", vaultsPath, err)
-		return
-	}
-
-	for _, e := range entries {
-		if !e.IsDir() || shouldSkip(e.Name()) {
-			continue
+	walkVaultFiles(vaultsPath, func(vaultName, rel string, info os.FileInfo) {
+		if !strings.HasSuffix(info.Name(), ".md") {
+			// Non-md attachment — track by lower-case basename so embed
+			// resolution is O(1) instead of an on-demand vault walk.
+			k := strings.ToLower(filepath.Base(rel))
+			idx.byAttachment[k] = append(idx.byAttachment[k], NoteRef{Vault: vaultName, Path: rel})
+			return
 		}
-		vaultName := e.Name()
-		vaultRoot := filepath.Join(vaultsPath, vaultName)
-		_ = filepath.Walk(vaultRoot, func(p string, info os.FileInfo, err error) error {
-			if err != nil || info.IsDir() {
-				return nil
-			}
-			if shouldSkip(info.Name()) {
-				return nil
-			}
-			rel, _ := filepath.Rel(vaultRoot, p)
-			if !strings.HasSuffix(info.Name(), ".md") {
-				// Non-md attachment — track by lower-case basename so embed
-				// resolution is O(1) instead of an on-demand vault walk.
-				k := strings.ToLower(filepath.Base(rel))
-				idx.byAttachment[k] = append(idx.byAttachment[k], NoteRef{Vault: vaultName, Path: rel})
-				return nil
-			}
-			data, err := os.ReadFile(p)
-			if err != nil {
-				return nil
-			}
-			content := string(data)
-			fm, body := parseFrontmatter(content)
-			title := extractTitle(body, rel)
-			nname := normalizeName(filepath.Base(rel))
-			pk := pathKey(vaultName, rel)
-			key := vaultKey(vaultName, rel)
+		data, err := os.ReadFile(filepath.Join(vaultsPath, vaultName, rel))
+		if err != nil {
+			return
+		}
+		content := string(data)
+		fm, body := parseFrontmatter(content)
+		title := extractTitle(body, rel)
+		nname := normalizeName(filepath.Base(rel))
+		pk := pathKey(vaultName, rel)
+		key := vaultKey(vaultName, rel)
 
-			ref := NoteRef{Vault: vaultName, Path: rel, Title: title}
-			idx.byName[nname] = append(idx.byName[nname], ref)
-			idx.byPath[pk] = ref
+		ref := NoteRef{Vault: vaultName, Path: rel, Title: title}
+		idx.byName[nname] = append(idx.byName[nname], ref)
+		idx.byPath[pk] = ref
 
-			idx.searchByVault[vaultName] = append(idx.searchByVault[vaultName], searchEntry{
-				rel:        rel,
-				title:      title,
-				titleLower: strings.ToLower(title),
-				bodyLower:  strings.ToLower(content),
-				tagsLower:  extractTagsLower(fm),
-				mtime:      info.ModTime().Unix(),
-			})
-
-			matches := wikilinkRe.FindAllStringSubmatch(body, -1)
-			var targets []string
-			for _, m := range matches {
-				targets = append(targets, normalizeName(m[1]))
-			}
-			idx.outbound[key] = targets
-			for _, t := range targets {
-				idx.inbound[t] = append(idx.inbound[t], key)
-			}
-			return nil
+		idx.searchByVault[vaultName] = append(idx.searchByVault[vaultName], searchEntry{
+			rel:        rel,
+			title:      title,
+			titleLower: strings.ToLower(title),
+			bodyLower:  strings.ToLower(content),
+			tagsLower:  extractTagsLower(fm),
+			mtime:      info.ModTime().Unix(),
 		})
-	}
+
+		matches := wikilinkRe.FindAllStringSubmatch(body, -1)
+		var targets []string
+		for _, m := range matches {
+			targets = append(targets, normalizeName(m[1]))
+		}
+		idx.outbound[key] = targets
+		for _, t := range targets {
+			idx.inbound[t] = append(idx.inbound[t], key)
+		}
+	})
 }
 
 func (idx *NoteIndex) updateNote(vault, path, content string) {

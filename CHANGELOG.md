@@ -4,6 +4,43 @@ All notable changes to VaultReader. Versioning is loose — there are no formal 
 
 Most-recent first.
 
+## 2026-10-09 — Team instance (team.joao.date)
+
+A colleague can now edit `work/jll` collaboratively without seeing anything else. Design: `docs/superpowers/specs/2026-10-09-shared-team-instance-design.md`. Model: **a second container on the same image** with a physically isolated mount, not per-user ACLs.
+
+**New**
+- **Per-instance config** (`config.go`): `require_user`, `share_base_url`, `default_note`, `features.{shares,share_writable,webdav,sync_status,trash_empty}`. Defaults reproduce the old behaviour; a disabled feature's route returns 404; an unknown feature key fails startup. Replaces the hardcoded `joao.date/notas/` share prefix and the hardcoded default note in `index.html`.
+- **Identity** (`identity.go`): `Remote-User` is read for attribution; with `require_user: true` requests without it get 401 (`/share/*` and `/health` exempt). Unauthenticated on the main instance (attribution only).
+- **`GET /api/instance`** (version, user, features, rw_paths, share base URL, default note); the SPA hides disabled UI and shows user + build in the footer. `/health` now returns `{"status":"ok","version":"<sha>"}`.
+- **Audit log** (`audit.go`): append-only `appdata/audit.jsonl` (save/create/upload/move/delete/restore/share/revoke). Share entries record `created_by`. A host systemd timer (`vault-commit-authors`, every 5 min) turns the logs into per-author `vr(<user>)` git commits in `work/`; remaining changes are committed as the fallback author. It stages only files `git status --porcelain -z` reports, so vanished or ignored paths cannot wedge a run.
+- **30 s stat rescan** (`rescan.go`): edits made outside the app (Obsidian, Syncthing, the other instance) reach search/backlinks without a restart.
+- **Open-note freshness** in the UI: `GET /api/note?...&meta=1` returns `{mtime,size}`; the page re-checks on focus and every 60 s, reloads a clean preview silently, and warns (never overwrites the buffer) when you are editing.
+- **`deploy.sh`** is now the only deploy entry point: stamps the git SHA, builds once, recreates both containers. `go test` runs in the Docker builder stage. `f3nix-health` alerts (never deploys) on image drift between the two containers.
+- **Infra**: `compose/vaultreader-jll.yml` on its own bridge `vr_jll_net` (172.23.0.0/24, off `t2_proxy`); Authelia rules for group `jll-team` (`team.joao.date`, plus `ifc.joao.date`), a public `/share/` bypass for the team site, and a `deny` wall for the `external` group on every other `*.joao.date` host. See `docs/authelia.md`.
+
+**Fixed (security)**
+- **Trash restore** accepted arbitrary paths: it now only takes `.trash/<name>`, validates the decoded destination with `safePath` and requires it to be writable.
+- **DOCX template listing** scanned ancestors outside the vault for `path=../..`; ancestors are now confined with `safePath`.
+- **`.trash` search leak**: the index and rescanner skip every dot-directory, so soft-deleted notes no longer appear in search, graph or backlinks.
+
+**Fixed (final review)**
+- **Stored XSS via note HTML** (critical): note HTML reached `x-html` unsanitised, so a note written on the team instance could run script on `notes.joao.date`. Every vault-derived HTML sink now goes through vendored DOMPurify (`static/purify.min.js`, fails closed); Mermaid runs `securityLevel: 'strict'` and shows parse errors as text; raw `.html/.htm/.xhtml/.svg/.xml` files are served with `Content-Security-Policy: sandbox` and every raw file with `nosniff`; the share page gets a nonce-only `script-src` CSP and an escaped title.
+- **Trash restore** no longer overwrites a note recreated at the original path: `409 a note already exists at the original path`.
+- **Conflict detection** is exact: PUT `/api/note` 409s whenever `ifMTime` differs from the on-disk mtime (the 1-second slop let a concurrent write be overwritten), and the open-note freshness check treats any mtime difference as a change.
+- **Committer**: resets its offset when `audit.jsonl` shrinks (rotation/truncation), runs `git reset -q` before each window so pre-staged files are not swept into an author's commit, and uses `GIT_LITERAL_PATHSPECS=1`. `work/.gitignore` ignores Syncthing and `*.tmp-vaultreader` temp files.
+- **Config**: `config.json` is decoded strictly — an unknown key (e.g. `require_usr`) fails startup.
+- **Shares**: the share popover and Settings → Shared list show `by <user>` (`created_by`); the share page says "Editable" only when the share is writable *and* `share_writable` is enabled.
+- **Tests** pin `require_user` edge cases (`//api/vaults` 401, `/share/../api/vaults` 301, POST without user 401).
+- **Infra**: `vaultreader-jll` runs with `no-new-privileges`; its `/share/` router uses `chain-no-auth-public@file` (rate limit + public headers).
+- **Rescan**: the rescanner snapshots before the startup index build, so files edited during the build are re-read on the first pass.
+- **Raw-file content sniffing** (XSS): `/api/file`, `/share/<token>/file` and direct file shares now always set their own `Content-Type` (hardcoded media/PDF map; text-like files as `text/plain`, the rest `application/octet-stream`) and sandbox everything except media and PDF, so a `.md` or extensionless file starting with `<!--`/`<div` can no longer be sniffed into same-origin HTML; the share page CSP adds `frame-src 'none'; child-src 'none'`.
+- **WebDAV sniffing**: `/webdav/` GET/HEAD use the same server-chosen `Content-Type` as `/api/file`, and every WebDAV response carries `nosniff` + `Content-Security-Policy: sandbox`; vault-icon responses send `nosniff`.
+
+**Changed**
+- Index now follows symlinked files (symlinked directories are still not followed) and keeps a note in the index on a transient read failure instead of evicting it.
+- The walker prunes `node_modules` and `.sync-conflict` directories.
+- Docs: `security.md` (team model, audit log), `configuration.md`, `api.md`, `authelia.md` (team instance), `CLAUDE.md` refreshed (file map, deploy, image, tests).
+
 ## 2026-05-27 — fix(mobile): teleport share popover to body
 
 The share/export popover was invisible on Android Chrome and iOS Safari — the popover rendered at the right viewport coordinates but its painting layer got clipped to `#toolbar`'s content box. The toolbar combines `overflow-x:auto; overflow-y:hidden` with `-webkit-mask-image` on mobile, and that combo defeats `position:fixed` escape on WebKit/Blink in spite of what the spec says.

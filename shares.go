@@ -3,9 +3,10 @@ package main
 import (
 	"bytes"
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"mime"
+	"html"
 	"net/http"
 	"net/url"
 	"os"
@@ -27,6 +28,7 @@ type ShareEntry struct {
 	ExpiresAt int64  `json:"expires_at,omitempty"`
 	CreatedAt int64  `json:"created_at"`
 	Label     string `json:"label,omitempty"`
+	CreatedBy string `json:"created_by,omitempty"`
 }
 
 type ShareStore struct {
@@ -60,10 +62,10 @@ func (ss *ShareStore) save() error {
 	return os.WriteFile(ss.path, data, 0644)
 }
 
-func (ss *ShareStore) create(vault, path string, writable bool, ttl int64, label string) *ShareEntry {
+func (ss *ShareStore) create(vault, path string, writable bool, ttl int64, label, createdBy string) *ShareEntry {
 	b := make([]byte, 12); _, _ = rand.Read(b)
 	e := &ShareEntry{Token: fmt.Sprintf("%x", b), Vault: vault, Path: path,
-		Writable: writable, CreatedAt: time.Now().Unix(), Label: label}
+		Writable: writable, CreatedAt: time.Now().Unix(), Label: label, CreatedBy: createdBy}
 	if ttl > 0 { e.ExpiresAt = time.Now().Unix() + ttl }
 	ss.mu.Lock(); ss.entries[e.Token] = e; ss.mu.Unlock()
 	_ = ss.save(); return e
@@ -106,7 +108,13 @@ func (s *server) handleShareCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil { errResponse(w, 400, "bad json"); return }
 	if req.Vault == "" || req.Path == "" { errResponse(w, 400, "vault and path required"); return }
-	jsonResponse(w, s.shares.create(req.Vault, req.Path, req.Writable, req.TTL, req.Label))
+	if req.Writable && !s.enabled("share_writable") {
+		errResponse(w, 403, "editable shares are disabled on this instance")
+		return
+	}
+	e := s.shares.create(req.Vault, req.Path, req.Writable, req.TTL, req.Label, userFrom(r))
+	s.audit(r, "share", req.Vault, req.Path, "", 0)
+	jsonResponse(w, e)
 }
 
 func (s *server) handleShareList(w http.ResponseWriter, r *http.Request) {
@@ -118,7 +126,9 @@ func (s *server) handleShareRevoke(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodDelete { errResponse(w, 405, "method not allowed"); return }
 	token := r.URL.Query().Get("token")
 	if token == "" { errResponse(w, 400, "token required"); return }
-	s.shares.revoke(token); jsonResponse(w, map[string]string{"status": "revoked"})
+	s.shares.revoke(token)
+	s.audit(r, "revoke", "", token, "", 0)
+	jsonResponse(w, map[string]string{"status": "revoked"})
 }
 
 // handleShareRevokeAll deletes every active share in one call. Avoids the
@@ -127,6 +137,7 @@ func (s *server) handleShareRevoke(w http.ResponseWriter, r *http.Request) {
 func (s *server) handleShareRevokeAll(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodDelete { errResponse(w, 405, "method not allowed"); return }
 	count := s.shares.revokeAll()
+	s.audit(r, "revoke", "", "*", "", 0)
 	jsonResponse(w, map[string]int{"revoked": count})
 }
 
@@ -161,7 +172,7 @@ func (s *server) handleShareView(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if r.Method == http.MethodPut {
-		if !e.Writable { errResponse(w, 403, "read-only share"); return }
+		if !e.Writable || !s.enabled("share_writable") { errResponse(w, 403, "read-only share"); return }
 		vp, ok := s.vaultPath(e.Vault)
 		if !ok { errResponse(w, 400, "vault unavailable"); return }
 		r.Body = http.MaxBytesReader(w, r.Body, 10<<20)
@@ -171,6 +182,7 @@ func (s *server) handleShareView(w http.ResponseWriter, r *http.Request) {
 		}
 		if err := saveNote(vp, e.Path, body.Raw); err != nil { errResponse(w, 500, err.Error()); return }
 		s.idx.updateNote(e.Vault, e.Path, body.Raw)
+		s.audit(r, "save", e.Vault, e.Path, "", int64(len(normalizeMarkdown(body.Raw))))
 		jsonResponse(w, map[string]string{"status": "saved"}); return
 	}
 
@@ -191,9 +203,7 @@ func (s *server) handleShareView(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "Not found.", http.StatusNotFound)
 			return
 		}
-		if ct := mime.TypeByExtension(pathExt); ct != "" {
-			w.Header().Set("Content-Type", ct)
-		}
+		setRawFileHeaders(w, pathExt)
 		w.Header().Set("Cache-Control", "max-age=3600")
 		http.ServeFile(w, r, full)
 		return
@@ -222,7 +232,7 @@ func (s *server) handleShareView(w http.ResponseWriter, r *http.Request) {
 	expiresStr := "Never"
 	if e.ExpiresAt > 0 { expiresStr = time.Unix(e.ExpiresAt, 0).Format("2 Jan 2006 15:04") }
 	modeStr, modeCls := "Read-only", " ro"
-	if e.Writable { modeStr, modeCls = "Editable", "" }
+	if e.Writable && s.enabled("share_writable") { modeStr, modeCls = "Editable", "" }
 
 	// Conditionally include mermaid/katex assets only when the rendered
 	// HTML actually needs them. Both are big — mermaid ~3MB, katex+fonts
@@ -236,17 +246,24 @@ func (s *server) handleShareView(w http.ResponseWriter, r *http.Request) {
 	// "file?…") so they resolve against the page's <base href>. That keeps
 	// the share page working under both `/share/<token>` and the proxy
 	// alias `/notas/<token>` without baking the prefix into the HTML.
+	// The note HTML is inlined unsanitised (goldmark WithUnsafe), so the
+	// page runs under a CSP that only admits its own nonce'd scripts: a
+	// <script> or onerror= in a note is inert here.
+	nb := make([]byte, 16)
+	_, _ = rand.Read(nb)
+	nonce := base64.StdEncoding.EncodeToString(nb)
+	sn := `<script nonce="` + nonce + `"`
 	headExtra := ""
 	bodyExtra := ""
 	if wantsMath {
 		headExtra += `<link rel="stylesheet" href="asset?name=katex.min.css">`
-		bodyExtra += `<script src="asset?name=katex.min.js"></script>` +
-			`<script src="asset?name=katex-auto-render.min.js"></script>` +
-			`<script>document.addEventListener('DOMContentLoaded',function(){renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'\\(',right:'\\)',display:false},{left:'\\[',right:'\\]',display:true}],throwOnError:false});});</script>`
+		bodyExtra += sn + ` src="asset?name=katex.min.js"></script>` +
+			sn + ` src="asset?name=katex-auto-render.min.js"></script>` +
+			sn + `>document.addEventListener('DOMContentLoaded',function(){renderMathInElement(document.body,{delimiters:[{left:'$$',right:'$$',display:true},{left:'\\(',right:'\\)',display:false},{left:'\\[',right:'\\]',display:true}],throwOnError:false});});</script>`
 	}
 	if wantsMermaid {
-		bodyExtra += `<script src="asset?name=mermaid.min.js"></script>` +
-			`<script>document.addEventListener('DOMContentLoaded',async function(){if(typeof mermaid==='undefined')return;await mermaid.initialize({startOnLoad:false});const els=Array.from(document.querySelectorAll('pre code.language-mermaid'));for(const el of els){const code=el.textContent||'';const pre=el.closest('pre');if(!pre)continue;const div=document.createElement('div');div.className='mermaid';pre.replaceWith(div);try{const{svg}=await mermaid.render('shm-'+Date.now()+Math.random().toString(36).slice(2),code);div.innerHTML=svg;}catch(e){div.innerHTML='<pre style=\"color:#b91c1c\">'+e.message+'</pre>';}}});</script>`
+		bodyExtra += sn + ` src="asset?name=mermaid.min.js"></script>` +
+			sn + `>document.addEventListener('DOMContentLoaded',async function(){if(typeof mermaid==='undefined')return;await mermaid.initialize({startOnLoad:false,securityLevel:'strict'});const els=Array.from(document.querySelectorAll('pre code.language-mermaid'));for(const el of els){const code=el.textContent||'';const pre=el.closest('pre');if(!pre)continue;const div=document.createElement('div');div.className='mermaid';pre.replaceWith(div);try{const{svg}=await mermaid.render('shm-'+Date.now()+Math.random().toString(36).slice(2),code);div.innerHTML=svg;}catch(e){const p=document.createElement('pre');p.style.color='#b91c1c';p.textContent=e.message;div.replaceChildren(p);}}});</script>`
 	}
 
 	// <base href="<token>/"> makes relative URLs in the page resolve to
@@ -282,9 +299,12 @@ img{max-width:100%%}hr{border:none;border-top:1px solid var(--bd);margin:1.5em 0
 <span style="flex:1"></span><a href="https://notes.joao.date" style="color:var(--t3);font-size:11px">VaultReader</a></div>
 <div class="content">%s</div>
 <div class="foot">Shared via <a href="https://notes.joao.date">VaultReader</a></div>
-%s</body></html>`, token, title, headExtra, title, modeCls, modeStr, expiresStr, renderedHTML, bodyExtra)
+%s</body></html>`, token, html.EscapeString(title), headExtra, html.EscapeString(title), modeCls, modeStr, expiresStr, renderedHTML, bodyExtra)
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("Content-Security-Policy",
+		"script-src 'nonce-"+nonce+"'; object-src 'none'; base-uri 'self'; form-action 'none'; frame-src 'none'; child-src 'none'")
 	w.Write([]byte(page))
 }
 
@@ -383,9 +403,7 @@ func (s *server) handleShareFile(w http.ResponseWriter, r *http.Request, e *Shar
 		http.Error(w, "file type not served via share", http.StatusForbidden)
 		return
 	}
-	if ct := mime.TypeByExtension(ext); ct != "" {
-		w.Header().Set("Content-Type", ct)
-	}
+	setRawFileHeaders(w, ext)
 	http.ServeFile(w, r, full)
 }
 

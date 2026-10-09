@@ -1,7 +1,6 @@
 package main
 
 import (
-	"mime"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -106,12 +105,63 @@ func (s *server) handleFile(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	ext := strings.ToLower(filepath.Ext(full))
-	if ct := mime.TypeByExtension(ext); ct != "" {
-		w.Header().Set("Content-Type", ct)
-	}
+	setRawFileHeaders(w, strings.ToLower(filepath.Ext(full)))
 	w.Header().Set("Cache-Control", "max-age=3600")
 	http.ServeFile(w, r, full)
+}
+
+// passiveFileTypes are the only types served as themselves: media and PDF
+// that a browser renders without running vault-supplied script. Hardcoded
+// so the result never depends on the host's /etc/mime.types.
+var passiveFileTypes = map[string]string{
+	".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+	".gif": "image/gif", ".webp": "image/webp", ".bmp": "image/bmp",
+	".avif": "image/avif", ".ico": "image/x-icon",
+	".pdf": "application/pdf",
+	".mp3": "audio/mpeg", ".wav": "audio/wav", ".ogg": "audio/ogg",
+	".flac": "audio/flac", ".m4a": "audio/mp4", ".aac": "audio/aac",
+	".opus": "audio/ogg",
+	".mp4":  "video/mp4", ".webm": "video/webm", ".mkv": "video/x-matroska",
+	".mov": "video/quicktime", ".avi": "video/x-msvideo",
+}
+
+// textFileExts are served as text/plain so the SPA's text viewer can read
+// them; markup (.html, .xml, …) is deliberately included so it shows as
+// source instead of rendering.
+var textFileExts = map[string]bool{
+	".md": true, ".txt": true, ".json": true, ".yaml": true, ".yml": true,
+	".csv": true, ".tsv": true, ".log": true, ".ini": true, ".conf": true,
+	".toml": true, ".sh": true, ".py": true, ".js": true, ".ts": true,
+	".go": true, ".rs": true, ".css": true, ".sql": true, ".env": true,
+	".tsx": true, ".jsx": true, ".java": true, ".c": true, ".cpp": true,
+	".h": true, ".hpp": true, ".scss": true,
+	".xml": true, ".html": true, ".htm": true, ".xhtml": true,
+}
+
+// setRawFileHeaders hardens every response that streams a vault file's
+// bytes. Vault files are untrusted (the team instance lets a colleague
+// write them), so the Content-Type is always ours — never sniffed by
+// http.ServeFile — and anything outside passiveFileTypes is served under
+// a sandbox CSP: an opaque origin that cannot reach the API with the
+// viewer's session. SVG keeps image/svg+xml so <img> embeds work; the
+// sandbox only matters when it is opened directly. ext is lower-case
+// with the leading dot.
+func setRawFileHeaders(w http.ResponseWriter, ext string) {
+	h := w.Header()
+	h.Set("X-Content-Type-Options", "nosniff")
+	if ct, ok := passiveFileTypes[ext]; ok {
+		h.Set("Content-Type", ct)
+		return
+	}
+	h.Set("Content-Security-Policy", "sandbox")
+	switch {
+	case ext == ".svg":
+		h.Set("Content-Type", "image/svg+xml")
+	case textFileExts[ext]:
+		h.Set("Content-Type", "text/plain; charset=utf-8")
+	default:
+		h.Set("Content-Type", "application/octet-stream")
+	}
 }
 
 // handleVaultIcon serves a custom icon from appdata/icons/<vault>.(png|svg|jpg|webp)
@@ -136,6 +186,7 @@ func (s *server) handleVaultIcon(w http.ResponseWriter, r *http.Request) {
 			default:
 				w.Header().Set("Content-Type", "image/png")
 			}
+			w.Header().Set("X-Content-Type-Options", "nosniff")
 			w.Header().Set("Cache-Control", "max-age=3600")
 			http.ServeFile(w, r, p)
 			return

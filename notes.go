@@ -121,6 +121,7 @@ func (s *server) handleCreateNote(w http.ResponseWriter, r *http.Request) {
 	}
 	s.idx.updateNote(vault, path, body.Raw)
 
+	s.audit(r, "create", vault, path, "", int64(len(normalizeMarkdown(body.Raw))))
 	w.WriteHeader(http.StatusCreated)
 	jsonResponse(w, map[string]string{"status": "created", "path": path})
 }
@@ -165,6 +166,7 @@ func (s *server) handleDeleteNote(w http.ResponseWriter, r *http.Request) {
 	}
 	s.idx.removeNote(vault, path)
 
+	s.audit(r, "delete", vault, path, "", 0)
 	jsonResponse(w, map[string]string{"status": "deleted", "movedTo": ".trash/" + filepath.Base(trashPath)})
 }
 
@@ -251,6 +253,7 @@ func (s *server) handleRenameFolder(w http.ResponseWriter, r *http.Request) {
 	}
 	s.idx.mu.Unlock()
 
+	s.audit(r, "move", vault, from, to, 0)
 	jsonResponse(w, map[string]string{"status": "renamed", "newPath": to})
 }
 
@@ -284,6 +287,7 @@ func (s *server) handleCreateFolder(w http.ResponseWriter, r *http.Request) {
 		errResponse(w, 500, err.Error())
 		return
 	}
+	s.audit(r, "create", vault, path, "", 0)
 	w.WriteHeader(http.StatusCreated)
 	jsonResponse(w, map[string]string{"status": "created", "path": path})
 }
@@ -342,6 +346,7 @@ func (s *server) handleDeleteFolder(w http.ResponseWriter, r *http.Request) {
 	}
 	s.idx.mu.Unlock()
 
+	s.audit(r, "delete", vault, path, "", 0)
 	jsonResponse(w, map[string]string{"status": "deleted", "movedTo": ".trash/" + filepath.Base(trashPath)})
 }
 
@@ -415,6 +420,7 @@ func (s *server) handleMove(w http.ResponseWriter, r *http.Request) {
 	s.idx.removeNote(vault, from)
 	s.idx.updateNote(vault, to, string(data))
 
+	s.audit(r, "move", vault, from, to, 0)
 	jsonResponse(w, map[string]string{"status": "moved", "newPath": to})
 }
 
@@ -430,6 +436,16 @@ func (s *server) handleGetNote(w http.ResponseWriter, r *http.Request) {
 	full, ok := s.safePath(vp, path)
 	if !ok {
 		errResponse(w, 400, "invalid path")
+		return
+	}
+
+	if r.URL.Query().Get("meta") == "1" {
+		info, err := os.Stat(full)
+		if err != nil || info.IsDir() {
+			errResponse(w, 404, "note not found")
+			return
+		}
+		jsonResponse(w, map[string]int64{"mtime": info.ModTime().Unix(), "size": info.Size()})
 		return
 	}
 
@@ -500,8 +516,9 @@ func (s *server) handlePutNote(w http.ResponseWriter, r *http.Request) {
 		if err == nil && want > 0 {
 			if info, errStat := os.Stat(full); errStat == nil {
 				cur := info.ModTime().Unix()
-				// Allow a 1-second slop for filesystems with second-precision mtime.
-				if cur > want+1 {
+				// Exact: both values come from this server's Stat (GET/PUT
+				// responses), so any difference is a concurrent change.
+				if cur != want {
 					data, _ := os.ReadFile(full)
 					w.Header().Set("Content-Type", "application/json")
 					w.WriteHeader(http.StatusConflict)
@@ -540,6 +557,7 @@ func (s *server) handlePutNote(w http.ResponseWriter, r *http.Request) {
 	if info, err := os.Stat(full); err == nil {
 		newMTime = info.ModTime().Unix()
 	}
+	s.audit(r, "save", vault, path, "", int64(len(normalizeMarkdown(content))))
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	json.NewEncoder(w).Encode(map[string]int64{"mtime": newMTime})
@@ -645,6 +663,7 @@ func (s *server) handleUpload(w http.ResponseWriter, r *http.Request) {
 
 	// Return path *relative to the note's directory* so the client can embed
 	// it as ![[attachments/foo.png]] regardless of where the note lives.
+	s.audit(r, "upload", vault, relFilePath, "", hdr.Size)
 	jsonResponse(w, map[string]string{
 		"path": filepath.Join("attachments", filename),
 	})

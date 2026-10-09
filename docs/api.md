@@ -2,7 +2,7 @@
 
 Every HTTP endpoint, in route-registration order. Auth notes apply to all endpoints unless overridden.
 
-**Auth:** writes are gated by `isWritable(vault, path)` against `appdata/config.json` → `rw_paths`. Admin endpoints (`/api/admin/*`) require an `X-Admin-Token` header matching `appdata/config.json` → `admin_token`. Everything else is open (typically protected by a reverse proxy + forward auth like Authelia).
+**Auth:** writes are gated by `isWritable(vault, path)` against `appdata/config.json` → `rw_paths`. Admin endpoints (`/api/admin/*`) require an `X-Admin-Token` header matching `appdata/config.json` → `admin_token`. Everything else is open (typically protected by a reverse proxy + forward auth like Authelia). The `Remote-User` header set by that proxy is recorded as the actor in `audit.jsonl`; on instances with `require_user: true` its absence yields `401` (except `/share/*` and `/health`). Routes switched off via `features.*` in `config.json` answer `404`.
 
 **Conventions:**
 - All paths are vault-relative unless noted.
@@ -15,8 +15,23 @@ Every HTTP endpoint, in route-registration order. Auth notes apply to all endpoi
 ## Health & meta
 
 ### `GET /health`
-Liveness check.
-**Response:** `200 OK` with body `OK`. No auth, no work.
+Liveness check. Exempt from `require_user`.
+**Response:** `200 OK` with `{"status": "ok", "version": "<git sha>"}`. `version` is stamped at build time by `deploy.sh` (`dev` for an unstamped build, `<sha>-dirty` with uncommitted changes); compare it across instances to detect drift.
+
+### `GET /api/instance`
+Everything the SPA needs to adapt to the instance it is talking to.
+**Response:**
+```json
+{
+  "version": "1f7fadf",
+  "user": "alice",
+  "features": {"shares": true, "share_writable": false, "webdav": false, "sync_status": false, "trash_empty": false},
+  "rw_paths": ["jll"],
+  "share_base_url": "https://team.joao.date/share/",
+  "default_note": ""
+}
+```
+`user` is the `Remote-User` header, or `"unknown"` if absent. All five feature keys are always present (missing in config = `true`). See [configuration.md](configuration.md).
 
 ### `GET /api/stats`
 Vault stats — note counts.
@@ -79,6 +94,8 @@ Read a note.
 ```
 Errors: `400 invalid vault/path`, `404 note not found`.
 
+**Metadata only:** add `&meta=1` to get just `{"mtime": 1777411898, "size": 234}` with no rendering (`404` if the note is missing or is a directory). The SPA polls this every 60 s and on tab focus to notice edits made outside the app.
+
 ### `POST /api/note?vault=<vault>&path=<path>`
 Create a new note. Won't overwrite — returns `409 note already exists` if the path exists.
 **Body:** `{"raw": "initial content"}`
@@ -89,7 +106,7 @@ Save an existing note.
 **Body:** raw markdown (`Content-Type: text/plain; charset=utf-8`)
 **Response:** `200 OK` with `{"mtime": <new_unix>}` so the client stays in sync.
 
-If `ifMTime` is supplied and the on-disk file is newer (with 1-second slop), returns `409 Conflict` with body:
+If `ifMTime` is supplied and the on-disk mtime differs from it (exact match — both values come from this server's responses), returns `409 Conflict` with body:
 ```json
 {
   "error": "file changed on disk",
@@ -199,7 +216,7 @@ List `.md` files under `<vault>/templates/` for the "From template…" picker.
 Empty array if the templates folder doesn't exist.
 
 ### `GET /api/file?vault=<vault>&path=<path>`
-Serves any file in the vault verbatim. Used by image embeds — the renderer rewrites `![[image.png]]` to `<img src="/api/file?vault=…&path=…">`.
+Serves any file in the vault verbatim. Used by image embeds — the renderer rewrites `![[image.png]]` to `<img src="/api/file?vault=…&path=…">`. Always sends `X-Content-Type-Options: nosniff`; `.html .htm .xhtml .svg .xml` also get `Content-Security-Policy: sandbox` (same for `/share/<token>/file` and direct file shares).
 
 ---
 
@@ -261,7 +278,11 @@ TTL is in seconds; `0` = never expires.
 
 ### `GET /api/shares`
 List all active (non-expired) shares.
-**Response:** array of `ShareEntry { token, vault, path, writable, created_at, expires_at, label }`.
+**Response:** array of `ShareEntry { token, vault, path, writable, created_at, expires_at, label, created_by }`. `created_by` is the `Remote-User` of the creator (empty for shares made before it existed; `unknown` when the header was absent). Shares are shared by the whole instance: anyone can revoke any share.
+
+On an instance with `features.share_writable: false`, `create` with `"writable": true` returns `403`. With `features.shares: false`, all `/api/shares*` and `/share/*` routes return `404`.
+
+> `/api/shares*` perform no authentication of their own — they rely on the proxy (open follow-up, see [security.md](security.md)).
 
 ### `DELETE /api/shares/revoke?token=<token>`
 Delete a single share.
@@ -300,12 +321,13 @@ The `name` field is the decoded original vault-relative path (display-friendly).
 
 ### `POST /api/trash/restore?vault=<vault>&path=<path>`
 Move a trash item back to its original location, decoded from the `VRTRASH_<base64>_<unix>` filename. Falls back to the legacy `__→/` decoder for entries created before that scheme existed.
-**Response:** `204 No Content`.
+`path` must be exactly `.trash/<name>` (a direct child of the vault's trash) — anything else is `400`. The decoded destination must pass `safePath` (`400`) and be writable per `rw_paths` (`403`).
+**Response:** `204 No Content`. `409` (`a note already exists at the original path`) when something now exists at the destination — restore never overwrites.
 
 ### `DELETE /api/trash/empty?vault=<vault>[&path=<path>]`
 With `path` → permanently delete one item.
 Without `path` → empty the entire vault's `.trash/`.
-**Response:** `204 No Content`.
+**Response:** `204 No Content`. `404` when `features.trash_empty` is `false` (team instance: trash is never purged from the UI).
 
 ---
 
@@ -381,6 +403,7 @@ Served straight from the embedded FS — no disk read, no network.
 
 - `X-Real-IP`, `X-Forwarded-For` — used by the rate limiter to identify the real client behind a proxy.
 - `X-Admin-Token` — admin auth.
+- `Remote-User` — actor for `audit.jsonl` / `created_by`; mandatory when `require_user` is on.
 - `Content-Type` — required on uploads (must start with `image/`).
 - `If-Match`, `If-None-Match` — **not** honored. Conflict detection uses `?ifMTime=` query param instead.
 
@@ -389,6 +412,8 @@ Served straight from the embedded FS — no disk read, no network.
 - `Content-Type: application/json` for all JSON responses.
 - `Content-Type: text/html; charset=utf-8` for the SPA shell.
 - `Content-Type: <inferred>` for `/api/file` and `/api/vault-icon`.
+- `X-Content-Type-Options: nosniff` on every raw vault file; `Content-Security-Policy: sandbox` on raw `.html/.htm/.xhtml/.svg/.xml`.
+- Share page: `Content-Security-Policy: script-src 'nonce-…'; object-src 'none'; base-uri 'self'; form-action 'none'`.
 - Gzip is applied transparently by the `gzipMiddleware` when the request advertises `Accept-Encoding: gzip`.
 
 ## Status codes used
@@ -399,8 +424,9 @@ Served straight from the embedded FS — no disk read, no network.
 | 201 | Successful note/folder create |
 | 204 | Successful destructive op (delete, restore, etc.) |
 | 400 | Invalid vault/path/body shape |
-| 403 | Admin auth failure or write to a non-RW path |
-| 404 | Note / share / file not found |
+| 401 | `require_user` is on and `Remote-User` is missing |
+| 403 | Admin auth failure, write to a non-RW path, or writable share on an instance that disables it |
+| 404 | Note / share / file not found, or the route's feature is disabled on this instance |
 | 405 | Wrong HTTP method on a method-restricted endpoint |
 | 409 | Conflict (note already exists, or file changed on disk) |
 | 500 | Server error (rare; usually fs problems) |

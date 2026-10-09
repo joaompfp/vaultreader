@@ -3,6 +3,8 @@ package main
 import (
 	"log"
 	"net/http"
+	"path"
+	"strings"
 
 	"golang.org/x/net/webdav"
 )
@@ -27,6 +29,14 @@ func (s *server) newWebDAVHandler() http.Handler {
 		"GET": true, "HEAD": true, "OPTIONS": true, "PROPFIND": true,
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Vault bytes on the app origin: same Content-Type decision as
+		// /api/file (never sniffed), and every response sandboxed since
+		// WebDAV is never embedded by the SPA.
+		if (r.Method == http.MethodGet || r.Method == http.MethodHead) && !strings.HasSuffix(r.URL.Path, "/") {
+			setRawFileHeaders(w, strings.ToLower(path.Ext(r.URL.Path)))
+		}
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("Content-Security-Policy", "sandbox")
 		if !readOnlyMethods[r.Method] {
 			w.Header().Set("Allow", "GET, HEAD, OPTIONS, PROPFIND")
 			http.Error(w, "method not allowed (read-only WebDAV)", http.StatusMethodNotAllowed)

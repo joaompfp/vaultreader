@@ -122,22 +122,41 @@ func (s *server) handleTrashRestore(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "missing params", http.StatusBadRequest)
 		return
 	}
-	// path is relative to vault root, e.g. ".trash/filename.md"
 	vp, ok := s.vaultPath(vault)
 	if !ok {
 		http.Error(w, "vault not found", http.StatusNotFound)
 		return
 	}
-	trashFull := filepath.Join(vp, strings.ReplaceAll(path, "/", string(os.PathSeparator)))
-	// Decode the trash filename back to its original vault-relative path.
-	// New scheme uses VRTRASH_<b64> and is exact; legacy `__`-flatten scheme
-	// kicks in for entries created before the sentinel was introduced.
-	base := filepath.Base(trashFull)
-	originalBase, ok := decodeTrashName(base)
-	if !ok {
-		originalBase = legacyDecodeTrashName(base)
+	// Only direct children of <vault>/.trash are restorable.
+	dir, name := filepath.Split(filepath.ToSlash(path))
+	if dir != ".trash/" || name == "" || name == "." || name == ".." {
+		errResponse(w, 400, "path must be .trash/<name>")
+		return
 	}
-	dest := filepath.Join(vp, originalBase)
+	trashFull, ok := s.safePath(vp, ".trash/"+name)
+	if !ok {
+		errResponse(w, 400, "invalid path")
+		return
+	}
+	originalBase, ok := decodeTrashName(name)
+	if !ok {
+		originalBase = legacyDecodeTrashName(name)
+	}
+	dest, ok := s.safePath(vp, originalBase)
+	if !ok {
+		errResponse(w, 400, "invalid restore target")
+		return
+	}
+	if !s.isWritable(vault, originalBase) {
+		errResponse(w, 403, "path is not writable")
+		return
+	}
+	// os.Rename silently replaces an existing file: never clobber a note
+	// that was recreated at the original path after the delete.
+	if _, err := os.Lstat(dest); err == nil {
+		errResponse(w, 409, "a note already exists at the original path")
+		return
+	}
 	if err := os.MkdirAll(filepath.Dir(dest), 0755); err != nil {
 		http.Error(w, "mkdir failed", http.StatusInternalServerError)
 		return
@@ -152,6 +171,7 @@ func (s *server) handleTrashRestore(w http.ResponseWriter, r *http.Request) {
 		data, _ := os.ReadFile(dest)
 		s.idx.updateNote(vault, rel, string(data))
 	}
+	s.audit(r, "restore", vault, originalBase, "", 0)
 	w.WriteHeader(http.StatusNoContent)
 }
 

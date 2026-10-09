@@ -1,8 +1,10 @@
 package main
 
 import (
+	"bytes"
 	"crypto/subtle"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -17,6 +19,11 @@ import (
 type AdminConfig struct {
 	AdminToken string   `json:"admin_token,omitempty"` // secret token for admin endpoints; empty = admin disabled
 	RWPaths    []string `json:"rw_paths"`              // vault-relative paths that allow writes, e.g. "pessoal/agents/hermes/skills"
+
+	RequireUser  bool            `json:"require_user,omitempty"`   // 401 without Remote-User (team instance)
+	ShareBaseURL string          `json:"share_base_url,omitempty"` // public prefix for share links; default joao.date/notas/
+	DefaultNote  string          `json:"default_note,omitempty"`   // "vault/path.md" opened when nothing is restored
+	Features     map[string]bool `json:"features,omitempty"`       // missing key = enabled; see knownFeatures
 }
 
 type server struct {
@@ -27,6 +34,7 @@ type server struct {
 	cfgMu      sync.RWMutex
 	cfg        AdminConfig
 	shares     *ShareStore
+	auditLog   *auditLog
 	shutdown   chan struct{}
 }
 
@@ -39,9 +47,32 @@ func (s *server) loadConfig() {
 	if err != nil {
 		return // no config yet → empty (all writes blocked by default)
 	}
+	cfg, err := parseConfig(data)
+	if err != nil {
+		log.Fatalf("config: %s: %v", s.configPath(), err)
+	}
 	s.cfgMu.Lock()
-	defer s.cfgMu.Unlock()
-	_ = json.Unmarshal(data, &s.cfg)
+	s.cfg = cfg
+	s.cfgMu.Unlock()
+}
+
+// parseConfig decodes config.json strictly: an unknown key (a typo such
+// as "require_usr") is an error, so a misspelt security setting fails
+// startup instead of silently reverting to the permissive default.
+func parseConfig(data []byte) (AdminConfig, error) {
+	var cfg AdminConfig
+	dec := json.NewDecoder(bytes.NewReader(data))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&cfg); err != nil {
+		return AdminConfig{}, err
+	}
+	if dec.More() {
+		return AdminConfig{}, fmt.Errorf("trailing data after the config object")
+	}
+	if err := validateConfig(cfg); err != nil {
+		return AdminConfig{}, err
+	}
+	return cfg, nil
 }
 
 func (s *server) saveConfig() error {
@@ -158,12 +189,6 @@ func (s *server) handleAdminConfig(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// handleHealth returns a lightweight health check.
-func (s *server) handleHealth(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusOK)
-	w.Write([]byte(`{"status":"ok"}`))
-}
 func (s *server) handleAdminRestart(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		errResponse(w, 405, "method not allowed")

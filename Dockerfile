@@ -4,8 +4,11 @@ WORKDIR /app
 RUN apk add --no-cache git ca-certificates
 COPY . .
 RUN go mod tidy
+# Fail the image build (and therefore the deploy) on any failing test.
+RUN CGO_ENABLED=0 go test ./...
+ARG GIT_SHA=dev
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 \
-    go build -buildvcs=false -ldflags="-s -w" -trimpath -o vaultreader .
+    go build -buildvcs=false -ldflags="-s -w -X main.version=${GIT_SHA}" -trimpath -o vaultreader .
 
 # Stage 2: officecli download — uses the alpine builder image's apk so we
 # don't need apt during the Docker build (which has DNS issues here).
