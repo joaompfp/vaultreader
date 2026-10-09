@@ -1979,7 +1979,10 @@ function vaultApp() {
       // tied to write capability (paste-append) can disable themselves
       // pre-emptively. The full admin config still requires the token.
       this.loadWritablePaths()
-      if (this.feat('sync_status')) setInterval(() => this.refreshSyncStatus(), 10000)
+      if (this.feat('sync_status')) {
+        this.refreshSyncStatus()
+        setInterval(() => this.refreshSyncStatus(), 10000)
+      }
       setInterval(() => this.checkOpenNoteFreshness(), 60000)
       document.addEventListener('visibilitychange', () => {
         if (document.visibilityState === 'visible') this.checkOpenNoteFreshness()
@@ -2024,15 +2027,11 @@ function vaultApp() {
 
     async refreshStats() {
       try {
-        const [sr, sy] = await Promise.all([
-          fetch('/api/stats').then(r => r.json()),
-          fetch('/api/sync-status').then(r => r.json())
-        ])
+        // Sync status is separate (refreshSyncStatus): /api/sync-status is
+        // feature-gated and 404s on instances without it.
+        const sr = await fetch('/api/stats').then(r => r.json())
         this.totalNotes = sr.totalNotes || 0
         this.vaultStats = sr.vaults || []
-        this.syncAvailable = sy.available
-        this.syncState = sy.state
-        this.syncMessage = sy.message || ''
       } catch(e) { console.error('stats:', e) }
     },
 
