@@ -2,6 +2,8 @@
 # host's own architecture and cross-compile, so no emulation is needed for
 # them; only the final stage is per-target.
 #
+# Requires BuildKit (default in Docker >= 23).
+#
 #   docker buildx build --platform linux/amd64,linux/arm64 .
 
 # Stage 1: Build Go binary
