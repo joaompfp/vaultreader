@@ -31,6 +31,9 @@ jobs:
       - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v3
         with:
+          # The BuildKit image itself comes from Docker Hub by default and
+          # times out on shared runners; pull it from Google's mirror.
+          driver-opts: image=mirror.gcr.io/moby/buildkit:buildx-stable-1
           # Shared runners hit Docker Hub's anonymous pull limit (HTTP 429);
           # Google's public mirror serves the same library images.
           buildkitd-config-inline: |
