@@ -78,6 +78,7 @@ Defaults reproduce the original single-user behaviour, so an existing `config.js
 | `share_base_url` | `""` (derived) | `https://team.example.com/share/` | Prefix the UI puts in front of a share token. Must end with `/`. Empty = derived from the request as `<scheme>://<host>/share/` (scheme from `X-Forwarded-Proto` when the peer is a trusted proxy, else TLS state); set it for a public alias such as `https://example.com/notes/` |
 | `base_path` | `""` | `""` | Public URL prefix when served under a sub-path, e.g. `"/vaultreader"` → `https://example.com/vaultreader/`. Leading `/`, no trailing `/`, no `.`/`..` segments, URL-safe characters only. Requests are accepted with or without the prefix (so a proxy may strip it or pass it through); redirects, note/share/WebDAV links and the derived `share_base_url` include it |
 | `default_note` | `""` | `""` | `"vault/path.md"` opened when no note is restored (e.g. `personal/inbox/todo.md`). Must contain a `/` |
+| `demo_mode` | `false` | `false` | `true` → the UI shows a slim, per-session dismissible banner "Public demo — changes are reset every hour". Display only: it does not reset anything; schedule the reset yourself |
 | `vault_order` | `[]` | `[]` | Vault names listed first in the sidebar and stats, in this order (absent names skipped); the rest follow alphabetically |
 | `features.shares` | `true` | `true` | `/api/shares*` and `/share/*` |
 | `features.share_writable` | `true` | `false` | `false` → creating a share with `writable: true` returns `403`; existing writable shares are served read-only |
@@ -85,7 +86,7 @@ Defaults reproduce the original single-user behaviour, so an existing `config.js
 | `features.sync_status` | `true` | `false` | `/api/sync-status` |
 | `features.trash_empty` | `true` | `false` | `/api/trash/empty` |
 
-A disabled feature's route answers **404** (as if it did not exist) and the UI hides the matching controls. The resolved flags, `rw_paths`, `share_base_url`, `base_path`, `default_note`, current user and build version are exposed at `GET /api/instance`.
+A disabled feature's route answers **404** (as if it did not exist) and the UI hides the matching controls. The resolved flags, `rw_paths`, `share_base_url`, `base_path`, `default_note`, `demo_mode`, current user and build version are exposed at `GET /api/instance`.
 
 **Validation is fail-fast at startup:** an unknown key under `features`, a `default_note` without a `/`, or a `share_base_url` that does not end in `/`, or a malformed `base_path` makes the process exit with a `config:` error (check `docker logs`). Unknown *top-level* keys are ignored, so double-check spelling of `require_user`. The admin `POST /api/admin/config` only edits `admin_token` and `rw_paths`; change the options above by editing the file and restarting.
 

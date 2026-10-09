@@ -50,3 +50,17 @@ func TestInstanceInfoDerivesShareBaseURL(t *testing.T) {
 		t.Fatalf("share_base_url = %q", got.ShareBaseURL)
 	}
 }
+
+func TestInstanceReportsDemoMode(t *testing.T) {
+	for _, demo := range []bool{false, true} {
+		s := newTestServer(t, AdminConfig{DemoMode: demo})
+		rec := do(t, s.handler(), "GET", "/api/instance", "", nil)
+		var got map[string]any
+		if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+			t.Fatal(err)
+		}
+		if got["demo_mode"] != demo {
+			t.Errorf("demo_mode = %v, want %v", got["demo_mode"], demo)
+		}
+	}
+}

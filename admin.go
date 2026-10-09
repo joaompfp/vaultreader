@@ -26,6 +26,7 @@ type AdminConfig struct {
 	ShareBaseURL string          `json:"share_base_url,omitempty"` // public prefix for share links; empty = derived from the request
 	BasePath     string          `json:"base_path,omitempty"`      // public URL prefix, e.g. "/vaultreader"; empty = served at /
 	DefaultNote  string          `json:"default_note,omitempty"`   // "vault/path.md" opened when nothing is restored
+	DemoMode     bool            `json:"demo_mode,omitempty"`      // public demo: the SPA shows a "changes are reset" banner
 	VaultOrder   []string        `json:"vault_order,omitempty"`    // vaults listed first, in this order; the rest follow alphabetically
 	Features     map[string]bool `json:"features,omitempty"`       // missing key = enabled; see knownFeatures
 }

@@ -7,8 +7,16 @@ Most-recent first.
 ## Unreleased
 
 **Added**
+- **`demo_mode`** config option: `/api/instance` reports it and the UI shows a dismissible "Public demo — changes are reset every hour" banner.
+- Community files: `CONTRIBUTING.md`, `SECURITY.md`, issue and pull-request templates.
 - **`export_docx` feature**: DOCX export (and its template listing) is on only when `officecli` is on PATH at runtime and not switched off in `features`; otherwise both routes 404 and the UI hides the export entries.
 - **Multi-arch image** (linux/amd64 + linux/arm64) with a SHA-256-verified officecli download, a `Makefile`, GitHub Actions CI and a tag-triggered release workflow publishing to `ghcr.io/joaompfp/vaultreader`.
+
+**Fixed**
+- Closing the graph while it is still animating no longer throws `Cannot read properties of null (reading 'zoom'/'animate')`: pending layout/label timers are cancelled on close.
+- Proxy peers are parsed with `net.SplitHostPort`/`netip`, so IPv6 (`[::1]:port`, ULA) peers are trusted correctly in the rate limiter and share-URL derivation.
+- `base_path` rewriting is limited to `<head>` and the editor bundle tag (inline JS is never touched) and is computed once at startup; the WebDAV handler is built once.
+- Release workflow: exact changelog heading match (v1.0.1 vs v1.0.10), pre-release tags (`-`) do not move `latest` and are marked as pre-releases, re-runs are idempotent.
 
 **Changed**
 - **`share_base_url` is derived when unset**: `<scheme>://<host>/share/` from the request (scheme from `X-Forwarded-Proto` when the peer is a trusted proxy, else the connection's TLS state). `/api/instance` returns the derived value. Previously the default was a hardcoded host; set `share_base_url` explicitly to keep a public alias such as `https://example.com/notes/`.

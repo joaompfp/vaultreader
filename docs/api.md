@@ -29,7 +29,8 @@ Everything the SPA needs to adapt to the instance it is talking to.
   "rw_paths": ["team"],
   "share_base_url": "https://team.example.com/share/",
   "base_path": "",
-  "default_note": ""
+  "default_note": "",
+  "demo_mode": false
 }
 ```
 `user` is the `Remote-User` header, or `"unknown"` if absent. `share_base_url` is the configured value or, when unset, `<scheme>://<host>/share/` derived from the request. All five feature keys are always present (missing in config = `true`). See [configuration.md](configuration.md).

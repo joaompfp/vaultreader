@@ -135,6 +135,34 @@ a:hover { text-decoration: underline; }
   overflow: hidden;
 }
 
+/* ── Public-demo banner ──────────────────────── */
+.demo-banner {
+  position: fixed;
+  top: 0; left: 0; right: 0;
+  height: 28px;
+  z-index: 400;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  background: var(--accent);
+  color: #fff;
+  font-size: var(--text-xs);
+}
+.demo-banner-close {
+  background: none;
+  border: 0;
+  color: inherit;
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 4px;
+}
+#app.has-banner {
+  margin-top: 28px;
+  height: calc(100vh - 28px);
+}
+
 /* ── Sidebar ─────────────────────────────────── */
 #sidebar {
   width: var(--sidebar-w);

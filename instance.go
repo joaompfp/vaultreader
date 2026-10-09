@@ -16,6 +16,7 @@ type InstanceInfo struct {
 	ShareBaseURL string          `json:"share_base_url"`
 	BasePath     string          `json:"base_path"`
 	DefaultNote  string          `json:"default_note"`
+	DemoMode     bool            `json:"demo_mode"`
 }
 
 func (s *server) handleInstance(w http.ResponseWriter, r *http.Request) {
@@ -26,6 +27,7 @@ func (s *server) handleInstance(w http.ResponseWriter, r *http.Request) {
 	s.cfgMu.RLock()
 	rw := append([]string{}, s.cfg.RWPaths...)
 	defaultNote := s.cfg.DefaultNote
+	demo := s.cfg.DemoMode
 	s.cfgMu.RUnlock()
 	jsonResponse(w, InstanceInfo{
 		Version:      version,
@@ -35,6 +37,7 @@ func (s *server) handleInstance(w http.ResponseWriter, r *http.Request) {
 		ShareBaseURL: s.shareBaseURL(r),
 		BasePath:     s.basePath(),
 		DefaultNote:  defaultNote,
+		DemoMode:     demo,
 	})
 }
 
