@@ -10,6 +10,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	pathpkg "path"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -100,9 +101,19 @@ func (s *server) saveConfig() error {
 func (s *server) isWritable(vault, path string) bool {
 	s.cfgMu.RLock()
 	defer s.cfgMu.RUnlock()
-	full := vault + "/" + path
+	// Judge the cleaned path: callers pass the raw query value, and a raw
+	// "rw/../ro" would otherwise pass the prefix test for "rw". Anything
+	// escaping the vault is never writable.
+	clean := pathpkg.Clean(filepath.ToSlash(path))
+	if clean == ".." || strings.HasPrefix(clean, "../") || strings.HasPrefix(clean, "/") {
+		return false
+	}
+	full := vault
+	if clean != "." {
+		full += "/" + clean
+	}
 	for _, rw := range s.cfg.RWPaths {
-		rw = strings.TrimSuffix(rw, "/")
+		rw = strings.TrimSuffix(pathpkg.Clean(filepath.ToSlash(rw)), "/")
 		if rw == vault || // whole vault writable
 			full == rw || // exact match
 			strings.HasPrefix(full, rw+"/") { // under rw dir
