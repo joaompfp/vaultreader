@@ -14,6 +14,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-qemu-action@v3
+        with:
+          # binfmt also defaults to Docker Hub; same mirror as BuildKit.
+          image: mirror.gcr.io/tonistiigi/binfmt:latest
       - uses: docker/setup-buildx-action@v3
         with:
           # The BuildKit image itself comes from Docker Hub by default and
