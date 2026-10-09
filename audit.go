@@ -12,9 +12,9 @@ import (
 	"time"
 )
 
-// AuditEntry is one line of appdata/audit.jsonl. The host-side committer
-// (docker repo: scripts/vaults/vault_commit_authors.py) parses this exact
-// shape to attribute git commits — change both together.
+// AuditEntry is one line of appdata/audit.jsonl. External tools (e.g. a
+// host-side git committer, see docs/team-instance.md) parse this exact
+// shape — treat it as a public contract.
 type AuditEntry struct {
 	TS     int64  `json:"ts"`
 	User   string `json:"user"`

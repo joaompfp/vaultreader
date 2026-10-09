@@ -7,7 +7,7 @@ These files exist so a fresh clone has something to render. Without them, VaultR
 ```
 examples/
 ├── vaults/
-│   └── demo/                 — sample vault, 7 notes + 2 image assets
+│   └── demo/                 — sample vault: 11 notes, 1 template, 2 image assets
 │       ├── Welcome.md
 │       ├── Syntax showcase.md
 │       ├── Wikilinks and tables.md
@@ -18,6 +18,10 @@ examples/
 │       │   ├── Spoke A.md
 │       │   ├── Spoke B.md
 │       │   └── Spoke C.md
+│       ├── Projects/         — small project folder (also the "team" vault in the screenshots)
+│       │   ├── Website relaunch.md
+│       │   ├── Launch checklist.md
+│       │   └── Decisions.md
 │       ├── templates/
 │       │   └── Meeting.md
 │       └── assets/
@@ -38,6 +42,7 @@ examples/
 docker run -d \
   --name vaultreader \
   -p 8080:8080 \
+  --user "$(id -u):$(id -g)" \
   -v "$PWD/examples/vaults:/vaults:rw" \
   -v "$PWD/examples/appdata:/appdata:rw" \
   ghcr.io/joaompfp/vaultreader:latest

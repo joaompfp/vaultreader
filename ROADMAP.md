@@ -78,7 +78,7 @@ These were on the roadmap; now done. Listed for posterity — see CHANGELOG for 
 - Move `SYNCTHING_API_KEY` out of the plaintext compose file into a secret store.
 - Agent/MCP connector for team members (token-based; nothing blocks it).
 - History panel / "last edited by" in the UI; presence ("X is editing").
-- Hardening: `chain-no-auth-public` + `no-new-privileges` on the team share router/container.
+- Hardening: a public rate-limited middleware chain + `no-new-privileges` on the team share router/container.
 
 ## Explicit non-goals
 

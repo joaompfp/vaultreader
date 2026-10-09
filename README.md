@@ -1,204 +1,155 @@
 # VaultReader
 
-A self-hosted web reader and editor for [Obsidian](https://obsidian.md) vaults. Single ~8MB Go binary, no JavaScript build step, no database.
+**Share part of your Obsidian vault with a teammate — behind your own auth.**
 
-![Go](https://img.shields.io/badge/Go-1.21-blue)
-![Docker](https://img.shields.io/badge/Docker-scratch-lightgrey)
-![License](https://img.shields.io/badge/license-MIT-green)
+VaultReader is a self-hosted web reader and editor for Obsidian-style Markdown vaults. It works on the folders you already have: no import, no database, one Go binary. Run one instance for yourself, and a second one that only sees the folder a colleague should have.
 
-> **Status:** personal project, used daily by its author. PRs welcome but no SLA. The project is in active development; features land in main without long deprecation cycles.
+[![CI](https://github.com/joaompfp/vaultreader/actions/workflows/ci.yml/badge.svg)](https://github.com/joaompfp/vaultreader/actions/workflows/ci.yml)
+![License](https://img.shields.io/badge/license-AGPL--3.0--only-blue)
+![Go](https://img.shields.io/badge/Go-1.21%2B-blue)
 
-## What it is
+**Live demo:** <https://joao.date/vaultreader> (resets every hour)
 
-A read-mostly web view of your Obsidian vaults that you can put behind your reverse proxy of choice. Designed for the case where you want to:
+![A note with a callout, a Mermaid diagram and the backlinks panel](docs/img/hero.png)
 
-- Read your notes from a phone or borrowed computer without installing Obsidian.
-- Share a single note via a signed URL with an optional expiration.
-- Make light edits when you don't have your main machine — toolbar, wikilink autocomplete, paste-to-upload images. Conflict-aware writes prevent silent overwrites when Syncthing is bringing in changes from another device.
-- Browse your vault structure, tags, attachments, and the wikilink graph.
+## Why
 
-It is not a sync engine, not a multi-user collaboration platform, not a Notion replacement. The vault on disk is the source of truth; VaultReader is a window onto it.
-
-## Features
-
-### Reading
-- Multiple vaults with custom icons (`appdata/icons/<vault>.{png,svg,jpg,webp}`)
-- Wikilinks (`[[note]]`, `[[note|alias]]`) with vault-scoped resolution
-- Image embeds (`![[image.png]]`, including note-relative subpaths)
-- Backlinks panel with excerpts
-- Outline (table-of-contents) right rail with scroll-spy
-- Note properties strip — size, modified time, word count, link counts
-- Frontmatter rendered with array-typed and tag-like keys as clickable chips
-- Mermaid v11 diagrams (`flowchart`, `sequence`, `gantt`, `pie`, `block`, …)
-- KaTeX math (`$$…$$` block, `\(…\)` inline; bare `$` deliberately not consumed to avoid currency conflicts)
-- Obsidian-style callouts (`> [!info] Title`) rendered with a single accent style; type preserved as `data-callout="<type>"` for custom CSS
-- Mobile-friendly layout with sliding sidebar
-- Dark mode (auto + manual toggle)
-
-### Editing
-- CodeMirror 6 editor with markdown syntax highlighting
-- Toolbar (14 buttons): bold, italic, strikethrough, heading-cycle, lists, task, quote, inline/block code, table, link, wikilink, mermaid (with 5 starter dropdowns)
-- `[[` autocomplete from `/api/search`
-- Paste/drop image upload to `<note-dir>/attachments/` — works in **both edit mode and preview mode** (paste while reading appends `![[…]]` at end of note)
-- Autosave with conflict detection (mtime check; resolution modal on collision)
-- Backend save normalization — strips trailing whitespace, ensures one trailing newline, so notes round-trip cleanly between Obsidian / vim / VaultReader
-- Note templates from `<vault>/templates/*.md` with `{{date}}`, `{{date:FMT}}`, `{{time}}`, `{{title}}` placeholders
-- Rename warning when a note has incoming wikilinks
-- Admin-managed writable paths (configure vaults / subfolders that allow editing in `appdata/config.json` → `rw_paths`)
-
-### Browsing & discovery
-- Search overlay (`Ctrl+K` or `/`) with **operators**: `tag:foo`, `path:bar`, `title:baz`, `modified:>7d`, `modified:<2026-01-01`. Plain text matches name/title/body. Results ranked by title-match × recency.
-- **Search across attachment names** (image filenames surface as `🖼` results)
-- Saved searches (per-browser localStorage)
-- Tag pane (frontmatter `tags:` aggregated across all vaults)
-- Graph view via Cytoscape + cola live force simulation — three scopes (all / vault / folder / **ego graph** rooted at a note, depth 1–5). Drag any node to ripple the graph; shift-click to re-center. Toolbar icon picks the smallest meaningful scope automatically.
-- Right-click a `[[wikilink]]` in preview → context menu (Open / new tab / Reveal in sidebar / Copy)
-- **Reveal in sidebar** (`Ctrl+Shift+L`) — scroll the sidebar to the active note
-- **Alt+← / Alt+→** for back/forward through visited notes
-- Daily-note shortcut (`Ctrl+D` opens or creates `daily/YYYY-MM-DD.md`, drops you into edit mode for fresh ones)
-- Pinned notes via `pinned: true` frontmatter — float to top of recents
-- Sidebar with folder browser, sort options, file-commander UI; resizable; **drag-to-move**, **bulk select** (Cmd/Ctrl-click, Shift-range), **bulk delete/move** with combined undo toast
-
-### Sharing
-- Read-only share links with optional expiration (`/share/<token>`)
-- **Toolbar share button + popover** — crimson active state when the open note has any link, badge with count, popover lists each share with one-click Copy / Open / Revoke and three quick-create options (RO/no-expiry, RO/7-day, editable). No more digging through Settings → Shared.
-- **Mermaid + KaTeX render in shared notes** via a tightly-scoped asset route under the share-bypass (no extra Authelia config needed)
-- Active-shares management with bulk revoke (single-call backend endpoint)
-- Custom share URL prefix supported via reverse proxy (e.g. `notes.example.com/notas/<token>`)
-
-### File operations
-- Create / rename / delete / move notes and folders
-- **Undo toast** for soft-deletes (6.5s window with one-click restore)
-- Soft-delete to `.trash/` (per vault) using a base64-encoded path scheme that round-trips safely for any filename. Restore or permanently delete from the Trash tab.
-- Attachment manager — list all images per vault, find orphans (no `![[…]]` references), filter by folder/name, see which notes reference each, bulk delete
-
-### Integration
-- Read-only WebDAV at `/webdav/` (point Obsidian Mobile or any WebDAV client at it)
-- Syncthing API for sync status indicator
-- `/health` endpoint for liveness checks
-- Authelia / forward-auth friendly (proxies pass through cleanly; rate limit honors `X-Real-IP` / `X-Forwarded-For`)
-
-### Operations
-- Single Go binary (~8MB after `-s -w` strip)
-- `embed.FS` static assets — no separate static dir to deploy
-- 7.4MB Docker image based on `scratch`
-- In-memory wikilink + backlink index, rebuilt on startup
-
-### Keyboard shortcuts
-| Shortcut | Action |
-|---|---|
-| `Ctrl/⌘ + K` or `/` | Open search |
-| `Ctrl/⌘ + N` | New note |
-| `Ctrl/⌘ + D` | Open today's daily note (creates if missing, opens fresh ones in edit mode) |
-| `Ctrl/⌘ + Shift + C` | Copy wikilink for current note |
-| `Ctrl/⌘ + Shift + L` | Reveal current note in sidebar |
-| `Alt + ←` / `Alt + →` | Back / forward through visited notes |
-| `E` | Toggle preview/edit |
-| `?` | Show shortcuts overlay |
-| `Esc` | Close any modal / menu / clear bulk selection |
-| In editor: `Ctrl/⌘ + B / I / E / K / L` | Bold, italic, inline code, link, wikilink |
-| In editor: `[[` | Trigger wikilink autocomplete |
-| In sidebar: Cmd/Ctrl-click | Toggle row in bulk selection |
-| In sidebar: Shift-click | Range-select |
+- **Give someone one folder, not the whole vault.** A second container mounts only `work/team`; your other notes are not in its filesystem.
+- **Use the login you already run.** Authelia, oauth2-proxy, authentik or any forward-auth proxy logs people in. VaultReader reads the `Remote-User` header and can refuse requests without it.
+- **No extra seats or sync service.** The files stay where they are. Obsidian, Syncthing, git and VaultReader all work on the same Markdown.
+- **Know who changed what.** Every edit goes into an append-only audit log with the user name; a small host-side script can turn it into per-author git commits.
+- **Read and edit from any browser** when you are away from your own machine.
 
 ## Quick start
 
-The repo ships with `examples/vaults/demo/` (a sample vault) and `examples/appdata/` (config + icon) so you can boot to a working installation without preparing anything:
+Try it with the bundled demo vault:
 
 ```bash
 git clone https://github.com/joaompfp/vaultreader.git
 cd vaultreader
-docker run -d --name vaultreader -p 8080:8080 \
-  -v "$PWD/examples/vaults:/vaults:rw" \
-  -v "$PWD/examples/appdata:/appdata:rw" \
+docker run --rm -p 8080:8080 \
+  --user "$(id -u):$(id -g)" \
+  -v "$PWD/examples/vaults:/vaults" \
+  -v "$PWD/examples/appdata:/appdata" \
   ghcr.io/joaompfp/vaultreader:latest
 ```
 
-Open <http://localhost:8080> — you'll land in the **demo vault**, which contains a syntax showcase, a small graph of cross-linked notes, a sample template, and instructions for pivoting to your real vaults. See [examples/README.md](examples/README.md) for the full layout.
+Open <http://localhost:8080>. Edits to the demo go into `examples/vaults/demo`; `git checkout examples/ && git clean -fd examples/` undoes them.
 
-When you're ready to use VaultReader for real, swap the bind-mounts to point at your own vault directory and a fresh `appdata/`:
+Use your own vaults:
 
 ```bash
+mkdir -p appdata
+echo '{"rw_paths": ["MyVault"]}' > appdata/config.json   # without this, everything is read-only
 docker run -d --name vaultreader -p 8080:8080 \
-  -v /path/to/your/vaults:/vaults:rw \
-  -v /path/to/your/appdata:/appdata:rw \
+  --user "$(id -u):$(id -g)" \
+  -v /path/to/MyVault:/vaults/MyVault \
+  -v "$PWD/appdata:/appdata" \
   ghcr.io/joaompfp/vaultreader:latest
 ```
 
-Each top-level subdirectory under `/vaults` becomes a separate vault in the sidebar. See [docs/configuration.md](docs/configuration.md) for `appdata/config.json` (admin token, RW paths) and [docs/security.md](docs/security.md) for the security model before exposing the service publicly.
+Each folder directly under `/vaults` is one vault, so mount a single vault as `/vaults/<name>`, or mount a parent folder that holds several. `--user` makes new files belong to you rather than root (the image runs as root otherwise).
 
-## Docker Compose
+With Docker Compose: copy [`docker-compose.example.yml`](docker-compose.example.yml) to `docker-compose.yml`, set the two paths, and run `docker compose up -d`. The file also shows the Traefik labels for running it behind forward-auth.
 
-Copy `docker-compose.example.yml` to `docker-compose.yml`, adjust paths, then:
+Without Docker (Go 1.21 or newer):
 
-```bash
-docker compose up -d
-```
-
-See [docs/configuration.md](docs/configuration.md) for the full configuration reference, including admin tokens, RW paths, Authelia integration, and Syncthing.
-
-## Building from source
-
-Host build:
 ```bash
 go build -o vaultreader .
-./vaultreader -vaults /path/to/vaults -appdata ./appdata -port 8080
+./vaultreader -vaults ./examples/vaults -appdata "$(mktemp -d)" -port 8080
+# or: make run-demo
 ```
 
-Docker build:
-```bash
-docker build -t vaultreader .
-```
+Without a `config.json` in `-appdata`, the demo is read-only too; `make run-demo` copies `examples/appdata` (which allows writes to `demo`) to a temp dir for you. DOCX export needs [`officecli`](https://github.com/iOfficeAI/OfficeCLI) on `PATH`; the Docker image includes it.
 
-The Dockerfile runs `go mod tidy` inside the builder stage, so adding a new Go dependency is a one-file edit — no host-side `go mod tidy` round-trip needed.
+Before you expose it to the internet, read [docs/security.md](docs/security.md). VaultReader has no login of its own.
+
+## Features
+
+![Walkthrough: open a note, edit it, add a wikilink, open the graph](docs/img/demo.gif)
+
+**Reading**
+- Wikilinks with aliases, image embeds, backlinks, outline, frontmatter as chips
+- Callouts, Mermaid diagrams, KaTeX math, tables, task lists
+- Several vaults side by side, with custom icons
+- Dark mode; works on phones
+
+**Editing**
+- CodeMirror 6 editor with a Markdown toolbar and `[[` autocomplete
+- Paste or drop images (saved to `attachments/` next to the note, as Obsidian does)
+- Autosave with conflict detection: if the file changed on disk, you choose what to keep
+- Templates from `<vault>/templates/`, daily note shortcut, create/rename/move/delete, trash with undo
+- Writes only where `rw_paths` allows
+
+**Finding things**
+- Search with `tag:`, `path:`, `title:` and `modified:` operators
+- Graph view: whole vault, folder, or the neighbourhood of a note
+- Tag list, attachment manager with orphan detection
+
+**Sharing and integration**
+- Share links for one note, read-only or editable, with optional expiry
+- Export a note to DOCX, optionally with a Word template from the vault
+- Read-only WebDAV, Syncthing status indicator, `/health`
+- Serve under a sub-path (`base_path`), per-instance feature switches
+
+| Editor | Graph | Share popover |
+|---|---|---|
+| ![Editor with wikilink autocomplete](docs/img/editor.png) | ![Graph around a note](docs/img/graph.png) | ![Share popover](docs/img/share.png) |
+
+Full list: [docs/features.md](docs/features.md). Markdown details: [docs/syntax.md](docs/syntax.md).
+
+## Share a folder with a teammate
+
+1. **Run a second container** from the same image that mounts only the shared folder (for example `/srv/vaults/work/team:/vaults/team`), on its own Docker network, with no published port.
+2. **Put it behind forward-auth.** Add a proxy rule so only your teammate's group can open `team.example.com`, and set `"require_user": true` in that instance's `config.json`. Keep `/share/` public if you want share links.
+3. **Done.** Your teammate edits the team folder in the browser; you keep working in Obsidian or your own instance on the same files, and `audit.jsonl` records who changed what.
+
+![Team instance: only the team vault, signed in as alice](docs/img/team-instance.png)
+
+Step-by-step with Authelia and oauth2-proxy examples, isolation checks and per-author git history: [docs/team-instance.md](docs/team-instance.md).
+
+## Security model
+
+- VaultReader has **no user accounts**. Authentication is the reverse proxy's job. The `Remote-User` header it forwards can only be trusted if nothing but the proxy can reach the container.
+- **Isolation is per instance**, not per user: anyone who reaches an instance can read everything it mounts and write wherever its `rw_paths` allow.
+- Writes are limited to `rw_paths`; paths are checked against traversal; note HTML is sanitised before it is shown; raw files are served with `nosniff` and a sandbox CSP.
+- Share links are bearer tokens. Anyone with the link can open the note until it expires or is revoked.
+
+Details and known weak spots: [docs/security.md](docs/security.md). To report a vulnerability, see [SECURITY.md](SECURITY.md).
+
+## How it compares
+
+Projects that serve or edit an Obsidian-style vault folder in the browser, as described in their own READMEs (checked 2026-10-09). "?" means the README does not say.
+
+| | VaultReader | [SilverBullet](https://github.com/silverbulletmd/silverbullet) | [Perlite](https://github.com/secure-77/Perlite) | [WebObsidian](https://github.com/xnohat/webobsidian) | [Hatchdoor](https://github.com/BatterWorks/Hatchdoor) |
+|---|---|---|---|---|---|
+| Works on an existing Obsidian vault folder | Yes | Markdown folder; Obsidian syntax not claimed | Yes | Yes | Yes |
+| Edit in the browser | Yes | Yes | No (viewer) | Yes | Yes |
+| Share only a sub-folder with someone | Yes, one instance per folder | ? | Read-only publishing of the folder you serve | No (single user) | No (single trusted user; multi-account planned) |
+| Audit log / per-author history | Audit log per user; git commits via your own script | ? | n/a (read-only) | Git sync and version history; single user | Optional git auto-commit; per-agent provenance planned |
+| No database | Yes (in-memory index, JSON files) | No (built-in database) | Yes | Yes (JSON settings) | Disposable SQLite cache |
+| Stack | Go | Rust server, TypeScript client | PHP | Node.js | Rust |
+| License | AGPL-3.0-only | MIT | MIT | MIT | AGPL-3.0 |
+
+If you only need to publish notes read-only, Perlite or a static site generator may suit you better. If you want a programmable notes system, look at SilverBullet.
 
 ## Documentation
 
-- [Features](docs/features.md) — every feature in detail
-- [Configuration](docs/configuration.md) — flags, env vars, admin token, RW paths, Authelia, Syncthing
-- [Architecture](docs/architecture.md) — backend, frontend, indexing, asset bundle
-- [API reference](docs/api.md) — every endpoint with request/response shapes
-- [Syntax reference](docs/syntax.md) — wikilinks, embeds, mermaid, math, frontmatter conventions
-- [Security model](docs/security.md) — admin token, share-link signing, RW paths, rate limit, body caps
-- [Deploying behind Authelia](docs/authelia.md) — works out of the box; share links are public-by-token
-- [Skin / theming](docs/theming.md) — CSS variables, dark mode, custom vault icons
-- [Changelog](CHANGELOG.md)
+- [Features](docs/features.md) and [syntax](docs/syntax.md)
+- [Configuration](docs/configuration.md): flags, `config.json`, per-instance options
+- [Team instance](docs/team-instance.md) and [Authelia](docs/authelia.md)
+- [Security model](docs/security.md)
+- [API reference](docs/api.md), [architecture](docs/architecture.md), [theming](docs/theming.md)
+- [Changelog](CHANGELOG.md), [roadmap](ROADMAP.md)
 
-## Project layout
+Screenshots are generated from the demo vault with `make screenshots` ([scripts/screenshots.mjs](scripts/screenshots.mjs)).
 
-```
-main.go                 — CLI entry, mux setup, ListenAndServe (~140 lines)
-data.go                 — shared types + regexes + goldmark init + embed.FS
-http.go                 — gzip middleware + JSON helpers + rate limiter
-admin.go                — server struct + AdminConfig + admin endpoints
-markdown.go             — rendering + wikilinks + callouts + frontmatter
-index.go                — NoteIndex methods + helpers
-search.go               — query operators + searchVault
-notes.go                — note + folder CRUD + save + upload + supporting handlers
-files.go                — buildTree + handleFile + safePath / vaultPath
-vaults.go               — vault listing + tree + SPA index
-shares.go               — ShareStore + handlers + share-page renderer
-trash.go                — trash naming + handlers
-attachments.go          — attachment list + refcount
-graph.go                — handleGraph (vault/folder/ego scopes)
-tags.go                 — tag aggregation
-stats.go                — vault stats handler
-sync.go                 — Syncthing status handler
-webdav.go               — read-only WebDAV mount
-go.mod                  — three dependencies: goldmark, yaml.v3, x/net/webdav
-static/                 — Alpine + CodeMirror + Mermaid + KaTeX + Cytoscape, all bundled
-  index.html            — single-page app
-  style.css             — full stylesheet
-  *.min.{js,css}        — third-party libs (no build step)
-  fonts/                — KaTeX font files
-docs/                   — user + developer documentation
-appdata/                — runtime data (gitignored): config.json, shares.json, icons/
-docker-compose.example.yml
-Dockerfile
-```
+## Contributing
 
-Notes never leave the filesystem you mount. Custom user data (admin config, share tokens, vault icons) lives under `appdata/` and is gitignored — fork-safe.
+Issues and pull requests are welcome; this is a spare-time project with no SLA. Read [CONTRIBUTING.md](CONTRIBUTING.md) and [AGENTS.md](AGENTS.md) first.
 
 ## License
 
-MIT
+[GNU AGPL-3.0-only](LICENSE). Bundled third-party libraries keep their own licenses ([THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)).
+
+Works with Obsidian vaults. Not affiliated with or endorsed by Obsidian.

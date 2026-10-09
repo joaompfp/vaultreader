@@ -6,7 +6,7 @@ Before starting anything larger than a bug fix, open an issue to discuss it. [AG
 
 ## Setup
 
-You need Go 1.24 and Node 20 (Node is only used to syntax-check the SPA). `officecli` is optional; without it DOCX export is simply disabled.
+You need Go 1.21 or newer (`go.mod` declares 1.21; CI and the image build use Go 1.24) and Node 20 (Node is only used to syntax-check the SPA). `officecli` is optional; without it DOCX export is simply disabled.
 
 ```bash
 git clone https://github.com/joaompfp/vaultreader

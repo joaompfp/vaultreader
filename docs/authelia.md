@@ -80,17 +80,9 @@ If you skip the bypass, Authelia will challenge anyone hitting a share URL — d
 
 ## Authelia headers passed downstream
 
-Traefik copies the user identity from Authelia's response onto the forwarded request via `authResponseHeaders` (`Remote-User`, `Remote-Groups`). VaultReader reads **`Remote-User` only**: for attribution (`audit.jsonl`, share `created_by`) and, with `require_user: true`, as a fail-closed check. Because Traefik overwrites any client-supplied value, the header is trustworthy as long as no one can reach the container except through the proxy (see [Team instance](#team-instance)). The rate limiter additionally honors these for IP attribution:
+Traefik copies the user identity from Authelia's response onto the forwarded request via `authResponseHeaders` (`Remote-User`, `Remote-Groups`). VaultReader reads **`Remote-User` only**: for attribution (`audit.jsonl`, share `created_by`) and, with `require_user: true`, as a fail-closed check. Because Traefik overwrites any client-supplied value, the header is trustworthy as long as no one can reach the container except through the proxy (see [team-instance.md](team-instance.md)).
 
-```yaml
-authelia:
-  forwarded_headers:
-    - X-Forwarded-User
-    - X-Forwarded-Groups
-    - X-Forwarded-Email
-```
-
-Traefik must set `X-Real-IP` / `X-Forwarded-For` automatically (it does, by default). VaultReader's rate limiter reads these to give each user a real bucket; without them, every Authelia-authenticated user shares the bridge IP's bucket.
+For IP attribution the rate limiter reads `X-Real-IP` / `X-Forwarded-For` (set by the proxy, not by Authelia). Traefik must set `X-Real-IP` / `X-Forwarded-For` automatically (it does, by default). VaultReader's rate limiter reads these to give each user a real bucket; without them, every Authelia-authenticated user shares the bridge IP's bucket.
 
 ## Caddy alternative
 
@@ -181,32 +173,4 @@ server {
 
 ## Team instance
 
-A second VaultReader container can give a small team access to **one folder** without exposing anything else. Example: `team.example.com` served by a container `vaultreader-team` (same image as the main instance) that mounts only `~/vaults/work/team` as vault `team`, for the Authelia group `team`.
-
-**Container side** (its own compose file):
-- Joins only its own Docker bridge (e.g. `vr_team_net`) with `traefik.docker.network=vr_team_net`. Traefik in host network mode still reaches it; containers on the shared proxy network cannot, so `Remote-User` cannot be spoofed from inside the network.
-- `config.json` sets `require_user: true`, `rw_paths: ["team"]`, `share_base_url: https://team.example.com/share/` and turns off `share_writable`, `webdav`, `sync_status`, `trash_empty`.
-- Two routers: the authenticated app (`chain-authelia@file`, priority 10) and a public `PathPrefix(/share/)` router (no auth, priority 20) so read-only share links work for anonymous visitors.
-
-**Authelia side** (`access_control.rules`, first match wins — these must sit **above** the subject-less `*.example.com` catch-alls):
-
-```yaml
-# 1. Public share links on the team site
-- domain: "team.example.com"
-  resources: ['^/share/.*$']
-  policy: bypass
-# 2. The team site (and any other site the team needs) for the team group only
-- domain: "team.example.com"
-  subject: "group:team"
-  policy: two_factor
-# 3. Wall: external collaborators get nothing else
-- domain: ["*.example.com", "example.com"]
-  subject: "group:external"
-  policy: deny
-```
-
-**Why the `external` wall exists.** Catch-all rules such as `*.example.com` → `two_factor` have no `subject`, so any user who can log in with 2FA would reach *every* service. Rules 1–2 grant the team its site; rule 3 denies the `external` group everything not matched earlier (hence the ordering: every allow rule for the team must come before it). The team user is a member of both `team` and `external`. Tightening the catch-alls themselves to `group:admins` is the cleaner fix; until then the wall is what keeps a team member out of the rest of the domain.
-
-**Enrolment.** The user's argon2id hash goes into `users_database.yml`; TOTP can be pre-registered by the operator with `authelia storage user totp generate <user>` instead of relying on e-mail delivery. Send the password and the QR code over separate channels.
-
-**Verify** (from outside, as the team user): `team.` loads and `/api/vaults` lists only `team`; any other `*.example.com` host returns 403; with no session `team.` redirects to Authelia but `team./share/<token>` renders.
+Giving a colleague one folder of your vault (second container, own network, `require_user`, Authelia group rules and the `external` deny wall) is covered in [team-instance.md](team-instance.md).

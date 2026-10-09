@@ -26,5 +26,5 @@ run-demo: build
 	./vaultreader -vaults examples/vaults -appdata $$d -port 8080
 
 # Regenerate README screenshots (needs Node + playwright-core; see script header)
-screenshots:
+screenshots: build
 	node scripts/screenshots.mjs

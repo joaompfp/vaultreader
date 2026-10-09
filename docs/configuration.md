@@ -75,7 +75,7 @@ Defaults reproduce the original single-user behaviour, so an existing `config.js
 | Field | Default | Team instance | Effect |
 |---|---|---|---|
 | `require_user` | `false` | `true` | `401` for any request without a non-empty `Remote-User` header, except `/share/*` and `/health`. Fail-closed for instances that must only be reached through the auth proxy |
-| `share_base_url` | `""` (derived) | `https://team.example.com/share/` | Prefix the UI puts in front of a share token. Must end with `/`. Empty = derived from the request as `<scheme>://<host>/share/` (scheme from `X-Forwarded-Proto` when the peer is a trusted proxy, else TLS state); set it for a public alias such as `https://example.com/notes/` |
+| `share_base_url` | `""` (derived) | `https://team.example.com/share/` | Prefix the UI puts in front of a share token. Must end with `/`. Empty = derived from the request as `<scheme>://<host><base_path>/share/` (scheme from `X-Forwarded-Proto` when the peer is a trusted proxy, else TLS state); set it for a public alias such as `https://example.com/notes/` |
 | `base_path` | `""` | `""` | Public URL prefix when served under a sub-path, e.g. `"/vaultreader"` → `https://example.com/vaultreader/`. Leading `/`, no trailing `/`, no `.`/`..` segments, URL-safe characters only. Requests are accepted with or without the prefix (so a proxy may strip it or pass it through); redirects, note/share/WebDAV links and the derived `share_base_url` include it |
 | `default_note` | `""` | `""` | `"vault/path.md"` opened when no note is restored (e.g. `personal/inbox/todo.md`). Must contain a `/` |
 | `demo_mode` | `false` | `false` | `true` → the UI shows a slim, per-session dismissible banner "Public demo — changes are reset every hour". Display only: it does not reset anything; schedule the reset yourself |
@@ -88,7 +88,7 @@ Defaults reproduce the original single-user behaviour, so an existing `config.js
 
 A disabled feature's route answers **404** (as if it did not exist) and the UI hides the matching controls. The resolved flags, `rw_paths`, `share_base_url`, `base_path`, `default_note`, `demo_mode`, current user and build version are exposed at `GET /api/instance`.
 
-**Validation is fail-fast at startup:** an unknown key under `features`, a `default_note` without a `/`, or a `share_base_url` that does not end in `/`, or a malformed `base_path` makes the process exit with a `config:` error (check `docker logs`). Unknown *top-level* keys are ignored, so double-check spelling of `require_user`. The admin `POST /api/admin/config` only edits `admin_token` and `rw_paths`; change the options above by editing the file and restarting.
+**Validation is fail-fast at startup:** an unknown key (top-level or under `features`, e.g. a misspelt `require_usr`), a `default_note` without a `/`, a `share_base_url` that does not end in `/`, or a malformed `base_path` makes the process exit with a `config:` error (check `docker logs`). The admin `POST /api/admin/config` only edits `admin_token` and `rw_paths`; change the options above by editing the file and restarting.
 
 `Remote-User` identifies the actor in `audit.jsonl` and in each share's `created_by`. On an instance without `require_user` it is attribution only — see [security.md](security.md).
 
@@ -128,11 +128,11 @@ Auto-managed. Do not edit by hand — the format is:
     {
       "token": "94a75c66...",
       "vault": "personal",
-      "path": "viagens/Lisbon trip.md",
+      "path": "travel/Lisbon trip.md",
       "writable": false,
       "created_at": 1775590996,
       "expires_at": 0,
-      "label": "For Joana"
+      "label": "For Bob"
     }
   ]
 }
@@ -171,7 +171,7 @@ Obsidian's Templater syntax (`<% tp.date.now(...) %>`) renders literally — Vau
 
 ### `appdata/audit.jsonl`
 
-One JSON line per mutation, appended by the app: `{"ts":…,"user":"alice","action":"save","vault":"team","path":"project/x.md","to":"","bytes":1234}`. Actions: `save`, `create`, `upload`, `move`, `delete`, `restore`, `share`, `revoke`. A host-side timer (`vault-commit-authors`) reads it from a stored byte offset to make per-author git commits (see `docs/security.md`). Rotating or truncating it is safe: when the file is smaller than the stored offset the committer logs it and starts again from byte 0. Lines appended since the last run (≤ 5 min) that are rotated away before it runs lose their attribution and land in the fallback `vr(sync)` commit instead.
+One JSON line per mutation, appended by the app: `{"ts":…,"user":"alice","action":"save","vault":"team","path":"project/x.md","to":"","bytes":1234}`. Actions: `save`, `create`, `upload`, `move`, `delete`, `restore`, `share`, `revoke`. VaultReader itself never runs git. If you want per-author history, a host-side timer can read the file from a stored byte offset and turn new lines into git commits (see [team-instance.md](team-instance.md#per-author-git-history)). Such a reader should restart from byte 0 when the file is smaller than its stored offset, so rotating or truncating the log stays safe.
 
 ### `<vault>/.trash/`
 
@@ -266,12 +266,4 @@ The bundled `mermaid.min.js` is 3.1MB. To trim, use a Mermaid build with only th
 
 ## CI / release
 
-There's no automated release. Build + push manually:
-
-```bash
-docker build -t ghcr.io/joaompfp/vaultreader:latest -t ghcr.io/joaompfp/vaultreader:$(git rev-parse --short HEAD) .
-docker push ghcr.io/joaompfp/vaultreader:latest
-docker push ghcr.io/joaompfp/vaultreader:$(git rev-parse --short HEAD)
-```
-
-GitHub Actions workflow in `.github/workflows/` if/when added.
+`.github/workflows/ci.yml` runs `go vet`, `go test` and the inline-script check on every push and pull request, then builds the image (no push). `.github/workflows/release.yml` builds and publishes the multi-arch image to `ghcr.io/joaompfp/vaultreader` when a `v*` tag is pushed. To build an image locally: `make image`.

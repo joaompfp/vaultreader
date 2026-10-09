@@ -11,3 +11,6 @@ vaultreader
 # Build-time binaries (downloaded by Dockerfile)
 officecli
 .superpowers/
+
+# make screenshots: npm i --no-save playwright-core
+node_modules

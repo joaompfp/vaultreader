@@ -22,7 +22,7 @@ Security never relies on obscurity. Code, compose files, proxy layout and docs m
 | Who can reach it | Dedicated bridge network (e.g. `vr_team_net`), not the shared proxy network; containers on other networks cannot connect. Traefik (host network) still can |
 | Fail-closed identity | `require_user: true` → every request except `/share/*` and `/health` without a non-empty `Remote-User` gets `401` |
 | Feature surface | `features.*` flags remove routes at registration (404): WebDAV, sync status, trash purge, writable shares |
-| Authorization at the proxy | Authelia rule per group, plus a `deny` wall for the `external` group on every other `*.example.com` host (see [authelia.md](authelia.md)) |
+| Authorization at the proxy | Authelia rule per group, plus a `deny` wall for the `external` group on every other `*.example.com` host (see [team-instance.md](team-instance.md)) |
 
 `Remote-User` is set by Traefik forwardAuth, which overwrites any client-supplied value. On an instance **without** `require_user` (the main one, reachable from every container on the shared proxy network) the header is **attribution-only**: it labels audit lines and share `created_by`, and is never used for authorization. A spoofed header there can only mislabel an audit line.
 
@@ -73,6 +73,8 @@ Use `expires_at` for sensitive shares. Treat share URLs like API keys.
 
 ### Rate limit
 240 requests/minute per IP, sliding window. Identifies the IP via `X-Real-IP`, falling back to `X-Forwarded-For` (left-most hop), falling back to `r.RemoteAddr`.
+
+`X-Real-IP`, `X-Forwarded-For` and `X-Forwarded-Proto` are honoured only when the immediate TCP peer is loopback, RFC 1918 private or IPv6 ULA (`fc00::/7`), i.e. a proxy on the same host or Docker network. A client connecting directly from any other address cannot pick its own rate-limit bucket or change the scheme of the derived `share_base_url`.
 
 GET/HEAD of `/api/file`, `/api/vault-icon` and embedded static assets are exempt (`rateExempt` in `routes.go`): they are read-only and one page view of an image-heavy note fans out into hundreds of them. Every other request — all mutating `/api/*`, `/share/*`, `/webdav/`, the shell — counts.
 
@@ -198,7 +200,7 @@ Referrer-Policy: same-origin
 - **No request signing.** Share links are bearer tokens — no HMAC, no rotation. Replays work.
 - **No login flow.** VaultReader has no notion of session. The proxy's session is the session.
 - **No file watcher.** If you edit a note via WebDAV (write) it would race the in-memory index. (Currently moot since WebDAV is read-only.)
-- **Audit log is write-only attribution, not forensics.** Each instance appends one JSON line per mutation to `appdata/audit.jsonl` (`{ts,user,action,vault,path,to?,bytes?}`; actions `save create upload move delete restore share revoke`). Reads are not logged, nothing is signed, and the file can be edited by anyone with host access. A failed append is logged and the request still succeeds (attribution is not security). A host timer turns it into per-author git commits (`vr(<user>)`). `trash/empty` (main instance only; disabled on the team instance) and admin config changes are not audited.
+- **Audit log is write-only attribution, not forensics.** Each instance appends one JSON line per mutation to `appdata/audit.jsonl` (`{ts,user,action,vault,path,to?,bytes?}`; actions `save create upload move delete restore share revoke`). Reads are not logged, nothing is signed, and the file can be edited by anyone with host access. A failed append is logged and the request still succeeds (attribution is not security). A host-side timer can turn it into per-author git commits (see [team-instance.md](team-instance.md#per-author-git-history)). `trash/empty` (main instance only; disabled on the team instance) and admin config changes are not audited.
 - **No CSRF token.** Mutating endpoints rely on browser same-origin policy. If you put a CORS-permissive proxy in front, you've broken this.
 - **`appdata/shares.json` keeps revoked entries** in the file (the in-memory store filters them on every list, but the JSON contains all entries until next save).
 - **WebDAV exposes `.obsidian/`, `.smart-env/`, `.trash/`** — internal directories. Filter at the proxy if you need to hide them.

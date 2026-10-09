@@ -62,4 +62,5 @@ Each top-level directory under `/vaults` becomes a vault. Drop a matching icon a
 - [[Syntax showcase]] — every markdown feature in one place
 - [[Wikilinks and tables]] — wikilinks inside table cells (handles the alias-pipe gotcha)
 - [[Linked notes/Hub]] — the graph view has something to chew on
+- [[Website relaunch]] — a small project folder: callout, diagram, tasks and backlinks in one note
 - [docs/](https://github.com/joaompfp/vaultreader/tree/main/docs) — full feature, API, syntax, security, configuration reference

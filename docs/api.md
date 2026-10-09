@@ -33,7 +33,7 @@ Everything the SPA needs to adapt to the instance it is talking to.
   "demo_mode": false
 }
 ```
-`user` is the `Remote-User` header, or `"unknown"` if absent. `share_base_url` is the configured value or, when unset, `<scheme>://<host>/share/` derived from the request. All five feature keys are always present (missing in config = `true`). See [configuration.md](configuration.md).
+`user` is the `Remote-User` header, or `"unknown"` if absent. `share_base_url` is the configured value or, when unset, `<scheme>://<host><base_path>/share/` derived from the request. All five feature keys are always present (missing in config = `true`). See [configuration.md](configuration.md).
 
 ### `GET /api/stats`
 Vault stats — note counts.
