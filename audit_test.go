@@ -170,7 +170,7 @@ func TestAuditRemainingSites(t *testing.T) {
 		{User: "bob", Action: "delete", Vault: "team", Path: "d2"},
 		{User: "bob", Action: "share", Vault: "team", Path: "n.md"},
 		{User: "bob", Action: "share", Vault: "team", Path: "n.md"},
-		{User: "unknown", Action: "save", Vault: "team", Path: "n.md", Bytes: 3},
+		{User: shareActor, Action: "save", Vault: "team", Path: "n.md", Bytes: 3},
 		{User: "bob", Action: "revoke", Path: e2.Token},
 		{User: "bob", Action: "revoke", Path: "*"},
 	}
@@ -228,5 +228,26 @@ func TestAuditCreateBytes(t *testing.T) {
 	got := readAudit(t, s)
 	if len(got) != 1 || got[0].Bytes != int64(len("# A\n")) || got[0].User != "unknown" {
 		t.Fatalf("got %+v", got)
+	}
+}
+
+// /share/ routes run without forward-auth, so a client-supplied
+// Remote-User there must not reach the audit log.
+func TestShareSaveIgnoresRemoteUser(t *testing.T) {
+	s := newTestServer(t, AdminConfig{RWPaths: []string{"team"}})
+	h := s.handler()
+	writeFile(t, filepath.Join(s.vaultsDir, "team", "n.md"), "# n\n")
+	var e ShareEntry
+	rec := do(t, h, "POST", "/api/shares/create", `{"vault":"team","path":"n.md","writable":true}`,
+		map[string]string{"Remote-User": "alice"})
+	_ = json.Unmarshal(rec.Body.Bytes(), &e)
+	if rec := do(t, h, "PUT", "/share/"+e.Token, `{"raw":"hi"}`,
+		map[string]string{"Remote-User": "mallory"}); rec.Code != 200 {
+		t.Fatalf("share put = %d", rec.Code)
+	}
+	got := readAudit(t, s)
+	last := got[len(got)-1]
+	if last.Action != "save" || last.User != shareActor {
+		t.Fatalf("share save line = %+v, want user %q", last, shareActor)
 	}
 }

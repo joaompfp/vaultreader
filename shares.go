@@ -184,7 +184,7 @@ func (s *server) handleShareView(w http.ResponseWriter, r *http.Request) {
 		}
 		if err := saveNote(vp, e.Path, body.Raw); err != nil { errResponse(w, 500, err.Error()); return }
 		s.idx.updateNote(e.Vault, e.Path, body.Raw)
-		s.audit(r, "save", e.Vault, e.Path, "", int64(len(normalizeMarkdown(body.Raw))))
+		s.auditAs(shareActor, "save", e.Vault, e.Path, "", int64(len(normalizeMarkdown(body.Raw))))
 		jsonResponse(w, map[string]string{"status": "saved"}); return
 	}
 
