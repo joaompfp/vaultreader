@@ -47,9 +47,7 @@ LABEL org.opencontainers.image.source="https://github.com/joaompfp/vaultreader" 
       org.opencontainers.image.licenses="AGPL-3.0-only" \
       org.opencontainers.image.title="VaultReader"
 COPY --from=officecli --chmod=0755 /tmp/officecli /usr/local/bin/officecli
-# Explicit mode: the build context's permissions (e.g. 0770) would otherwise
-# leave the binary unexecutable for a non-root wrapper shell.
-COPY --from=builder --chmod=0755 /app/vaultreader /vaultreader
+COPY --from=builder /app/vaultreader /vaultreader
 COPY --from=builder /out/doc/ /usr/share/doc/
 VOLUME ["/vaults", "/appdata"]
 EXPOSE 8080
