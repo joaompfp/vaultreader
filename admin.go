@@ -23,13 +23,14 @@ type AdminConfig struct {
 	AdminToken string   `json:"admin_token,omitempty"` // secret token for admin endpoints; empty = admin disabled
 	RWPaths    []string `json:"rw_paths"`              // vault-relative paths that allow writes, e.g. "notes/agents/skills"
 
-	RequireUser  bool            `json:"require_user,omitempty"`   // 401 without Remote-User (team instance)
-	ShareBaseURL string          `json:"share_base_url,omitempty"` // public prefix for share links; empty = derived from the request
-	BasePath     string          `json:"base_path,omitempty"`      // public URL prefix, e.g. "/vaultreader"; empty = served at /
-	DefaultNote  string          `json:"default_note,omitempty"`   // "vault/path.md" opened when nothing is restored
-	DemoMode     bool            `json:"demo_mode,omitempty"`      // public demo: the SPA shows a "changes are reset" banner
-	VaultOrder   []string        `json:"vault_order,omitempty"`    // vaults listed first, in this order; the rest follow alphabetically
-	Features     map[string]bool `json:"features,omitempty"`       // missing key = enabled; see knownFeatures
+	RequireUser  bool             `json:"require_user,omitempty"`   // 401 without Remote-User (team instance)
+	ShareBaseURL string           `json:"share_base_url,omitempty"` // public prefix for share links; empty = derived from the request
+	BasePath     string           `json:"base_path,omitempty"`      // public URL prefix, e.g. "/vaultreader"; empty = served at /
+	DefaultNote  string           `json:"default_note,omitempty"`   // "vault/path.md" opened when nothing is restored
+	DemoMode     bool             `json:"demo_mode,omitempty"`      // public demo: the SPA shows a "changes are reset" banner
+	VaultOrder   []string         `json:"vault_order,omitempty"`    // vaults listed first, in this order; the rest follow alphabetically
+	Features     map[string]bool  `json:"features,omitempty"`       // missing key = enabled; see knownFeatures
+	Analytics    *AnalyticsConfig `json:"analytics,omitempty"`      // optional Umami tracking tag in the SPA shell
 }
 
 type server struct {

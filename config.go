@@ -38,7 +38,7 @@ func validateConfig(c AdminConfig) error {
 	if c.BasePath != "" && !validBasePath(c.BasePath) {
 		return fmt.Errorf("base_path %q must look like \"/prefix\" (leading /, no trailing /, no . or .. segments, URL-safe characters)", c.BasePath)
 	}
-	return nil
+	return validateAnalytics(c.Analytics)
 }
 
 // basePathRe: one or more "/segment" parts of unreserved URL characters,

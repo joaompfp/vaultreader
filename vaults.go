@@ -79,13 +79,17 @@ const spaCSP = "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-ev
 	"media-src 'self' blob:; font-src 'self' data:; connect-src 'self'; frame-src 'self'; " +
 	"object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'"
 
-// indexHandler serves the SPA shell. base_path is fixed at startup, so the
-// rewritten shell is computed once here, not per request.
+// indexHandler serves the SPA shell. base_path and analytics are fixed at
+// startup, so the rewritten shell and its CSP are computed once here.
 func (s *server) indexHandler() http.HandlerFunc {
 	data, err := fs.ReadFile(staticFiles, "static/index.html")
+	s.cfgMu.RLock()
+	analytics := s.cfg.Analytics
+	s.cfgMu.RUnlock()
 	if err == nil {
-		data = withBasePath(data, s.basePath())
+		data = withAnalytics(withBasePath(data, s.basePath()), analytics)
 	}
+	csp := shellCSP(analytics)
 	return func(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			http.Error(w, "index.html not found", 500)
@@ -93,7 +97,7 @@ func (s *server) indexHandler() http.HandlerFunc {
 		}
 		h := w.Header()
 		h.Set("Content-Type", "text/html; charset=utf-8")
-		h.Set("Content-Security-Policy", spaCSP)
+		h.Set("Content-Security-Policy", csp)
 		h.Set("X-Content-Type-Options", "nosniff")
 		h.Set("Referrer-Policy", "same-origin")
 		_, _ = w.Write(data)
