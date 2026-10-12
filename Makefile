@@ -13,7 +13,7 @@ test:
 	./scripts/check-inline-js.sh
 
 build:
-	CGO_ENABLED=0 $(GO) build -buildvcs=false -trimpath -ldflags="-s -w -X main.version=$(VERSION)" -o vaultreader .
+	CGO_ENABLED=0 $(GO) build -buildvcs=false -trimpath -ldflags="-s -w -X main.version=$(VERSION)" -o vaultreader ./cmd/vaultreader
 
 # Multi-arch image build (no push; add --push to publish)
 image:

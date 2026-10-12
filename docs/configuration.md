@@ -238,7 +238,7 @@ http:
       service: vaultreader
 ```
 
-Set `share_base_url` in `config.json` to match your prefix (e.g. `https://notes.example.com/share/`); the UI reads it from `/api/instance`. The only prefix left in `static/index.html` is the built-in default used until that response arrives.
+Set `share_base_url` in `config.json` to match your prefix (e.g. `https://notes.example.com/share/`); the UI reads it from `/api/instance`. The only prefix left in `web/static/index.html` is the built-in default used until that response arrives.
 
 ## Tuning
 
@@ -258,12 +258,12 @@ Hardcoded 20 per vault in `searchVault`. Same.
 
 The bundled `mermaid.min.js` is 3.1MB. To trim, use a Mermaid build with only the diagram types you use:
 1. Build a custom bundle on a machine with Node.
-2. Drop it in `static/mermaid.min.js`.
+2. Drop it in `web/static/mermaid.min.js`.
 3. Rebuild.
 
 ### KaTeX fonts
 
-`static/fonts/` has all 60 font files (TTF + WOFF + WOFF2 for each of 20 fonts). To save ~700KB, you can keep only the `.woff2` variants — modern browsers all support woff2. The `.css` will throw 404s for the missing variants but degrade silently.
+`web/static/fonts/` has all 60 font files (TTF + WOFF + WOFF2 for each of 20 fonts). To save ~700KB, you can keep only the `.woff2` variants — modern browsers all support woff2. The `.css` will throw 404s for the missing variants but degrade silently.
 
 ## CI / release
 

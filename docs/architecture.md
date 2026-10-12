@@ -27,7 +27,7 @@ The vault on disk is the source of truth. VaultReader reads it on startup, build
 ## Backend
 
 ### One-file Go server
-Everything lives in [`main.go`](../main.go) (~2700 lines after the recent feature wave). No framework — just `net/http` + a flat `ServeMux`. Each route is a method on the `*server` struct.
+The Go code lives in [`internal/server/`](../internal/server/), one concern per file; [`cmd/vaultreader/main.go`](../cmd/vaultreader/main.go) only parses flags and calls `server.Run`. No framework — just `net/http` + a flat `ServeMux`. Each route is a method on the `*server` struct.
 
 ### Dependencies (3 total)
 ```go
@@ -133,13 +133,13 @@ The rate limiter inspects `X-Real-IP` and `X-Forwarded-For` (left-most hop), fal
 var staticFiles embed.FS
 ```
 
-`static/` contains `index.html`, `style.css`, all the third-party libs, and `static/fonts/` (60 KaTeX font files). Everything is served via `http.FileServer(http.FS(subFS))` where `subFS, _ := fs.Sub(staticFiles, "static")`. No separate static dir to deploy.
+`web/static/` contains `index.html`, `style.css`, all the third-party libs, and `web/static/fonts/` (60 KaTeX font files). Everything is served via `http.FileServer(http.FS(subFS))` where `subFS, _ := fs.Sub(staticFiles, "static")`. No separate static dir to deploy.
 
 ## Frontend
 
 ### Single-page app, no build step
 
-`static/index.html` is the entire application:
+`web/static/index.html` is the entire application:
 - ~3000 lines of HTML (Alpine.js bindings) + inline `<script>` containing the Alpine state object (~1600 lines of JS).
 - Loads Alpine, CodeMirror, Mermaid, KaTeX, Cytoscape as separate `<script src="…">` tags.
 - No webpack, no rollup, no transpilation. The whole frontend works in any modern browser.
@@ -175,7 +175,7 @@ Every overlay (modal, search, settings, graph, tags, etc.) is a single boolean f
 
 Wrapped in `window.__cmAPI` (a tiny IIFE shim around CodeMirror 6's `EditorView`). Created lazily when the user enters edit mode; destroyed on exit. Extensions enabled: `history`, `lineNumbers`, `markdown`, `lineWrapping`, plus `EditorView.domEventHandlers` for paste/drop and an `updateListener` for autocomplete.
 
-Bundled `static/codemirror.bundle.js` exposes only a curated subset of CodeMirror's exports. Notably **does NOT export `@codemirror/autocomplete`** — the wikilink popup is hand-rolled (CodeMirror `updateListener` + `coordsAtPos` + Alpine-driven popup div) rather than using the official autocomplete extension.
+Bundled `web/static/codemirror.bundle.js` exposes only a curated subset of CodeMirror's exports. Notably **does NOT export `@codemirror/autocomplete`** — the wikilink popup is hand-rolled (CodeMirror `updateListener` + `coordsAtPos` + Alpine-driven popup div) rather than using the official autocomplete extension.
 
 ### Mermaid / KaTeX / Cytoscape
 
@@ -222,7 +222,7 @@ ENTRYPOINT ["/vaultreader"]
 
 Final image is `scratch` + the static binary + CA bundle (for outbound HTTPS to Syncthing). ~8MB total after the `-s -w` strip.
 
-`go mod tidy` in the builder stage means adding a Go dependency is a one-file change to `main.go` — no host-side `go mod tidy` round-trip needed before pushing.
+`go mod tidy` in the builder stage means adding a Go dependency is a one-file change to the importing `.go` file — no host-side `go mod tidy` round-trip needed before pushing.
 
 ## Performance notes
 
@@ -236,8 +236,8 @@ None of these are urgent. The whole system is designed for personal-vault scale 
 
 ## Where to look for things
 
-- Need to change a route? `main.go` around L2580 (`mux.HandleFunc` block).
-- Need to add Alpine state? `static/index.html` around L1010 (`function vaultApp() { return { … } }`).
+- Need to change a route? `internal/server/routes.go` (`mux.HandleFunc` block).
+- Need to add Alpine state? `web/static/index.html` around L1010 (`function vaultApp() { return { … } }`).
 - Need to add a watcher? Look for `this.$watch(…)` in `init()`.
 - Adding a CodeMirror feature? `__cmAPI.create()` near the top of the second `<script>` block.
 - Adding a settings tab? Search for `settingsTab === '` to see how existing tabs are wired (button + body + lazy-load hook in `openSettings`).

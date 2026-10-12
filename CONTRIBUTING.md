@@ -21,9 +21,9 @@ make image       # multi-arch image build (needs Docker with BuildKit; no push)
 
 ## Rules of the repo
 
-- **No build step for the frontend.** `static/index.html` is hand-written Alpine.js plus bundled libraries loaded with `<script src>`. Do not add a bundler, transpiler, npm install or generated files.
-- **Syntax-check the inline script.** A typo in the SPA's inline script blanks the whole app. After every change to `static/index.html` run `./scripts/check-inline-js.sh` (it is part of `make test`; it needs Node).
-- **Tests use real temporary directories**, never filesystem mocks (`t.TempDir()` and the helpers in `testutil_test.go`). Write the failing test first for bug fixes and new behaviour.
+- **No build step for the frontend.** `web/static/index.html` is hand-written Alpine.js plus bundled libraries loaded with `<script src>`. Do not add a bundler, transpiler, npm install or generated files.
+- **Syntax-check the inline script.** A typo in the SPA's inline script blanks the whole app. After every change to `web/static/index.html` run `./scripts/check-inline-js.sh` (it is part of `make test`; it needs Node).
+- **Tests use real temporary directories**, never filesystem mocks (`t.TempDir()` and the helpers in `internal/server/testutil_test.go`). Write the failing test first for bug fixes and new behaviour.
 - **Never run repo-wide formatters** (`go fmt ./...`, `gofmt -w .`, prettier). They rewrite files outside your change and bury the real diff. Format only the lines you touch.
 - **Keep it flat and small.** One concern per `package main` file; a new dependency needs a justification in the pull request.
 - **New write endpoints** must call `safePath` and `isWritable` and record `s.audit(...)`; new optional routes go behind `s.feature(...)`. See AGENTS.md.

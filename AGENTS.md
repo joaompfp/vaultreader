@@ -1,18 +1,19 @@
 # AGENTS.md — VaultReader contributor and agent guide
 
-A Go web app that serves Obsidian-compatible vaults: ~25 sibling `package main` files (route table in `routes.go`, `main.go` is startup only) plus a large `static/index.html` (Alpine.js SPA). The runtime image also carries `officecli` for DOCX export. User-facing docs live in `README.md` and `docs/`; this file is the map and the list of traps.
+A Go web app that serves Obsidian-compatible vaults: ~25 sibling files in `internal/server/` (one `package server`; route table in `routes.go`, `run.go` is startup) behind a flags-only `cmd/vaultreader/main.go`, plus a large `web/static/index.html` (Alpine.js SPA, embedded via `web/embed.go`). The runtime image also carries `officecli` for DOCX export. User-facing docs live in `README.md` and `docs/`; this file is the map and the list of traps.
 
 ## Where things live
 
-All Go files share `package main`, so cross-file references need no imports.
+Go files below are in `internal/server/` unless a path is given. They share `package server`, so cross-file references need no imports.
 
 | Want to change… | Look in… |
 |---|---|
-| Startup: flags, index build, rescanner, graceful shutdown | `main.go` |
+| Command-line flags, build `version` | `cmd/vaultreader/main.go` |
+| Startup: index build, rescanner, graceful shutdown (`Run`) | `run.go` |
 | URL → handler table, `feature()` gating, middleware chain (`handler()`) | `routes.go` |
 | Per-instance config validation, feature flags (`knownFeatures`), `share_base_url` | `config.go` |
 | `Remote-User` attribution (`userFrom`) and fail-closed `requireUser` middleware | `identity.go` |
-| `GET /api/instance`, `/health`, build `version` (`-ldflags -X main.version`) | `instance.go` |
+| `GET /api/instance`, `/health`, `version` (set by `Run` from `-ldflags -X main.version`) | `instance.go` |
 | Append-only `appdata/audit.jsonl` (`AuditEntry`, `s.audit(...)`) | `audit.go` |
 | 30 s stat-only rescan of every vault, shared `walkVaultFiles` | `rescan.go` |
 | Markdown rendering, wikilinks, callouts, embeds, frontmatter | `markdown.go` |
@@ -31,24 +32,24 @@ All Go files share `package main`, so cross-file references need no imports.
 | WebDAV mount (read-only via method allowlist) | `webdav.go` |
 | `server` struct, `AdminConfig`, admin token, writable paths | `admin.go` |
 | Gzip middleware, JSON helpers, rate limiter | `http.go` |
-| Shared types, regexes, goldmark init, `embed.FS` | `data.go` |
+| Shared types, regexes, goldmark init, `staticFiles` | `data.go` |
 | DOCX export | `export.go` |
-| Alpine state | `static/index.html`, `function vaultApp()`, organised by `// ── Section ─` dividers |
-| CodeMirror wrapper (`__cmAPI`) | `static/index.html`, second `<script>` block |
-| Stylesheet | `static/style.css` |
-| Bundled libraries | `static/*.js`, `static/fonts/` |
+| Alpine state | `web/static/index.html`, `function vaultApp()`, organised by `// ── Section ─` dividers |
+| CodeMirror wrapper (`__cmAPI`) | `web/static/index.html`, second `<script>` block |
+| Stylesheet | `web/static/style.css` |
+| Bundled libraries | `web/static/*.js`, `web/static/fonts/` |
 
 ## Conventions
 
-- Flat `package main`, one concern per file. Add a file only for a new concern.
+- Flat `package server`, one concern per file. Add a file only for a new concern. `cmd/vaultreader` stays flags-only.
 - Few dependencies (goldmark, `golang.org/x/net/webdav`, `gopkg.in/yaml.v3`). A new one needs a justification.
 - No JS build step. The frontend is hand-written plus bundled libraries loaded with `<script src>`.
 - Tests use real temporary directories, never filesystem mocks. `go test ./...` also runs in the Docker builder stage, so a failing test fails the image build.
-- Every change to `static/index.html` must pass a syntax check of the inline script before commit; a typo blanks the whole SPA:
+- Every change to `web/static/index.html` must pass a syntax check of the inline script before commit; a typo blanks the whole SPA:
   ```bash
   node -e "
   const fs = require('fs');
-  const html = fs.readFileSync('static/index.html', 'utf8');
+  const html = fs.readFileSync('web/static/index.html', 'utf8');
   const idx = html.lastIndexOf('<script>');
   const end = html.lastIndexOf('</script>');
   fs.writeFileSync('/tmp/vr-check.js', html.substring(idx + 8, end));
@@ -93,7 +94,7 @@ All Go files share `package main`, so cross-file references need no imports.
 - Opening a modal triggers `trapFocus('modalOverlay')`. The `secondaryLabel` / `onSecondary` slots give three-button modals.
 
 ### CodeMirror
-- `static/codemirror.bundle.js` is a curated one-shot esbuild bundle of the public `@codemirror/*` packages (`esbuild entry.js --bundle --format=iife --global-name=CM --minify --target=es2020`); there is no in-repo build step. To rebuild, use a temp dir with an `entry.js` re-exporting the needed symbols and a `package.json` pinning versions, then copy the output back to `static/`. Do not redirect stderr into the bundle.
+- `web/static/codemirror.bundle.js` is a curated one-shot esbuild bundle of the public `@codemirror/*` packages (`esbuild entry.js --bundle --format=iife --global-name=CM --minify --target=es2020`); there is no in-repo build step. To rebuild, use a temp dir with an `entry.js` re-exporting the needed symbols and a `package.json` pinning versions, then copy the output back to `web/static/`. Do not redirect stderr into the bundle.
 - Find/replace is the stock CM6 panel (`search({ top: true })` + `searchKeymap`). Bracket pairing is `closeBrackets()`. Heading fold is `foldGutter()`.
 
 ## Known limits
@@ -105,5 +106,5 @@ All Go files share `package main`, so cross-file references need no imports.
 
 ## Boundaries
 
-- Always: run `node --check` on the inline script before committing `static/index.html`; verify UI changes in a real browser, not just from the diff.
+- Always: run `node --check` on the inline script before committing `web/static/index.html`; verify UI changes in a real browser, not just from the diff.
 - Never: mock the filesystem in tests; add a JS build step; skip `safePath` / `isWritable` on a write endpoint; commit `appdata/`.

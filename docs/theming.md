@@ -4,7 +4,7 @@ VaultReader is themed via CSS variables, with a built-in dark mode and a handful
 
 ## CSS variables
 
-All colors and shared values live at the top of [`static/style.css`](../static/style.css) under `:root`:
+All colors and shared values live at the top of [`web/static/style.css`](../web/static/style.css) under `:root`:
 
 ```css
 :root {
@@ -132,7 +132,7 @@ To change the default:
 CodeMirror's `oneDark` theme is enabled when the system is in dark mode. Light mode uses CodeMirror's default (no explicit theme). To use a custom CodeMirror theme:
 
 1. Build a CodeMirror bundle that exports your theme.
-2. Replace `static/codemirror.bundle.js`.
+2. Replace `web/static/codemirror.bundle.js`.
 3. Reference the new export in the `<script>` block at the bottom of `index.html` where `oneDark` is destructured.
 
 ## Per-element overrides

@@ -17,7 +17,7 @@ RUN go mod tidy
 RUN CGO_ENABLED=0 go test ./...
 ARG GIT_SHA=dev
 RUN CGO_ENABLED=0 GOOS=linux GOARCH=$TARGETARCH \
-    go build -buildvcs=false -ldflags="-s -w -X main.version=${GIT_SHA}" -trimpath -o vaultreader .
+    go build -buildvcs=false -ldflags="-s -w -X main.version=${GIT_SHA}" -trimpath -o vaultreader ./cmd/vaultreader
 # License texts for the runtime image, world-readable whatever the
 # build context's permissions.
 RUN install -d -m 0755 /out/doc/vaultreader && install -m 0644 LICENSE THIRD_PARTY_NOTICES.md /out/doc/vaultreader/

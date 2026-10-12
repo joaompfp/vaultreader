@@ -4,6 +4,9 @@ All notable changes to VaultReader. Most-recent first.
 
 ## Unreleased
 
+**Changed**
+- **Source layout.** Go code moved from the repo root into `internal/server/` (one `package server`, same files); `cmd/vaultreader/main.go` only parses flags and calls `server.Run`; the SPA moved to `web/static/`, embedded by `web/embed.go`. Build with `go build ./cmd/vaultreader`. Behaviour, flags and the `-X main.version` stamp are unchanged.
+
 **Added**
 - **`analytics` config option** (Umami): `{"umami_script": "/js/u/script.js", "umami_website_id": "<uuid>"}` adds a deferred Umami tag to the SPA shell's `<head>`. A leading-`/` script is site-root and is not given the `base_path` prefix; an `https://` script adds its origin to the shell CSP's `script-src` and `connect-src`. Both keys are required and validated at startup (UUID id; site-root path or https URL). Share pages never get the tag.
 

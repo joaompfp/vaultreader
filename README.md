@@ -55,7 +55,7 @@ With Docker Compose: copy [`docker-compose.example.yml`](docker-compose.example.
 Without Docker (Go 1.21 or newer):
 
 ```bash
-go build -o vaultreader .
+go build -o vaultreader ./cmd/vaultreader
 ./vaultreader -vaults ./examples/vaults -appdata "$(mktemp -d)" -port 8080
 # or: make run-demo   (PORT=8081 if 8080 is taken)
 ```
