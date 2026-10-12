@@ -45,7 +45,7 @@
 
     <!-- App header -->
     <div class="sidebar-header">
-      <span class="app-icon" role="img" aria-label="VaultReader"></span>
+      <svg class="app-icon" viewBox="0 0 32 32" role="img" aria-label="VaultReader"><use :href="VR_BASE + '/logo.svg#mark'"/></svg>
       <div class="sb-view-toggle" role="tablist" aria-label="Sidebar view">
         <button type="button" role="tab" :aria-selected="sidebarView === 'folders'"
                 :class="{ active: sidebarView === 'folders' }" @click="setSidebarView('folders')">Folders</button>

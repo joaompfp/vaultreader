@@ -1,7 +1,11 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
-  <style>svg{color:#2b2b2b}@media (prefers-color-scheme:dark){svg{color:#e6e6e6}}</style>
-  <rect x="3" y="3" width="18" height="18" rx="3.5"/>
-  <circle cx="12" cy="12" r="4.5"/>
-  <path d="M12 7.5v-1M12 17.5v-1M7.5 12h-1M17.5 12h-1"/>
-  <circle cx="12" cy="12" r="1" fill="currentColor"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <!-- Notebook with a bookmark ribbon. Colours are the CSS variables
+       vr-ink and vr-accent: set below for the favicon, inherited from the
+       page where the SPA draws #mark with a use element. No double hyphen
+       in XML comments. -->
+  <style>svg{--vr-ink:#1a1a1a;--vr-accent:#b91c1c}@media (prefers-color-scheme:dark){svg{--vr-ink:#cdd6f4;--vr-accent:#e88080}}</style>
+  <g id="mark">
+    <path style="fill:var(--vr-ink)" fill-rule="evenodd" d="M8.5 3H24a2 2 0 0 1 2 2v20a2 2 0 0 1-2 2H8.5A2.5 2.5 0 0 1 6 24.5v-19A2.5 2.5 0 0 1 8.5 3z M9.6 3v24h1.4V3z M14 8h8.5v5H14z"/>
+    <path style="fill:var(--vr-accent)" d="M18.5 22h4v9l-2-1.8-2 1.8z"/>
+  </g>
 </svg>

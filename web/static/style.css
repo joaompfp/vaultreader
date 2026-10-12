@@ -217,9 +217,8 @@ body.sidebar-resizing * {
   width: 26px;
   height: 26px;
   flex-shrink: 0;
-  background-color: var(--text);
-  -webkit-mask: url(logo.svg) center / contain no-repeat;
-  mask: url(logo.svg) center / contain no-repeat;
+  --vr-ink: var(--text);
+  --vr-accent: var(--accent);
 }
 .app-title {
   font-size: 14px;
