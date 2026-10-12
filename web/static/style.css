@@ -228,6 +228,18 @@ body.sidebar-resizing * {
   flex: 1;
 }
 
+/* About tab header: the logo at display size */
+.about-hero {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 0 14px;
+  text-align: center;
+}
+.app-icon.about-logo { width: 72px; height: 72px; }
+.about-name { font-size: 18px; font-weight: 700; color: var(--text); letter-spacing: .02em; }
+
 /* Folders | Recent switch in the sidebar header */
 .sb-view-toggle {
   flex: 1;

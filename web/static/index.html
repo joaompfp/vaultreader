@@ -1412,9 +1412,14 @@
 
       <!-- About -->
       <div class="settings-tab-body" x-show="settingsTab === 'about'">
+        <div class="about-hero">
+          <svg class="app-icon about-logo" viewBox="0 0 32 32" aria-hidden="true"><use :href="VR_BASE + '/logo.svg#mark'"/></svg>
+          <div class="about-name">VaultReader</div>
+          <div class="settings-hint">Read and edit Obsidian-style markdown vaults in the browser</div>
+        </div>
         <div class="settings-row">
           <span class="settings-label">Version</span>
-          <span class="settings-hint">v1.8.0</span>
+          <span class="settings-hint" x-text="instance.version || 'unknown'"></span>
         </div>
         <div class="settings-row">
           <span class="settings-label">Source</span>
