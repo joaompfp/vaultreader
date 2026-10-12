@@ -2,6 +2,8 @@
 
 Thanks for considering a contribution. VaultReader is a small, maintained-on-spare-time project: issues and pull requests are welcome, but there is **no SLA** on replies, reviews or releases.
 
+Everyone taking part follows the [code of conduct](CODE_OF_CONDUCT.md).
+
 Before starting anything larger than a bug fix, open an issue to discuss it. [AGENTS.md](AGENTS.md) maps the code (which file owns what) and lists the traps; read it first.
 
 ## Setup
