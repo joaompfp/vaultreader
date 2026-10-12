@@ -108,6 +108,7 @@ Plain JSON file at `appdata/config.json`. Atomic write same as shares. Two field
 /api/attachments         → GET list + ref counts; DELETE soft-delete
 /api/graph               → GET wikilink graph (whole / folder / ego)
 /api/tags                → GET frontmatter tag aggregation
+/api/recent              → GET most recently modified notes (index mtimes)
 
 /n/<vault>/<path>        → SPA route (renders the same index.html, JS handles routing)
 /share/<token>           → public share-link page

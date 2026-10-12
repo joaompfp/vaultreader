@@ -24,6 +24,7 @@ Everything the SPA needs to adapt to the instance it is talking to.
 ```json
 {
   "version": "1f7fadf",
+  "site_name": "VaultReader",
   "user": "alice",
   "features": {"shares": true, "share_writable": false, "webdav": false, "sync_status": false, "trash_empty": false},
   "rw_paths": ["team"],
@@ -205,6 +206,10 @@ Backlinks for a single note. Reads the in-memory inverted index — no disk read
 }
 ```
 
+### `GET /api/recent[?limit=<N>]`
+Most recently modified notes across all vaults, newest first (the sidebar's **Recent** view). `limit` defaults to 50, capped at 200; `0`, negative or non-numeric → `400`.
+**Response:** `[{"vault", "path", "title", "mtime"}]`. `mtime` (unix seconds) comes from the in-memory index: the file's mtime at startup, then the time the server saw the change (its own writes and moves, or the 30 s rescan).
+
 ### `GET /api/templates?vault=<vault>`
 List `.md` files under `<vault>/templates/` for the "From template…" picker.
 **Response:**
@@ -358,11 +363,11 @@ Soft-delete to `<vault>/.trash/`. Same convention as note delete.
 ## Admin (require `X-Admin-Token` header)
 
 ### `GET /api/admin/config`
-**Response:** `{"admin_token": "REDACTED", "rw_paths": [...]}` (token redacted in the response).
+**Response:** the full config object, `admin_token` included.
 
 ### `POST /api/admin/config`
-**Body:** new config (JSON). Atomic write to `appdata/config.json`.
-**Response:** `204 No Content`.
+**Body:** partial update, any of `{"admin_token", "rw_paths", "site_name"}`; absent keys stay unchanged (an empty `admin_token` is ignored). Any other key → `400`; an `rw_paths` entry with `..` or an absolute path, or an invalid `site_name` → `400`. Atomic write to `appdata/config.json`.
+**Response:** the updated config object.
 
 ### `POST /api/admin/restart`
 Re-execs the binary in place via `syscall.Exec`. Container orchestrator brings it back up automatically (or it just restarts in-process).

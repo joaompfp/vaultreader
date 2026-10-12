@@ -38,6 +38,7 @@ func (s *server) routes() *http.ServeMux {
 	mux.HandleFunc("/api/search", s.handleSearch)
 	mux.HandleFunc("/api/resolve", s.handleResolve)
 	mux.HandleFunc("/api/backlinks", s.handleBacklinks)
+	mux.HandleFunc("/api/recent", s.handleRecent)
 	mux.HandleFunc("/api/templates", s.handleTemplates)
 	mux.HandleFunc("/api/stats", s.handleStats)
 	mux.HandleFunc("/api/sync-status", s.feature("sync_status", s.handleSyncStatus))

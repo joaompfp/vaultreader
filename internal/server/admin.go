@@ -23,6 +23,7 @@ type AdminConfig struct {
 	AdminToken string   `json:"admin_token,omitempty"` // secret token for admin endpoints; empty = admin disabled
 	RWPaths    []string `json:"rw_paths"`              // vault-relative paths that allow writes, e.g. "notes/agents/skills"
 
+	SiteName     string           `json:"site_name,omitempty"`      // browser tab title; empty = "VaultReader"
 	RequireUser  bool             `json:"require_user,omitempty"`   // 401 without Remote-User (team instance)
 	ShareBaseURL string           `json:"share_base_url,omitempty"` // public prefix for share links; empty = derived from the request
 	BasePath     string           `json:"base_path,omitempty"`      // public URL prefix, e.g. "/vaultreader"; empty = served at /
@@ -166,6 +167,15 @@ func (s *server) handleWritablePaths(w http.ResponseWriter, r *http.Request) {
 	jsonResponse(w, map[string][]string{"rw_paths": paths})
 }
 
+// adminPatch is the body of POST /api/admin/config: the settings editable
+// at runtime. A nil field is left unchanged; everything else in
+// config.json (features, base_path, …) is file-only.
+type adminPatch struct {
+	AdminToken *string   `json:"admin_token"`
+	RWPaths    *[]string `json:"rw_paths"`
+	SiteName   *string   `json:"site_name"`
+}
+
 func (s *server) handleAdminConfig(w http.ResponseWriter, r *http.Request) {
 	if !s.requireAdminToken(w, r) {
 		return
@@ -177,36 +187,49 @@ func (s *server) handleAdminConfig(w http.ResponseWriter, r *http.Request) {
 		s.cfgMu.RUnlock()
 		jsonResponse(w, cfg)
 	case http.MethodPost:
-		// Limit body to 32KB
+		// Partial update: only the keys present in the body change, so the
+		// SPA can save one setting without resending (or wiping) the rest.
 		r.Body = http.MaxBytesReader(w, r.Body, 32<<10)
-		var incoming AdminConfig
+		var patch adminPatch
 		dec := json.NewDecoder(r.Body)
 		dec.DisallowUnknownFields()
-		if err := dec.Decode(&incoming); err != nil {
+		if err := dec.Decode(&patch); err != nil {
 			errResponse(w, 400, "invalid json")
 			return
 		}
-		s.cfgMu.Lock()
-		// Merge: keep existing token unless explicitly set
-		if incoming.AdminToken != "" {
-			s.cfg.AdminToken = incoming.AdminToken
+		if patch.RWPaths != nil {
+			for _, p := range *patch.RWPaths {
+				if strings.Contains(p, "..") || filepath.IsAbs(p) {
+					errResponse(w, 400, "invalid rw_path")
+					return
+				}
+			}
 		}
-		// Validate RWPaths — reject .. and absolute paths
-		for _, p := range incoming.RWPaths {
-			if strings.Contains(p, "..") || filepath.IsAbs(p) {
-				s.cfgMu.Unlock()
-				errResponse(w, 400, "invalid rw_path")
+		if patch.SiteName != nil {
+			*patch.SiteName = strings.TrimSpace(*patch.SiteName)
+			if err := validateSiteName(*patch.SiteName); err != nil {
+				errResponse(w, 400, err.Error())
 				return
 			}
 		}
-		s.cfg.RWPaths = incoming.RWPaths
+		s.cfgMu.Lock()
+		if patch.AdminToken != nil && *patch.AdminToken != "" {
+			s.cfg.AdminToken = *patch.AdminToken
+		}
+		if patch.RWPaths != nil {
+			s.cfg.RWPaths = *patch.RWPaths
+		}
+		if patch.SiteName != nil {
+			s.cfg.SiteName = *patch.SiteName
+		}
+		cfg := s.cfg
 		s.cfgMu.Unlock()
 		if err := s.saveConfig(); err != nil {
 			log.Printf("saveConfig error: %v", err)
 			errResponse(w, 500, "failed to save config")
 			return
 		}
-		jsonResponse(w, s.cfg)
+		jsonResponse(w, cfg)
 	default:
 		errResponse(w, 405, "method not allowed")
 	}

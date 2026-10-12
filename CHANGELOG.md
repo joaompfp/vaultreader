@@ -5,9 +5,12 @@ All notable changes to VaultReader. Most-recent first.
 ## Unreleased
 
 **Changed**
+- **`POST /api/admin/config` is a partial update**: only the keys in the body (`admin_token`, `rw_paths`, `site_name`) change. Before, a body without `rw_paths` cleared them.
 - **Source layout.** Go code moved from the repo root into `internal/server/` (one `package server`, same files); `cmd/vaultreader/main.go` only parses flags and calls `server.Run`; the SPA moved to `web/static/`, embedded by `web/embed.go`. Build with `go build ./cmd/vaultreader`. Behaviour, flags and the `-X main.version` stamp are unchanged.
 
 **Added**
+- **Recent notes in the sidebar.** A **Folders | Recent** switch in the sidebar header; **Recent** lists the 100 most recently modified notes across all vaults, newest first, with their age and folder, and refreshes after each save and every 30 s while shown. The choice is remembered per browser. Backed by the new `GET /api/recent[?limit=N]`, served from the in-memory index.
+- **`site_name` config option**, editable in **Settings → Admin**: the browser tab title (default `VaultReader`), rendered into the shell's `<title>` and reported by `/api/instance`. The Admin tab has an admin-token field (kept in the browser's `localStorage`) and now sends it as `X-Admin-Token`; before, its admin calls (including **Restart container**) always got `403`.
 - **`analytics` config option** (Umami): `{"umami_script": "/js/u/script.js", "umami_website_id": "<uuid>"}` adds a deferred Umami tag to the SPA shell's `<head>`. A leading-`/` script is site-root and is not given the `base_path` prefix; an `https://` script adds its origin to the shell CSP's `script-src` and `connect-src`. Both keys are required and validated at startup (UUID id; site-root path or https URL). Share pages never get the tag.
 
 ## v0.1.1 — 2026-10-09

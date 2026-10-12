@@ -50,6 +50,7 @@ This directory is not in git. Mount it as a writable volume in production.
 | Field | Type | Default | Description |
 |---|---|---|---|
 | `admin_token` | string | `""` | Required for `/api/admin/*` endpoints. Empty disables the admin API entirely (returns `403 admin not configured`). |
+| `site_name` | string | `""` | Browser tab title. Empty = `VaultReader`. At most 80 characters, no control characters. Editable at runtime in **Settings → Admin** (needs the admin token) |
 | `rw_paths` | string[] | `[]` | Path prefixes (vault-relative) that allow writes. Read-only by default — adding `"personal"` makes the entire `personal` vault writable; adding `"personal/agents"` only allows writes inside that subtree. |
 
 #### Per-instance options (all optional)
@@ -89,7 +90,7 @@ Defaults reproduce the original single-user behaviour, so an existing `config.js
 
 A disabled feature's route answers **404** (as if it did not exist) and the UI hides the matching controls. The resolved flags, `rw_paths`, `share_base_url`, `base_path`, `default_note`, `demo_mode`, current user and build version are exposed at `GET /api/instance`.
 
-**Validation is fail-fast at startup:** an unknown key (top-level or under `features`, e.g. a misspelt `require_usr`), a `default_note` without a `/`, a `share_base_url` that does not end in `/`, a malformed `base_path`, or an incomplete or malformed `analytics` block makes the process exit with a `config:` error (check `docker logs`). The admin `POST /api/admin/config` only edits `admin_token` and `rw_paths`; change the options above by editing the file and restarting.
+**Validation is fail-fast at startup:** an unknown key (top-level or under `features`, e.g. a misspelt `require_usr`), a `default_note` without a `/`, a `share_base_url` that does not end in `/`, a malformed `base_path`, an invalid `site_name`, or an incomplete or malformed `analytics` block makes the process exit with a `config:` error (check `docker logs`). The admin `POST /api/admin/config` only edits `admin_token`, `rw_paths` and `site_name`; change the options above by editing the file and restarting.
 
 `Remote-User` identifies the actor in `audit.jsonl` and in each share's `created_by`. On an instance without `require_user` it is attribution only — see [security.md](security.md).
 

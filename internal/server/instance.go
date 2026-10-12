@@ -10,6 +10,7 @@ var version = "dev"
 // InstanceInfo is everything the SPA needs to adapt to this instance.
 type InstanceInfo struct {
 	Version      string          `json:"version"`
+	SiteName     string          `json:"site_name"`
 	User         string          `json:"user"`
 	Features     map[string]bool `json:"features"`
 	RWPaths      []string        `json:"rw_paths"`
@@ -31,6 +32,7 @@ func (s *server) handleInstance(w http.ResponseWriter, r *http.Request) {
 	s.cfgMu.RUnlock()
 	jsonResponse(w, InstanceInfo{
 		Version:      version,
+		SiteName:     s.siteName(),
 		User:         userFrom(r),
 		Features:     s.resolvedFeatures(),
 		RWPaths:      rw,

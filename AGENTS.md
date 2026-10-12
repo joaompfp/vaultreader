@@ -25,12 +25,13 @@ Go files below are in `internal/server/` unless a path is given. They share `pac
 | Attachment listing and refcount | `attachments.go` |
 | Graph data (vault/folder/ego scopes) | `graph.go` |
 | Tag aggregation | `tags.go` |
+| Recently modified notes (`/api/recent`, from the index's mtimes) | `recent.go` |
 | Vault listing, tree, SPA index | `vaults.go` |
 | File serving, `safePath` / `vaultPath`, vault icons | `files.go` |
 | Stats endpoint | `stats.go` |
 | Syncthing status | `sync.go` |
 | WebDAV mount (read-only via method allowlist) | `webdav.go` |
-| `server` struct, `AdminConfig`, admin token, writable paths | `admin.go` |
+| `server` struct, `AdminConfig`, admin token, writable paths, `POST /api/admin/config` (partial update) | `admin.go` |
 | Gzip middleware, JSON helpers, rate limiter | `http.go` |
 | Shared types, regexes, goldmark init, `staticFiles` | `data.go` |
 | DOCX export | `export.go` |

@@ -8,6 +8,8 @@ import (
 	"os/exec"
 	"regexp"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 )
 
 // knownFeatures lists every toggle an instance may switch off in
@@ -35,10 +37,29 @@ func validateConfig(c AdminConfig) error {
 	if c.ShareBaseURL != "" && !strings.HasSuffix(c.ShareBaseURL, "/") {
 		return fmt.Errorf("share_base_url %q must end with /", c.ShareBaseURL)
 	}
+	if err := validateSiteName(c.SiteName); err != nil {
+		return err
+	}
 	if c.BasePath != "" && !validBasePath(c.BasePath) {
 		return fmt.Errorf("base_path %q must look like \"/prefix\" (leading /, no trailing /, no . or .. segments, URL-safe characters)", c.BasePath)
 	}
 	return validateAnalytics(c.Analytics)
+}
+
+const maxSiteName = 80
+
+// validateSiteName keeps the tab title to one short printable line; it is
+// HTML-escaped where it is rendered, so no character set restriction.
+func validateSiteName(name string) error {
+	if utf8.RuneCountInString(name) > maxSiteName {
+		return fmt.Errorf("site_name is longer than %d characters", maxSiteName)
+	}
+	for _, r := range name {
+		if unicode.IsControl(r) {
+			return fmt.Errorf("site_name must not contain control characters")
+		}
+	}
+	return nil
 }
 
 // basePathRe: one or more "/segment" parts of unreserved URL characters,

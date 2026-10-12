@@ -4,6 +4,7 @@ package server
 
 import (
 	"bytes"
+	"html"
 	"io/fs"
 	"net/http"
 	"os"
@@ -80,7 +81,8 @@ const spaCSP = "default-src 'self'; script-src 'self' 'unsafe-inline' 'unsafe-ev
 	"object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'"
 
 // indexHandler serves the SPA shell. base_path and analytics are fixed at
-// startup, so the rewritten shell and its CSP are computed once here.
+// startup, so the rewritten shell and its CSP are computed once here;
+// site_name is editable at runtime, so the <title> is filled per request.
 func (s *server) indexHandler() http.HandlerFunc {
 	data, err := fs.ReadFile(staticFiles, "static/index.html")
 	s.cfgMu.RLock()
@@ -100,8 +102,29 @@ func (s *server) indexHandler() http.HandlerFunc {
 		h.Set("Content-Security-Policy", csp)
 		h.Set("X-Content-Type-Options", "nosniff")
 		h.Set("Referrer-Policy", "same-origin")
-		_, _ = w.Write(data)
+		_, _ = w.Write(withTitle(data, s.siteName()))
 	}
+}
+
+const defaultSiteName = "VaultReader"
+
+func (s *server) siteName() string {
+	s.cfgMu.RLock()
+	defer s.cfgMu.RUnlock()
+	if s.cfg.SiteName == "" {
+		return defaultSiteName
+	}
+	return s.cfg.SiteName
+}
+
+const shellTitle = "<title>" + defaultSiteName + "</title>"
+
+// withTitle swaps the shell's <title> for the configured site name.
+func withTitle(page []byte, name string) []byte {
+	if name == defaultSiteName {
+		return page
+	}
+	return bytes.Replace(page, []byte(shellTitle), []byte("<title>"+html.EscapeString(name)+"</title>"), 1)
 }
 
 // codemirrorTag is the one asset tag outside <head>: the editor bundle.

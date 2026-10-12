@@ -46,12 +46,36 @@
     <!-- App header -->
     <div class="sidebar-header">
       <span class="app-icon" role="img" aria-label="VaultReader"></span>
-      <span class="app-title">Vaults</span>
+      <div class="sb-view-toggle" role="tablist" aria-label="Sidebar view">
+        <button type="button" role="tab" :aria-selected="sidebarView === 'folders'"
+                :class="{ active: sidebarView === 'folders' }" @click="setSidebarView('folders')">Folders</button>
+        <button type="button" role="tab" :aria-selected="sidebarView === 'recent'"
+                :class="{ active: sidebarView === 'recent' }" @click="setSidebarView('recent')">Recent</button>
+      </div>
       <button class="btn-icon" @click="sidebarOpen = false" title="Close">✕</button>
     </div>
 
+    <!-- Recent: every vault's notes, most recently modified first -->
+    <div class="file-list recent-list" x-show="sidebarView === 'recent'">
+      <template x-for="n in recentNotes" :key="n.vault + '/' + n.path">
+        <div class="fl-item fl-file recent-item"
+             :class="n.vault === activeVault && n.path === activePath ? 'active' : ''"
+             :title="n.vault + '/' + n.path"
+             @click="openNote(n.vault, n.path)">
+          <div class="recent-main">
+            <span class="fl-name" x-text="n.path.split('/').pop().replace(/\.md$/, '')"></span>
+            <span class="recent-time" x-text="_relativeTime(n.mtime)"></span>
+          </div>
+          <div class="recent-where" x-text="(vaults.length > 1 ? n.vault + ' / ' : '') + n.path.split('/').slice(0, -1).join(' / ')"></div>
+        </div>
+      </template>
+      <template x-if="recentNotes.length === 0">
+        <div class="settings-empty">No notes yet.</div>
+      </template>
+    </div>
+
     <!-- Vault icon row -->
-    <div class="vault-icons">
+    <div class="vault-icons" x-show="sidebarView === 'folders'">
       <template x-for="v in vaults" :key="v">
         <button class="vault-btn"
                 :class="{ active: activeVault === v }"
@@ -63,7 +87,7 @@
     </div>
 
     <!-- Breadcrumb -->
-    <div class="breadcrumb" x-show="activeVault">
+    <div class="breadcrumb" x-show="activeVault && sidebarView === 'folders'">
       <span class="bc-item" @click="enterDir(activeVault, '')" x-text="activeVault" style="cursor:pointer"></span>
       <template x-for="(seg, i) in cwdSegments()" :key="i">
         <span>
@@ -74,7 +98,7 @@
     </div>
 
     <!-- File listing (flat, file-commander style) -->
-    <div class="file-list">
+    <div class="file-list" x-show="sidebarView === 'folders'">
       <!-- Up dir — also a drop target (move into parent folder) -->
       <div class="fl-item fl-up" x-show="cwd !== ''"
            @click="goUp()"
@@ -1331,6 +1355,22 @@
 
       <!-- Vaults — overview + container ops -->
       <div class="settings-tab-body" x-show="settingsTab === 'admin'">
+        <div class="settings-section-title">Site name</div>
+        <p class="settings-hint">Shown in the browser tab. Empty resets it to <code>VaultReader</code>.</p>
+        <form class="admin-add-row" @submit.prevent="adminSaveSiteName()">
+          <input class="admin-add-input" type="text" maxlength="80" placeholder="VaultReader"
+                 x-model="adminSiteName" aria-label="Site name">
+          <button class="btn btn-primary admin-add-btn" type="submit">Save</button>
+        </form>
+        <p class="settings-hint" x-show="adminMsg" x-text="adminMsg"></p>
+
+        <div class="settings-section-title">Admin token</div>
+        <p class="settings-hint">Required to change settings here: the <code>admin_token</code> in <code>appdata/config.json</code>. Kept in this browser only.</p>
+        <input class="admin-add-input" type="password" autocomplete="off" placeholder="admin_token"
+               x-model="adminToken" @change="setAdminToken(adminToken)" aria-label="Admin token">
+
+        <div class="settings-divider"></div>
+
         <div class="settings-section-title">Vaults</div>
         <p class="settings-hint">All vaults found under the mounted <code>/vaults</code> directory. Click any to open.</p>
         <div class="settings-list">
@@ -1691,6 +1731,9 @@ function vaultApp() {
     // (hover: none) media query, evaluated once at component construction.
     isTouch: typeof window !== 'undefined' && window.matchMedia && window.matchMedia('(hover: none)').matches,
     sidebarOpen: true,
+    sidebarView: 'folders', // folders | recent
+    recentNotes: [],
+    _recentTimer: null,
     backlinksOpen: false,
     outlineOpen: false,
     outlineActiveId: '',
@@ -1782,6 +1825,9 @@ function vaultApp() {
     attachmentsFolderFilter: '',  // path-prefix substring filter (client-side)
     // admin tab data
     adminConfig: { rw_paths: [] },
+    adminToken: '',
+    adminSiteName: '',
+    adminMsg: '',
     adminNewPath: '',
     adminRestarting: false,
     // shares
@@ -1968,6 +2014,9 @@ function vaultApp() {
         // default: open on desktop, closed on mobile
         this.sidebarOpen = window.innerWidth > 700
       }
+
+      try { this.adminToken = localStorage.getItem('vr-admin-token') || '' } catch(_) {}
+      try { if (localStorage.getItem('vr-sidebar-view') === 'recent') this.setSidebarView('recent') } catch(_) {}
 
       // persist sidebarOpen on every change (any toggle source)
       this.$watch('sidebarOpen', v => {
@@ -3678,6 +3727,7 @@ function vaultApp() {
         } catch(_) { /* old binary returns 204 with no body — ignore */ }
         if (this.noteRaw === sent) this.isDirty = false // keep dirty if typed during the PUT
         this.saveStatus = 'saved'
+        if (this.sidebarView === 'recent') this.loadRecent()
         setTimeout(() => { if (this.saveStatus === 'saved') this.saveStatus = '' }, 2000)
       } catch(e) {
         this.saveStatus = 'error'
@@ -4427,6 +4477,28 @@ function vaultApp() {
       localStorage.setItem('vr-dark', this.darkMode ? '1' : '0')
     },
 
+    // ── sidebar view (folders | recent) ───────────
+    // Recent polls while shown so edits from elsewhere (Obsidian, the
+    // other instance, Syncthing) surface after the server's 30 s rescan.
+    setSidebarView(view) {
+      this.sidebarView = view
+      try { localStorage.setItem('vr-sidebar-view', view) } catch(_) {}
+      clearInterval(this._recentTimer)
+      this._recentTimer = null
+      if (view === 'recent') {
+        this.loadRecent()
+        this._recentTimer = setInterval(() => {
+          if (this.sidebarOpen && !document.hidden) this.loadRecent()
+        }, 30000)
+      }
+    },
+    async loadRecent() {
+      try {
+        const r = await fetch(VR_BASE + '/api/recent?limit=100')
+        if (r.ok) this.recentNotes = await r.json()
+      } catch(e) { console.error('recent fetch:', e) }
+    },
+
     // ── sidebar resize ────────────────────────────
     _SIDEBAR_MIN: 180,
     _SIDEBAR_MAX: 600,
@@ -5049,6 +5121,7 @@ function vaultApp() {
       try {
         const r = await fetch(VR_BASE + '/api/instance', { signal: AbortSignal.timeout(5000) })
         if (r.ok) this.instance = { ...this.instance, ...(await r.json()) }
+        if (this.instance.site_name) document.title = this.instance.site_name
       } catch(e) { console.error('instance fetch:', e) }
     },
     // Missing feature key = enabled, same rule as the server.
@@ -5133,9 +5206,11 @@ function vaultApp() {
       // Lazy-load tab-specific data
       if (this.settingsTab === 'admin') {
         try {
-          const r = await fetch(VR_BASE + '/api/admin/config')
+          const r = await this._adminFetch('/api/admin/config')
           if (r.ok) this.adminConfig = await r.json()
         } catch(e) { console.error('admin config fetch:', e) }
+        this.adminSiteName = this.instance.site_name === 'VaultReader' ? '' : (this.instance.site_name || '')
+        this.adminMsg = ''
       }
       if (this.settingsTab === 'shared') {
         await this.loadActiveShares()
@@ -5316,18 +5391,56 @@ function vaultApp() {
 
     async adminSave() {
       try {
-        await fetch(VR_BASE + '/api/admin/config', {
+        await this._adminFetch('/api/admin/config', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(this.adminConfig)
+          body: JSON.stringify({ rw_paths: this.adminConfig.rw_paths })
         })
       } catch(e) { console.error('admin save:', e) }
+    },
+
+    // Admin endpoints need the X-Admin-Token header; the token lives in
+    // this browser's localStorage only.
+    _adminFetch(path, opts = {}) {
+      return fetch(VR_BASE + path, { ...opts, headers: { ...(opts.headers || {}), 'X-Admin-Token': this.adminToken } })
+    },
+    setAdminToken(tok) {
+      this.adminToken = (tok || '').trim()
+      try { localStorage.setItem('vr-admin-token', this.adminToken) } catch(_) {}
+    },
+
+    async adminSaveSiteName() {
+      this.adminMsg = ''
+      try {
+        const r = await this._adminFetch('/api/admin/config', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ site_name: this.adminSiteName })
+        })
+        if (r.status === 403) {
+          const err = await r.json().catch(() => ({}))
+          this.adminMsg = err.error === 'admin not configured'
+            ? 'Admin is disabled: set admin_token in appdata/config.json first.'
+            : 'Wrong or missing admin token.'
+          return
+        }
+        if (!r.ok) {
+          const err = await r.json().catch(() => ({}))
+          this.adminMsg = 'Not saved: ' + (err.error || 'HTTP ' + r.status)
+          return
+        }
+        this.adminConfig = await r.json()
+        this.adminSiteName = this.adminConfig.site_name || ''
+        this.instance.site_name = this.adminSiteName || 'VaultReader'
+        document.title = this.instance.site_name
+        this.adminMsg = 'Saved.'
+      } catch(e) { this.adminMsg = 'Not saved: ' + e.message }
     },
 
     async adminRestart() {
       if (!confirm('Restart the container? The page will reload in a few seconds.')) return
       this.adminRestarting = true
-      try { await fetch(VR_BASE + '/api/admin/restart', { method: 'POST' }) } catch(e) {}
+      try { await this._adminFetch('/api/admin/restart', { method: 'POST' }) } catch(e) {}
       setTimeout(() => location.reload(), 4000)
     },
 
