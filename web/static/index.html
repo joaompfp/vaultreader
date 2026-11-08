@@ -1811,8 +1811,9 @@ function vaultApp() {
     // modal dialog
     modal: { open: false, title: '', body: '', value: '', placeholder: '', error: '', confirmLabel: 'OK', confirmOnly: false, danger: false, onConfirm: null, secondaryLabel: '', onSecondary: null },
     _freshWarnedMtime: 0,
-    _conflictDiskRaw: '',
-    _conflictDiskMtime: 0,
+    // The disk copy of the open note while a save conflict awaits the user's choice:
+    // { diskRaw, diskMtime }, else null. Read it through editState === 'conflict'.
+    conflict: null,
     // context menu
     ctxMenu: { open: false, x: 0, y: 0, items: [] },
     // new item dropdown
@@ -3756,18 +3757,15 @@ function vaultApp() {
         secondaryLabel: 'Take theirs',
         onSecondary: () => this.takeTheirs(),
       }
-      // Stash the disk version on a side channel so a "Take theirs" button
-      // (rendered ad-hoc in the modal body via the third button trick) can
-      // grab it. For now, expose via a small auxiliary state.
-      this._conflictDiskRaw = diskRaw
-      this._conflictDiskMtime = diskMtime
+      // "Take theirs" needs the disk copy the modal was raised for.
+      this.conflict = { diskRaw, diskMtime }
     },
     takeTheirs() {
       // Replace editor + state with disk copy.
       const view = this._cm()
-      const raw = this._conflictDiskRaw || ''
+      const raw = (this.conflict && this.conflict.diskRaw) || ''
       this.noteRaw = raw
-      this.noteMTime = this._conflictDiskMtime || 0
+      this.noteMTime = (this.conflict && this.conflict.diskMtime) || 0
       if (view) {
         view.dispatch({
           changes: { from: 0, to: view.state.doc.length, insert: raw },
@@ -3776,8 +3774,7 @@ function vaultApp() {
       this.isDirty = false
       this.saveStatus = ''
       this.modal.open = false
-      this._conflictDiskRaw = ''
-      this._conflictDiskMtime = 0
+      this.conflict = null
       // In preview the rendered HTML is stale after taking the disk copy.
       if (this.mode !== 'edit' && this.activeVault && this.activePath) this.openNote(this.activeVault, this.activePath)
     },
@@ -3788,7 +3785,7 @@ function vaultApp() {
     async checkOpenNoteFreshness() {
       if (!this.activeVault || !this.activePath || this.viewerKind) return
       if (this.modal && this.modal.open) return // never clobber an open dialog
-      if (this.saveStatus === 'saving' || this.saveTimer) return // our own write is in flight/pending
+      if (this.editState === 'saving' || this.editState === 'pending') return // our own write is in flight/pending
       const v = this.activeVault, p = this.activePath
       const moved = () => this.activeVault !== v || this.activePath !== p
       const q = VR_BASE + '/api/note?vault=' + encodeURIComponent(v) + '&path=' + encodeURIComponent(p)
@@ -3825,13 +3822,33 @@ function vaultApp() {
       } catch(_) { return }
       // re-validate after the await, right before applying
       if (moved() || (this.modal && this.modal.open)) return
-      if (this.saveStatus === 'saving' || this.saveTimer) return
+      if (this.editState === 'saving' || this.editState === 'pending') return
       if (!full.mtime || full.mtime === this.noteMTime) return
       this._freshWarnedMtime = meta.mtime
-      this._conflictDiskRaw = full.raw || ''
-      this._conflictDiskMtime = full.mtime || 0
+      this.conflict = { diskRaw: full.raw || '', diskMtime: full.mtime || 0 }
       if (this.isDirty) this._showConflictModal(full.raw || '', full.mtime || 0)
       else this.takeTheirs() // clean buffer: just follow the disk
+    },
+
+    // ── edit lifecycle ────────────────────────────
+    // One name for where the open note stands, derived from the fields that encode it
+    // (mode, isDirty, saveStatus, saveTimer, conflict, modal). Nothing sets it: change
+    // the fields, and read the state from here instead of re-deriving it at each use.
+    //
+    //   viewing   preview, nothing unsaved
+    //   editing   edit mode, nothing unsaved
+    //   pending   unsaved edits, the autosave timer is armed
+    //   saving    a PUT is in flight
+    //   conflict  the disk copy changed under unsaved edits; the modal asks which wins
+    //   failed    the last save failed; the edits are still only in the editor
+    //   unsaved   unsaved edits and nothing scheduled (e.g. the conflict modal was cancelled)
+    get editState() {
+      if (this.saveStatus === 'saving') return 'saving'
+      if (this.saveTimer) return 'pending'
+      if (this.conflict && this.modal && this.modal.open) return 'conflict'
+      if (this.isDirty && this.saveStatus === 'error') return 'failed'
+      if (this.isDirty) return 'unsaved'
+      return this.mode === 'edit' ? 'editing' : 'viewing'
     },
 
     saveStatusText() {
