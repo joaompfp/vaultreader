@@ -4,6 +4,9 @@ All notable changes to VaultReader. Most-recent first.
 
 ## Unreleased
 
+**Fixed**
+- **Unsaved edits are no longer lost when you leave a note.** Opening another note or file, browser Back/Forward, or a legacy `#vault/path` link within the 1.5 s autosave window used to drop the edits silently; with a slow load the pending save could also fire against the *next* note and raise a false "Note changed on disk" dialog over it. Leaving now first writes the edits. If they cannot be written (the disk copy changed, or the save failed) the note stays open with its edits, and a conflict or "Not saved" dialog says why. The autosave timer also only ever writes the note it was armed for.
+
 **Changed**
 - **`POST /api/admin/config` is a partial update**: only the keys in the body (`admin_token`, `rw_paths`, `site_name`) change. Before, a body without `rw_paths` cleared them.
 - **Source layout.** Go code moved from the repo root into `internal/server/` (one `package server`, same files); `cmd/vaultreader/main.go` only parses flags and calls `server.Run`; the SPA moved to `web/static/`, embedded by `web/embed.go`. Build with `go build ./cmd/vaultreader`. Behaviour, flags and the `-X main.version` stamp are unchanged.

@@ -56,6 +56,7 @@ Go files below are in `internal/server/` unless a path is given. They share `pac
   fs.writeFileSync('/tmp/vr-check.js', html.substring(idx + 8, end));
   " && node --check /tmp/vr-check.js
   ```
+- Anything that changes the open note (`openNote`, `openViewer`, routing) must go through `settle()` first; `editState` names where the save lifecycle stands. After touching either, run `make e2e-save`.
 - Do not run repo-wide formatters; they rewrite files outside your change.
 - Update `CHANGELOG.md` for user-visible features and fixes.
 - Any new write endpoint must call `safePath` and `isWritable`, and call `s.audit(...)` next to the `isWritable` check. Mirror `handlePutNote` / `handleUpload`.

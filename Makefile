@@ -4,13 +4,17 @@ PLATFORMS ?= linux/amd64,linux/arm64
 VERSION ?= dev
 PORT   ?= 8080
 
-.PHONY: test build image run-demo screenshots
+.PHONY: test e2e-save build image run-demo screenshots
 
 # vet + Go tests + syntax check of the SPA's inline script
 test:
 	$(GO) vet ./...
 	$(GO) test -count=1 ./...
 	./scripts/check-inline-js.sh
+
+# Save-lifecycle checks in a real browser (needs Node + playwright-core + Chromium)
+e2e-save: build
+	node scripts/e2e-save.mjs
 
 build:
 	CGO_ENABLED=0 $(GO) build -buildvcs=false -trimpath -ldflags="-s -w -X main.version=$(VERSION)" -o vaultreader ./cmd/vaultreader
